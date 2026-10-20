@@ -4,6 +4,7 @@ from enum import StrEnum
 from hashlib import sha256
 
 from atlas_brain.kernel.states import CaptureId, EntityKey, Unknown, UnknownReason
+
 from .text import TextLine
 
 

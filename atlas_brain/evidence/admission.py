@@ -1,15 +1,16 @@
 """Version-one folder bundles: fail closed before exposing any capture."""
-from dataclasses import asdict, dataclass
-from hashlib import sha256
 import json
 import math
-from pathlib import Path, PurePosixPath
 import stat
+from dataclasses import asdict, dataclass
+from hashlib import sha256
+from pathlib import Path, PurePosixPath
 from typing import cast
+
+from atlas_brain.kernel.states import CaptureId, EntityKey
 
 from .capture import Capture, classify_cli, unrecorded_time
 from .text import text_lines
-from atlas_brain.kernel.states import CaptureId, EntityKey
 
 
 class AdmissionRefused(ValueError):
@@ -88,7 +89,7 @@ def record(value: object, fields: tuple[str, ...]) -> dict[str, object]:
     value = cast(dict[str, object], value)
     if set(value) != set(fields):
         raise AdmissionRefused("invalid_record_fields")
-    return cast(dict[str, object], value)
+    return value
 
 
 def string(row: dict[str, object], field: str) -> str:
@@ -153,7 +154,6 @@ def folder_members(root: Path, budgets: Budgets) -> dict[str, bytes]:
             strict_json(raw)
         result[name] = raw
     return result
-
 
 
 @dataclass(frozen=True, slots=True)
