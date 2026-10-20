@@ -57,3 +57,12 @@ def test_planted_invalid_source_scope_refuses_bundle(tmp_path, change):
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(AdmissionRefused):
         import_folder(tmp_path, Budgets(10000, 10000, 10))
+
+
+@pytest.mark.parametrize("latest", [20, None])
+def test_source_unbounded_collector_interval_is_preserved(tmp_path, latest):
+    metadata_bundle(tmp_path, recorded() | {"earliest": None, "latest": latest, "bound": "unbounded"})
+    item = import_folder(tmp_path, Budgets(10000, 10000, 10)).captures[0]
+    assert type(item.collected_utc) is TimeInterval
+    assert item.collected_utc.earliest is None and item.collected_utc.latest == latest
+    assert item.collected_utc.bound is BoundSource.UNBOUNDED
