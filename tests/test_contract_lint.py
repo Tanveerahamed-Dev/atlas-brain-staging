@@ -120,6 +120,16 @@ def test_workflow_concurrency_separates_main_pr_and_merge_group_heads():
     'raise ValueError(*options)',
     'raise ValueError(message="bad")',
     'result = list(map(ValueError, values))',
+    'x: 1 | 2',
+    'type X = 1 | 2',
+    'def project(value: 1 | 2) -> str:\n    return "value"',
+    'def project() -> 1 | 2:\n    return "value"',
+    'x: str | (1 | 2)',
+    'x: list[1] | tuple[2]',
+    'x: left | right',
+    'int = 1\nx: int | str',
+    'match value:\n    case int:\n        x: int | str',
+    'from atlas_brain.kernel.states import compute as int\nx: int | str',
 ])
 def test_reflected_arithmetic_fails_real_lint_entrypoint(tmp_path, plant):
     import subprocess
@@ -153,6 +163,10 @@ def test_missing_contract_tree_fails_closed(tmp_path):
 
 
 @pytest.mark.parametrize("source", [
+    'x: str | int',
+    'type X = str | int | None',
+    'x: list[str | int] | tuple[bytes, ...] | None',
+    'def project(value: dict[str, int] | None) -> str | None:\n    return None',
     'raise ValueError("invalid_value")',
     'raise TypeError("invalid_type")',
     'import json\nresult = json.dumps(value, ensure_ascii=False, separators=(",", ":"))',
