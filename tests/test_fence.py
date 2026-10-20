@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -61,3 +62,24 @@ def test_runtime_dependency_allowlist(config):
 
 def test_empty_runtime_dependencies_pass():
     assert dependencies_allowed({"project": {"dependencies": []}})
+
+
+@pytest.mark.parametrize("plant", ["none", "import", "dependency", "prose", "invalid_json", "scalar_json"])
+def test_required_fence_command_refuses_real_tracked_plants(tmp_path, plant):
+    source = "import webbrowser" if plant == "import" else "import json"
+    deps = '["unapproved==1.0"]' if plant == "dependency" else "[]"
+    files = {"pyproject.toml": f"[project]\ndependencies = {deps}\n",
+             "atlas_brain/probe.py": source, "governance/probe.json": "{}"}
+    if plant == "prose":
+        files["governance/STATUS.md"] = "Synthetic process document."
+    if plant in {"invalid_json", "scalar_json"}:
+        files["governance/probe.json"] = "invalid" if plant == "invalid_json" else '"prose"'
+    for name, text in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    tool = str(Path("tools/fence.py").resolve())
+    result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, check=False)
+    assert result.returncode == int(plant != "none"), result.stderr
