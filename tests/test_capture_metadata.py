@@ -73,3 +73,26 @@ def test_planted_witness_cannot_name_another_capture(tmp_path):
     witness, = item.integrity_evidence
     with pytest.raises(ValueError, match="capture_witness_mismatch"):
         replace(item, integrity_evidence=(replace(witness, capture=k.CaptureId("cap:other")),))
+
+
+def test_cli_integrity_witness_can_bind_an_exact_raw_span(tmp_path):
+    item = capture(tmp_path)
+    witness, = item.integrity_evidence
+    span = k.ByteSpan(start=0, end=6)
+    witness = replace(witness, locator=span, excerpt_sha256=sha256(b"record").hexdigest())
+    result = replace(item, integrity_evidence=(witness,))
+    assert result.integrity_evidence[0].locator == span
+
+
+@pytest.mark.parametrize("locator,digest", [
+    (k.ByteSpan(start=0, end=100), sha256(b"record").hexdigest()),
+    (k.ByteSpan(start=0, end=6), "a" * 64),
+    (k.WholeCapture(), "a" * 64),
+    (k.FieldPointer(pointer="/record"), sha256(b"record\n").hexdigest()),
+    (k.XmlPath(path="/record[1]"), sha256(b"record\n").hexdigest()),
+])
+def test_planted_invalid_cli_witness_locator_or_digest_refuses(tmp_path, locator, digest):
+    item = capture(tmp_path)
+    witness, = item.integrity_evidence
+    with pytest.raises(ValueError):
+        replace(item, integrity_evidence=(replace(witness, locator=locator, excerpt_sha256=digest),))
