@@ -96,4 +96,3 @@ def test_lf_only_and_raw_locator():
     assert raw[lines[1].raw_span(2, 3).start:lines[1].raw_span(2, 3).end] == b"\f"
     assert text_lines(b"", "utf-8") == ()
     assert len(text_lines(b"x\n", "utf-8")) == 1
-

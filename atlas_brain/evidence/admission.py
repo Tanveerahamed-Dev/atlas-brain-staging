@@ -204,7 +204,7 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
         except (ValueError, LookupError) as error:
             raise AdmissionRefused("unsupported_capture_codec") from error
         captures.append(Capture(CaptureId("cap:" + sha256(path.encode()).hexdigest()), EntityKey("node:" + source),
-                                operation, rendered, codec, raw, classify_cli(raw, attempt.succeeded, cast(bool, row["prompt_verified"])),
+                                operation, rendered, codec, raw, classify_cli(raw, attempt.succeeded, row["prompt_verified"]),
                                 lines, "unknown", unrecorded_time()))
     member_names(paths)
     return Bundle(string(manifest, "bundle_id"), string(manifest, "importer"), sha256(members["manifest.json"]).hexdigest(),
