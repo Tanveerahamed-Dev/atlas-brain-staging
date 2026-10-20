@@ -25,17 +25,7 @@ class Capture:
     lines: tuple[TextLine, ...]
     read_scope: k.ReadScope
     view: k.ViewConsistency
-    collected_utc: k.Unknown
 
     @property
     def bytes_sha256(self) -> str:
         return sha256(self.raw).hexdigest()
-
-    @property
-    def byte_len(self) -> int:
-        return len(self.raw)
-
-
-def unrecorded_time() -> k.Unknown:
-    return k.Unknown(reason=k.UnknownReason.NOT_COLLECTED, detail="no_collector_time",
-                   evidence=(), candidates=(), next_evidence=())

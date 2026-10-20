@@ -9,7 +9,7 @@ from typing import cast
 
 from atlas_brain.kernel.states import CaptureId, EntityKey, ReadScope, ViewConsistency
 
-from .capture import Capture, classify_cli, unrecorded_time
+from .capture import Capture, classify_cli
 from .text import text_lines
 
 
@@ -112,6 +112,8 @@ class Attempt:
             raise AdmissionRefused("invalid_attempt")
         if self.succeeded != "unknown" and self.attempted != "yes":
             raise AdmissionRefused("contradictory_attempt")
+        if self.succeeded == "yes" and self.transport_defect:
+            raise AdmissionRefused("contradictory_transport_success")
 
     @property
     def detail(self) -> str:
@@ -203,9 +205,9 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
             lines = text_lines(raw, codec)
         except (ValueError, LookupError) as error:
             raise AdmissionRefused("unsupported_capture_codec") from error
-        captures.append(Capture(CaptureId("cap:" + sha256(path.encode()).hexdigest()), EntityKey("node:" + source),
+        captures.append(Capture(CaptureId("cap:" + sha256(members["manifest.json"] + b"\0" + path.encode()).hexdigest()), EntityKey("node:" + source),
                                 operation, rendered, codec, raw, classify_cli(raw, attempt.succeeded, row["prompt_verified"]),
-                                lines, ReadScope.UNKNOWN, ViewConsistency.UNKNOWN, unrecorded_time()))
+                                lines, ReadScope.UNKNOWN, ViewConsistency.UNKNOWN))
     member_names(paths)
     return Bundle(string(manifest, "bundle_id"), string(manifest, "importer"), sha256(members["manifest.json"]).hexdigest(),
                   budgets.sha256, tuple(attempts), tuple(captures))
