@@ -29,7 +29,7 @@ jobs:
           version: '0.13.1'
           enable-cache: false
       - run: uv sync --locked
-      - run: uv run --no-sync pytest -q tests/test_governance.py
+      - run: uv run --no-sync pytest -q tests/test_governance.py tests/test_review_record.py
       - name: Enforce size and ADR guards; emit review diff digest
         shell: bash
         env:
