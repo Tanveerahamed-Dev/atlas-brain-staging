@@ -40,12 +40,16 @@ def test_planted_json_refuses(raw, tmp_path):
         a.folder_members(tmp_path, a.Budgets(10000, 10000, 10))
 
 
-def test_manifest_and_missing_attempt(tmp_path):
+def test_manifest_attempt_degradation_and_bound_identity(tmp_path):
     bundle(tmp_path, b"record\n")
     admitted = a.import_folder(tmp_path, a.Budgets(10000, 10000, 10))
     assert admitted.attempts[0].succeeded == "unknown"
     assert admitted.attempts[0].detail == "attempt_unknown"
     assert admitted.captures[0].raw == b"record\n"
+    other = tmp_path / "second"
+    other.mkdir()
+    bundle(other, b"changed\n")
+    assert admitted.captures[0].id != a.import_folder(other, a.Budgets(10000, 10000, 10)).captures[0].id
 
 
 def test_budget_identity_and_outcome(tmp_path):
@@ -81,8 +85,12 @@ def test_r13_registered_empty_and_failed_looks_empty(tmp_path):
     assert classify_cli(b"", "yes", True).value == "empty"
     assert classify_cli(b"", "no", False).value == "unverified_prompt"
     assert classify_cli(b"", "unknown", False).value == "unverified_prompt"
-    bundle(tmp_path, succeeded="no")
+    manifest = bundle(tmp_path, succeeded="no")
     assert a.import_folder(tmp_path, a.Budgets(10000, 10000, 10)).captures[0].integrity.value == "unverified_prompt"
+    manifest["attempts"][0].update(succeeded="yes", transport_defect="timeout")
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(a.AdmissionRefused):
+        a.import_folder(tmp_path, a.Budgets(10000, 10000, 10))
 
 
 def test_lf_only_and_raw_locator():
