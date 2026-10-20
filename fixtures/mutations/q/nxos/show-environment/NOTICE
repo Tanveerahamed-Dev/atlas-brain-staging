@@ -1,0 +1,5 @@
+Unmodified public library test sample from https://github.com/networktocode/ntc-templates.
+Revision: d4f30da6077dfb3e41cb6ff7ece5f5b768f59457
+Source path: tests/cisco_nxos/show_environment/cisco_nxos_show_environment2.raw
+Licence: Apache-2.0. See ../../_licences/ntc-templates/LICENSE and NOTICE.
+Full licence text: ../../_licences/ntc-templates/Apache-2.0.txt
