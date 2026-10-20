@@ -29,6 +29,7 @@ def _tree(tmp_path, source):
     "def decode(field):\n lookup = rows.pop\n return lookup(field.raw, 'full')\n",
     "def decode(field): return dict.pop(rows, field.raw, 'full')\n",
     "def decode(field): return mapper(field.raw, 'full')\n",
+    "def decode(field):\n token = field.raw\n fallback = 'full'\n if token not in ('half', 'full'): return fallback\n return exact(token)\n",
     "def decode(field):\n fallback = 'full'\n value = field.raw\n alias = value\n return mapper(alias, fallback)\n",
     "def decode(field): return mapper(*(field.raw, 'full'))\n",
     "def decode(field): return factory(field.raw, default='full')\n",

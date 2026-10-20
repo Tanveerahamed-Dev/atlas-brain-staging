@@ -28,7 +28,6 @@ def _scalar(value: ast.expr | None) -> bool:
 
 def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[int, str], ...]:
     """Audit source as data. Structural mode keeps byte-grammar operations.
-
     Source units get escape checks; the sealed mapper gets strict branches.
     Only EvidenceRef helpers may slice raw span bytes.
     """
@@ -100,6 +99,8 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
                 failures.add((node.lineno, "token_fallback_argument"))
         if isinstance(node, ast.Name) and node.id in ("getattr", "vars", "__getattribute__", "eval", "exec"):
             failures.add((node.lineno, "token_unproved_lookup"))
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Name) and node.value.id in fallback_names:
+            failures.add((node.lineno, "token_catchall"))
         if isinstance(node, ast.Lambda) and _scalar(node.body):
             failures.add((node.lineno, "token_catchall"))
         if isinstance(node, ast.Subscript) and node not in span_slices and (
