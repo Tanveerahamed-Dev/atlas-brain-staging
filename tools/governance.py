@@ -88,9 +88,9 @@ def audit(repo: Path, base: str, head: str) -> dict[str, int | str]:
                 raise ValueError("AD-07: ADR exceeds 60 lines or 4000 characters")
             current = adr_status(new) if new is not None else None
             previous = adr_status(old) if old is not None else None
-            if previous is not None and previous[2] == b"accepted":
-                if current is None or previous[:2] != current[:2]:
-                    raise ValueError("AD-07: accepted ADR is immutable except its status line")
+            if (previous is not None and previous[2] == b"accepted"
+                    and (current is None or previous[:2] != current[:2])):
+                raise ValueError("AD-07: accepted ADR is immutable except its status line")
     if count > 400 or len(classes) > 1:
         raise ValueError("AD-03: more than 400 changed lines or multiple production path classes")
     return {"counted_lines": count, "diff_sha256": diff_digest(repo, base, head),
