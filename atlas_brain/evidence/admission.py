@@ -5,10 +5,11 @@ import stat
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
-from typing import cast
+from typing import Literal, cast
 
 from atlas_brain.kernel import states as k
 from atlas_brain.kernel.states import CaptureId
+from atlas_brain.kernel.time import BoundSource, TimeInterval
 
 from .capture import Capture, Channel, Scope, classify_cli, unrecorded_time
 from .text import text_lines
@@ -176,7 +177,7 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
     if "manifest.json" not in members:
         raise AdmissionRefused("missing_manifest")
     manifest = record(strict_json(members["manifest.json"]), ("version", "bundle_id", "importer", "attempts", "captures"))
-    if type(manifest["version"]) is not int or manifest["version"] != 1:
+    if type(manifest["version"]) is not int or manifest["version"] not in (1, 2):
         raise AdmissionRefused("unsupported_manifest_version")
     attempts: list[Attempt] = []
     captures: list[Capture] = []
@@ -190,8 +191,10 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
     if len(keys) != len(set(keys)):
         raise AdmissionRefused("duplicate_attempt")
     paths: list[str] = []
+    capture_fields = ("path", "source", "operation", "rendered", "codec", "sha256", "prompt_verified")
+    extra_fields = ("scope", "collected_utc") if manifest["version"] == 2 else ()
     for value in cast(list[object], manifest["captures"]):
-        row = record(value, ("path", "source", "operation", "rendered", "codec", "sha256", "prompt_verified"))
+        row = record(value, capture_fields + extra_fields)
         path, source, operation, rendered, codec, digest = (string(row, f) for f in ("path", "source", "operation", "rendered", "codec", "sha256"))
         member_names([path])
         if PurePosixPath(path).parts[:-1] != ("devices", source, "captures"):
@@ -214,9 +217,9 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
         source_id = k.EntityKey("node:" + source)
         witness = k.EvidenceRef(capture=capture_id, locator=k.WholeCapture(), role=k.EvidenceRole.SUBJECT,
                                 excerpt_sha256=sha256(raw).hexdigest())
+        scope, collected = capture_metadata(row, source_id, witness, manifest["version"] == 2)
         captures.append(Capture(id=capture_id, source=source_id, channel=Channel.CLI, operation=operation,
-                                rendered=rendered, scope=Scope(node=source_id, vrf=None, context=None, vdc=None,
-                                tenant=None, afi=None, instance=None, plane="exec"), collected_utc=unrecorded_time(witness),
+                                rendered=rendered, scope=scope, collected_utc=collected,
                                 codec=codec, raw=raw, integrity=classify_cli(raw, attempt.succeeded, row["prompt_verified"]),
                                 error=None, integrity_evidence=(witness,), read_scope=k.ReadScope.UNKNOWN,
                                 read_scope_evidence=(), view=k.ViewConsistency.UNKNOWN, envelope=None, lines=lines))
@@ -229,3 +232,33 @@ def capture_identity(row: dict[str, object], attempt: Attempt, raw: bytes) -> Ca
     metadata = {"capture": row, "attempt": asdict(attempt)}
     canonical = json.dumps(metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return CaptureId("cap:" + sha256(canonical + b"\0" + raw).hexdigest())
+
+
+def capture_metadata(row: dict[str, object], source: k.EntityKey, witness: k.EvidenceRef,
+                     version_two: bool) -> tuple[Scope, TimeInterval | k.Unknown]:
+    fields = ("vrf", "context", "vdc", "tenant", "afi", "instance", "plane")
+    scope = record(row["scope"], fields) if version_two else dict.fromkeys(fields)
+    plane = scope["plane"] if version_two else "exec"
+    if plane not in ("exec", "admin", "controller"):
+        raise AdmissionRefused("invalid_plane")
+    values: list[str | None] = []
+    for field in fields[:-1]:
+        value = scope[field]
+        if value is not None and (not isinstance(value, str) or not value):
+            raise AdmissionRefused("invalid_scope")
+        values.append(value)
+    result = Scope(node=source, vrf=values[0], context=values[1], vdc=values[2], tenant=values[3],
+                   afi=values[4], instance=values[5], plane=cast(Literal["exec", "admin", "controller"], plane))
+    if not version_two or row["collected_utc"] is None:
+        return result, unrecorded_time(witness)
+    time = record(row["collected_utc"], ("earliest", "latest", "clock", "bound"))
+    if type(time["earliest"]) is not int or type(time["latest"]) is not int or time["bound"] != "collector_recorded":
+        raise AdmissionRefused("invalid_collector_time")
+    try:
+        interval = TimeInterval(earliest=time["earliest"], latest=time["latest"], clock=string(time, "clock"),
+                                bound=BoundSource.COLLECTOR_RECORDED)
+        if not interval.clock.startswith("collector:"):
+            raise ValueError("collector_clock_required")
+    except ValueError as error:
+        raise AdmissionRefused("invalid_collector_time") from error
+    return result, interval

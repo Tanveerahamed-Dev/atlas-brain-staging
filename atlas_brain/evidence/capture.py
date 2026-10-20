@@ -5,6 +5,7 @@ from hashlib import sha256
 from typing import Literal
 
 from atlas_brain.kernel import states as k
+from atlas_brain.kernel.time import BoundSource, TimeInterval
 
 from .text import TextLine
 
@@ -58,7 +59,7 @@ class Capture:
     operation: str | None
     rendered: str
     scope: Scope
-    collected_utc: k.Unknown
+    collected_utc: TimeInterval | k.Unknown
     codec: str
     integrity: k.IntegrityState
     error: ErrorKind | None
@@ -91,7 +92,10 @@ class Capture:
                 raise ValueError("cli_witness_locator_required")
             k.require(ref.excerpt_sha256 == sha256(excerpt).hexdigest(), "capture_witness_mismatch")
         k.evidence_tuple(self.read_scope_evidence, nonempty=self.read_scope is not k.ReadScope.UNKNOWN)
-        k.require(type(self.collected_utc) is k.Unknown, "collector_time_not_supported")
+        k.require(type(self.collected_utc) in (TimeInterval, k.Unknown), "invalid_collector_time")
+        if isinstance(self.collected_utc, TimeInterval):
+            k.require(self.collected_utc.bound is BoundSource.COLLECTOR_RECORDED
+                      and self.collected_utc.clock.startswith("collector:"), "recorded_collector_time_required")
 
     @property
     def bytes_sha256(self) -> str:
