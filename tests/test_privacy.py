@@ -53,6 +53,7 @@ def test_cli_refuses_planted_blob(tmp_path, gate, changed, removed):
         subprocess.run(commit, check=True)
     if removed:
         (repo / "sample.txt").write_text("synthetic", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
         subprocess.run(commit, check=True)
     tool = os.path.abspath("tools/privacy.py")
     flags = (["--gate"] if gate else []) + (["--base", base] if changed else [])
