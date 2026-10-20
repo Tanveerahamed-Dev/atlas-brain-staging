@@ -18,6 +18,8 @@ from atlas_brain.kernel.token_lints import fallback_node
     'value = states[raw] if raw in states else "up"',
     'if raw in states:\n value = states[raw]\nelse:\n value = "up"',
     'value = fields["state"] if "state" in fields else "up"',
+    'def mapped(raw):\n if raw == "up": return 1\n else: return 2',
+    'value = 1 if raw == "up" else 2',
     'match raw:\n case _: value = "up"',
     'match raw:\n case other: value = "up"',
     'match raw:\n case str(): value = "up"',
