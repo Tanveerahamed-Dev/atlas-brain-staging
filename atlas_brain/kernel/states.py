@@ -261,6 +261,7 @@ class Unknown:
         require(type(self.reason) is UnknownReason, 'invalid_unknown_reason')
         evidence_tuple(self.evidence, nonempty=self.reason not in (UnknownReason.NOT_COLLECTED, UnknownReason.OUT_OF_SCOPE))
         require(type(self.candidates) is tuple and self.candidates == tuple(sorted(set(self.candidates))), 'invalid_candidates')
+        text_fields(*self.candidates)
         require(type(self.next_evidence) is tuple and all(type(n) is EvidenceNeed for n in self.next_evidence), 'invalid_next_evidence')
         require(self.detail is None or (type(self.detail) is str and re.fullmatch('[a-z][a-z0-9_]*', self.detail, re.ASCII) is not None), 'invalid_detail')
 

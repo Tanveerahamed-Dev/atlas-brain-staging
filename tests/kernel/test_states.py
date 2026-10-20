@@ -40,6 +40,8 @@ def test_closed_fact_union_and_vocabularies():
     lambda: k.Unknown(reason=k.UnknownReason.PARSE_PARTIAL, detail=None, evidence=(), candidates=(), next_evidence=()),
     lambda: k.Unknown(reason=k.UnknownReason.IDENTITY_AMBIGUOUS, detail=None,
                       evidence=(ref(),), candidates=('node:b', 'node:a'), next_evidence=()),
+    lambda: k.Unknown(reason=k.UnknownReason.IDENTITY_AMBIGUOUS, detail=None,
+                      evidence=(ref(),), candidates=(1, 2), next_evidence=()),
     lambda: k.ByteSpan(start=-1, end=1),
     lambda: k.ByteSpan(start=True, end=1),
     lambda: k.FieldPointer(pointer='bad'),
