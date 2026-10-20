@@ -386,3 +386,30 @@ jobs:
             .s0/import-closure.json
           if-no-files-found: error
           retention-days: 90
+  planned-lock-snapshot:
+    needs: smoke
+    if: contains(github.event.head_commit.message, '[plan-lock]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.8'
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: '0.13.1'
+          enable-cache: false
+      - name: Freeze the full S3 tool set without changing the product lock
+        run: uv lock --project tools/scale/locked-plan
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: planned-lock-${{ github.sha }}
+          path: |
+            tools/scale/locked-plan/uv.lock
+            tools/scale/locked-plan/pyproject.toml
+            tools/scale/locked-plan/.python-version
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90

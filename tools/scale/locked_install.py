@@ -16,6 +16,17 @@ def normalized(value):
     return re.sub(r"[-_.]+", "-", value).lower()
 
 
+def applies(marker, platform_name):
+    match = re.fullmatch(r"sys_platform == '([^']+)'", marker)
+    if match is not None:
+        return platform_name == match[1]
+    # Only the hosted harness imports this dependency, never an engine process.
+    from packaging.markers import Marker, default_environment
+    environment = default_environment()
+    environment["sys_platform"] = platform_name
+    return Marker(marker).evaluate(environment)
+
+
 def validate(lock, project, installed, profile, platform_name=None):
     platform_name = platform_name or sys.platform
     if profile == "runtime":
@@ -27,7 +38,12 @@ def validate(lock, project, installed, profile, platform_name=None):
         packages = {normalized(p["name"]): p for p in lock["package"]}
         expected, pending = {}, []
         for requirement in project["dependency-groups"]["dev"]:
-            name, version = requirement.split("==")
+            match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([^; ]+)(?:;\s*(.*))?", requirement)
+            if match is None:
+                raise ValueError("unqualified_root_requirement")
+            name, version, marker = match.groups()
+            if marker is not None and not applies(marker, platform_name):
+                continue
             if packages[normalized(name)]["version"] != version:
                 raise ValueError("declared_development_pin_mismatch")
             pending.append(normalized(name))
@@ -40,10 +56,7 @@ def validate(lock, project, installed, profile, platform_name=None):
             for dependency in package.get("dependencies", []):
                 marker = dependency.get("marker")
                 if marker is not None:
-                    match = re.fullmatch(r"sys_platform == '([^']+)'", marker)
-                    if match is None:
-                        raise ValueError("unqualified_lock_marker:" + marker)
-                    if platform_name != match[1]:
+                    if not applies(marker, platform_name):
                         continue
                 pending.append(normalized(dependency["name"]))
     if installed != expected:

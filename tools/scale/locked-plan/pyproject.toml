@@ -1,0 +1,16 @@
+[project]
+name = "s0-plan-runtime-qualification"
+version = "0.0.0"
+requires-python = ">=3.14.7"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "pyright==1.1.414",
+  "ruff==0.17.1",
+  "import-linter==2.15",
+  "hypothesis==6.170.2",
+  "coverage==7.16.2",
+  "mutmut==3.8.0; sys_platform == 'linux'",
+]
