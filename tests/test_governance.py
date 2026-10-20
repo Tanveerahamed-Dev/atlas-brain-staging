@@ -65,6 +65,29 @@ def test_size_refuses_planted_bypasses(repo, plant):
         audit(repo, base, "HEAD")
 
 
+@pytest.mark.parametrize("paths,passes", [
+    (["kernel/states.py", "kernel/lints.py"], False),
+    (["model/steps.py", "model/catalogue.py"], False),
+    (["evidence/capture.py", "evidence/admission.py"], False),
+    (["kernel/nested/a.py", "kernel/nested/b.py"], False),
+    (["kernel/states.py"], True),
+    (["packs/platform/system/a.py", "packs/platform/system/b.py"], True),
+    (["packs/platform/system/a.py", "packs/platform/interface/a.py"], False),
+    (["platform/iosxe/a.py", "platform/iosxe/b.py"], True),
+    (["platform/iosxe/a.py", "platform/nxos/a.py"], False),
+])
+def test_core_file_identity_and_pack_family_boundaries(repo, paths, passes):
+    base = git(repo, "rev-parse", "HEAD")
+    for path in paths:
+        write(repo, "atlas_brain/" + path, "# synthetic\n")
+    commit(repo)
+    if passes:
+        assert audit(repo, base, "HEAD")["counted_lines"] == len(paths)
+    else:
+        with pytest.raises(ValueError, match="AD-03"):
+            audit(repo, base, "HEAD")
+
+
 @pytest.mark.parametrize("plant", ["overlong", "overwide", "edit_accepted", "delete_accepted"])
 def test_adr_refuses_planted_violations(repo, plant):
     name = "docs/adr/0000-example.md"
