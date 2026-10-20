@@ -258,7 +258,8 @@ def _refusal_bindings(tree: ast.AST) -> set[tuple[int, str]]:
             rebound = any(alias.name == "*" or (alias.asname or alias.name) == "Unknown" and not (
                 node.level == 0 and node.module == "atlas_brain.kernel.states" and alias.name == "Unknown"
             ) for alias in node.names)
-        if rebound:
+        if rebound and isinstance(node, (ast.stmt, ast.expr, ast.arg, ast.ExceptHandler,
+                                         ast.MatchAs, ast.MatchStar, ast.MatchMapping)):
             failures.add((node.lineno, "token_unproved_constructor"))
     return failures
 
