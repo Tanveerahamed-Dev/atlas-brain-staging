@@ -21,7 +21,7 @@ def identity(value, family_required=False):
 def verify(record, summary, authors, pairs):
     required = {"reviewer", "authors", "verdict", "diff_sha256", "base_sha", "head_sha"}
     if not isinstance(record, dict) or set(record) != required or record["verdict"] != "approve":
-        raise ValueError("AD-06: missing, blocked or unsupported signed record")
+        raise ValueError("AD-06: missing, blocked or unsupported record")
     for key, length in (("base_sha", 40), ("head_sha", 40), ("diff_sha256", 64)):
         if not isinstance(record[key], str) or not re.fullmatch(f"[0-9a-f]{{{length}}}", record[key], re.ASCII) or record[key] != summary[key]:
             raise ValueError("AD-06: stale commit or diff binding")
@@ -52,7 +52,10 @@ def main():
     try:
         cases = json.loads(args.evidence.read_text(encoding="utf-8"))
         pairs = json.loads(args.policy.read_text(encoding="utf-8"))["same_family_pairs"]
-        if not isinstance(cases, list) or not cases or (args.retroactive and {c["item"] for c in cases} != set(range(1, 12))):
+        if not isinstance(cases, list) or not cases:
+            raise ValueError("AD-06: required review corpus is incomplete")
+        if args.retroactive and (len(cases) != 11 or any(type(c["item"]) is not int for c in cases)
+                                or {c["item"] for c in cases} != set(range(1, 12))):
             raise ValueError("AD-06: required review corpus is incomplete")
         for case in cases:
             base, head = case["base_sha"], case["head_sha"]
