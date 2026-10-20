@@ -81,9 +81,15 @@ class Capture:
         k.require(self.error is None or type(self.error) is ErrorKind, "invalid_error_kind")
         k.evidence_tuple(self.integrity_evidence, nonempty=True)
         for ref in self.integrity_evidence:
-            k.require(type(ref) is k.EvidenceRef and ref.capture == self.id
-                      and ref.excerpt_sha256 == self.bytes_sha256 and type(ref.locator) is k.WholeCapture,
-                      "capture_witness_mismatch")
+            k.require(type(ref) is k.EvidenceRef and ref.capture == self.id, "capture_witness_mismatch")
+            if type(ref.locator) is k.ByteSpan:
+                k.require(ref.locator.end <= len(self.raw), "capture_witness_out_of_bounds")
+                excerpt = self.raw[ref.locator.start:ref.locator.end]
+            elif type(ref.locator) is k.WholeCapture:
+                excerpt = self.raw
+            else:
+                raise ValueError("cli_witness_locator_required")
+            k.require(ref.excerpt_sha256 == sha256(excerpt).hexdigest(), "capture_witness_mismatch")
         k.evidence_tuple(self.read_scope_evidence, nonempty=self.read_scope is not k.ReadScope.UNKNOWN)
         k.require(type(self.collected_utc) is k.Unknown, "collector_time_not_supported")
 
