@@ -2,7 +2,14 @@
 from dataclasses import InitVar, dataclass
 from typing import Literal
 
-from .states import EntityKey, Evidence, NAReason, UnknownReason, evidence_tuple, require
+from .states import (
+    EntityKey,
+    Evidence,
+    NAReason,
+    UnknownReason,
+    evidence_tuple,
+    require,
+)
 
 
 def ordered(values: tuple[str, ...]) -> None:

@@ -2,7 +2,12 @@ import pytest
 
 from atlas_brain.kernel.population import ExpectedSet, coverage
 from atlas_brain.kernel.states import (
-    CaptureId, EvidenceRef, EvidenceRole, NAReason, UnknownReason, WholeCapture,
+    CaptureId,
+    EvidenceRef,
+    EvidenceRole,
+    NAReason,
+    UnknownReason,
+    WholeCapture,
 )
 
 
