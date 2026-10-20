@@ -51,7 +51,7 @@ def test_manifest_refuses_unsafe_or_noncontract_names(name):
     "x = min(rows)", "x = statistics.mean(rows)", "from operator import add",
     "import math", "f = sum", "from builtins import sum as fold",
     "x: a + b", "x: tuple[sum(rows)]", "type X = a + b", "x = ~a",
-    "x = value.__add__(other)", "x = eval(source)"])
+    "x = value.__add__(other)", "x = eval(source)", "x = ~1"])
 def test_contract_lint_fires_on_each_planted_computation(plant):
     assert violations(plant)
 
