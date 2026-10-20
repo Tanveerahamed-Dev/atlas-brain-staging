@@ -41,11 +41,13 @@ def test_planted_json_refuses(raw, tmp_path):
 
 
 def test_manifest_attempt_degradation_and_bound_identity(tmp_path):
-    bundle(tmp_path, b"record\n")
+    manifest = bundle(tmp_path, b"record\n")
     admitted = a.import_folder(tmp_path, a.Budgets(10000, 10000, 10))
     assert admitted.attempts[0].succeeded == "unknown"
     assert admitted.attempts[0].detail == "attempt_unknown"
     assert admitted.captures[0].raw == b"record\n"
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    assert admitted.captures[0].id == a.import_folder(tmp_path, a.Budgets(10000, 10000, 10)).captures[0].id
     other = tmp_path / "second"
     other.mkdir()
     bundle(other, b"changed\n")
