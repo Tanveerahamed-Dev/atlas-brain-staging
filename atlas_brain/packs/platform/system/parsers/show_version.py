@@ -38,11 +38,11 @@ _UNITS = TokenMap.closed({
     "minutes": Unit.MINUTE, "second": Unit.SECOND, "seconds": Unit.SECOND,
 })
 _ORDER = (Unit.WEEK, Unit.DAY, Unit.HOUR, Unit.MINUTE, Unit.SECOND)
-_COMPONENT = compile_pattern(r"(?P<count>[0-9]+) (?P<unit>[A-Za-z]+)")
+_COMPONENT = compile_pattern(r"(?P<count>[0-9]++) (?P<unit>[A-Za-z]++)")
 _RULES = (
-    Rule("uptime", "start", r"[A-Za-z0-9_.-]+ uptime is (?P<uptime>.+)", "record", "start", "", ("uptime",)),
-    Rule("image", "start", r'System image file is "(?P<image>[^"]+)"', "record", "start", "", ("image",)),
-    Rule("reload", "start", r"Last reload reason: (?P<reload_reason>.+)", "record", "start", "", ("reload_reason",)),
+    Rule("uptime", "start", r"[A-Za-z0-9_.-]++ uptime is (?P<uptime>.++)", "record", "start", "", ("uptime",)),
+    Rule("image", "start", r'System image file is "(?P<image>[^"]++)"', "record", "start", "", ("image",)),
+    Rule("reload", "start", r"Last reload reason: (?P<reload_reason>.++)", "record", "start", "", ("reload_reason",)),
 )
 
 
