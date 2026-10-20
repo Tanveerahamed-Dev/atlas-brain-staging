@@ -1,4 +1,5 @@
 import json
+import importlib
 import subprocess
 import sys
 from pathlib import Path
@@ -94,6 +95,13 @@ def test_admitted_stdlib_api(endpoint):
 @pytest.mark.parametrize("module", sorted(sys.stdlib_module_names - {name.split('.')[0] for name in STDLIB_API}))
 def test_unadmitted_stdlib_modules_are_closed(module):
     assert not source_allowed(f"import {module}")
+
+
+@pytest.mark.parametrize("module", sorted({name.rsplit('.', 1)[0] for name in STDLIB_API}))
+def test_unadmitted_exports_are_closed(module):
+    for name in sorted(vars(importlib.import_module(module))):
+        if name.isidentifier() and f"{module}.{name}" not in STDLIB_API:
+            assert not source_allowed(f"from {module} import {name}"), f"{module}.{name}"
 
 
 @pytest.mark.parametrize("config", [

@@ -22,7 +22,7 @@ DYNAMIC = {"exec", "eval", "compile", "__import__", "__builtins__", "globals", "
            "builtins.exec", "builtins.eval", "builtins.compile", "builtins.__import__", "sys.modules", "sys._getframe"}
 CODE_ATTRIBUTES = {"__globals__", "__builtins__", "__code__", "__closure__", "__dict__", "__subclasses__",
                    "f_builtins", "f_globals", "f_locals", "gi_frame", "cr_frame", "ag_frame", "tb_frame"}
-# Proposed default-closed admission; publication requires the owner's fence decision.
+# ADR-0002: changes require an amendment, REV verdict and supervisor approval.
 STDLIB_API = {
     "collections.abc.Mapping", "dataclasses.asdict", "dataclasses.dataclass", "enum.StrEnum",
     "hashlib.sha256", "json.dumps", "json.loads", "math.isfinite", "stat.S_ISDIR", "stat.S_ISREG",
