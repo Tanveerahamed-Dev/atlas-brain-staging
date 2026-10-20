@@ -21,9 +21,17 @@ def _scalar(value: ast.expr | None) -> bool:
     if isinstance(value, ast.Attribute):
         return value.attr.isupper() and not (isinstance(value.value, ast.Name) and value.value.id == "IntegrityState"
                     and value.attr in ("ERROR", "EMPTY", "UNKNOWN_FORMAT", "UNVERIFIED_PROMPT", "PAGING_ARTIFACTS"))
-    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "Known":
-        return any(key.arg == "value" and _scalar(key.value) for key in value.keywords)
-    return False
+    if isinstance(value, ast.Call):
+        if isinstance(value.func, ast.Name) and value.func.id == "Known":
+            return any(key.arg == "value" and _scalar(key.value) for key in value.keywords)
+        parts = [*value.args, *(key.value for key in value.keywords)]
+        if isinstance(value.func, ast.Attribute):
+            parts.append(value.func.value)
+        return bool(parts) and all(_scalar(part) for part in parts)
+    if value is None or isinstance(value, ast.Name):
+        return False
+    children = [child for child in ast.iter_child_nodes(value) if isinstance(child, ast.expr)]
+    return not children or any(_scalar(child) for child in children)
 
 
 def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[int, str], ...]:
