@@ -150,7 +150,7 @@ def folder_members(root: Path, budgets: Budgets) -> dict[str, bytes]:
             raw = stream.read(budgets.artifact_bytes + 1)
         if len(raw) > budgets.artifact_bytes:
             raise BudgetExceeded(name)
-        if name.endswith(".json"):
+        if name.casefold().endswith(".json"):
             strict_json(raw)
         result[name] = raw
     return result
