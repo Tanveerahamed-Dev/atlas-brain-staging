@@ -55,6 +55,16 @@ class AdmissionTests(unittest.TestCase):
 
 
 class MeasurementTests(unittest.TestCase):
+    def test_final_cgroup_peak_requires_kernel_files(self):
+        from tools.scale.container_supervisor import collect
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            with self.assertRaises(FileNotFoundError):
+                collect(directory)
+            for name, body in {"memory.peak": "4096", "memory.max": "2147483648", "memory.swap.max": "0", "memory.events": "oom_kill 0\n", "memory.stat": "anon 2048\n"}.items():
+                (directory / name).write_text(body, encoding="ascii")
+            self.assertEqual(collect(directory)["memory.peak"], 4096)
+
     def test_real_queue_pickle_roundtrip_is_measured(self):
         from multiprocessing.reduction import ForkingPickler
         from spike import metrics

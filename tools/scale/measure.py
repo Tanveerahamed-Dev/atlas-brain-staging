@@ -111,6 +111,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
                 arguments += ["--recycle", str(recycle)]
             if cancel_half:
                 arguments += ["--pause-at-half"]
+            arguments = ["python"] + FLAGS + ["/repo/tools/scale/container_supervisor.py", "/run/cgroup-final.json", "--"] + arguments
             create = ["docker", "create", "--network", "none", "--user", f"{os.getuid()}:{os.getgid()}",
                       "--mount", f"type=bind,src={ROOT},dst=/repo,readonly",
                       "--mount", f"type=bind,src={input_root.resolve()},dst={container_input},readonly",
@@ -246,6 +247,12 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
                 metadata[key] = engine.get(key)
             if engine["status"] != "ok" and metadata["status"] == "ok":
                 metadata["status"] = "failed"
+        final_cgroup = output_root / "cgroup-final.json"
+        if container and final_cgroup.exists():
+            metadata["cgroup_final"] = json.loads(final_cgroup.read_bytes())
+            metadata["cgroup_peak"] = metadata["cgroup_final"]["memory.peak"]
+        elif container and metadata["status"] == "ok":
+            metadata["status"] = "measurement_incomplete"
         metadata["result_exists"] = result.exists()
         metadata["prior_intact"] = digest(prior.read_bytes()) == prior_hash
         metadata["pending_directories"] = [p.name for p in output_root.glob(".pending-*")]
@@ -271,7 +278,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
                          "max_tree_rss": max((s["rss"] for s in samples), default=0),
                          "peak_anon": max((s["anon"] or 0 for s in samples), default=0),
                          "sample_intervals_max_s": max((b["t_s"] - a["t_s"] for a, b in zip(samples, samples[1:])), default=0),
-                         "cgroup_peak_scope": "last available sample; final pre-exit peak in engine receipt when present"})
+                         "cgroup_peak_scope": "final after engine exit when cgroup_final exists; otherwise last available sample"})
         if errors and metadata["status"] == "ok":
             metadata["status"] = "measurement_incomplete"
         (output_root / "samples.jsonl").write_bytes(b"".join(canonical(s) for s in samples))
