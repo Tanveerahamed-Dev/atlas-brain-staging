@@ -4,6 +4,7 @@ Scan the product tree, including uncalled functions. This conservative AST gate
 complements strict typing and runtime admission; it is not a Python sandbox.
 """
 import ast
+from hashlib import sha256
 import re
 
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
@@ -100,6 +101,21 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 return True
         return False
 
+    # PK needs dynamic byte-pattern compilation after its conservative grammar is
+    # checked. Only this reviewed source/function may bypass literal-only rule 12;
+    # altered admission logic invalidates the receipt. ASCII checking still runs.
+    pk_compiler_source = (path == 'atlas_brain/evidence/parsekit/patterns.py' and
+                          sha256(source.encode('utf-8')).hexdigest() ==
+                          '05f298e6c5be51774519d4bdea4c45ae21cfbf68fe98e9599af4cf3d855bc091')
+
+    def inside_pk_compiler(node: ast.AST) -> bool:
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                return (isinstance(node, ast.FunctionDef) and node.name == 'compile_pattern' and
+                        isinstance(parents[node], ast.Module))
+        return False
+
     findings: set[tuple[int, int]] = set()
 
     def hit(rule: int, node: ast.AST) -> None:
@@ -183,7 +199,8 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             if not any(ascii_flag(f) for f in flags):
                 hit(12, node)
             if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
-                hit(12, node)
+                if not (pk_compiler_source and called == 're.compile' and inside_pk_compiler(node)):
+                    hit(12, node)
             if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str) and nested_unbounded(node.args[0].value):
                 hit(12, node)
         if path != LOADER and called in ('importlib.import_module', '__import__', 'builtins.__import__'):
