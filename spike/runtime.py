@@ -26,7 +26,7 @@ def environment():
             "env": {k: os.environ.get(k) for k in ("TZ", "LANG", "LC_ALL")}}
 
 
-def initialize(expected, expected_census, expected_catalogue):
+def initialize(expected, expected_census, expected_catalogue, control=None):
     global _PARENT, _START
     safety.install(worker=True)
     _START = time.perf_counter_ns()
@@ -36,6 +36,9 @@ def initialize(expected, expected_census, expected_catalogue):
         raise ValueError("worker_environment_mismatch")
     if safety.census() != expected_census or safety.check_runtime_catalogue() != expected_catalogue:
         raise ValueError("worker_admission_mismatch")
+    if control is not None:
+        from spike import metrics
+        metrics.install(control)
 
 
 def _fault(payload):
@@ -110,7 +113,7 @@ def task(payload):
 def pool_run(payloads, workers, recycle, expected, census, catalogue, progress, pause_at_half=False):
     completed, pending, failures = [], [], []
     pool = ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("spawn"),
-                               max_tasks_per_child=recycle, initializer=initialize, initargs=(expected, census, catalogue))
+                               max_tasks_per_child=recycle, initializer=initialize, initargs=(expected, census, catalogue, str(progress.parent)))
     broken = False
     try:
         futures = {}
@@ -176,6 +179,8 @@ def execute(args, startup_modules):
         if max(len(pickle.dumps(item)) for item in payloads) > 65536:
             raise ValueError("task_payload_budget")
         serialize_ns = time.perf_counter_ns() - transfer_wall
+        from spike import metrics
+        metrics.install(None)
         def devices():
             results, retry, failures = pool_run(payloads, worker_count, args.recycle, environment(), census, catalogue, args.control / "progress.json", args.pause_at_half)
             if retry:
@@ -185,12 +190,15 @@ def execute(args, startup_modules):
                 results.extend(second)
             return sorted(results, key=lambda item: item["name"])
         nodes = measured("device", devices)
+        queue_metrics = [metrics.snapshot()] + [strict_json(p.read_bytes()) for p in sorted(args.control.glob("worker-metrics-*.json"))]
+        queue_ns = sum(m["dump_ns"] + m["load_ns"] for m in queue_metrics)
         worker_cpu = {}
         for node in nodes:
             worker_cpu[node["pid"]] = max(worker_cpu.get(node["pid"], 0), node.get("process_cpu_ns", 0))
         stages["device"]["coordinator_cpu_ns"] = stages["device"]["cpu_ns"]
         stages["device"]["worker_cpu_ns_through_last_task"] = sum(worker_cpu.values())
-        stages["device"]["cpu_ns"] += sum(worker_cpu.values())
+        stages["device"]["worker_finalized_cpu_ns"] = sum(m["process_cpu_ns"] for m in queue_metrics[1:])
+        stages["device"]["cpu_ns"] += stages["device"]["worker_finalized_cpu_ns"]
         if any(node["violations"] for node in nodes) or safety.VIOLATIONS:
             raise RuntimeError("egress_violation")
         estate = measured("estate", lambda: estate_stages(nodes))
@@ -209,8 +217,9 @@ def execute(args, startup_modules):
         receipt = {"schema": 1, "status": "ok", "size": doc["size"], "dense": doc["dense"], "stages": stages,
                    "wall_ns": time.perf_counter_ns() - began, "facts": sum(n["facts"] for n in nodes),
                    "result_bytes": sum(p.stat().st_size for p in args.out.iterdir()), "task_bytes": task_bytes,
-                   "serialization_probe_ns": serialize_ns, "pickling_share": None,
-                   "pickling_note": "serialization probe only; executor serialization share not instrumented",
+                   "serialization_probe_ns": serialize_ns, "pickling_share": queue_ns / stages["device"]["wall_ns"],
+                   "pickling_note": "aggregate queue dumps+loads duration / device wall (conservative wall-equivalent; excludes spawn bootstrap pickle)",
+                   "queue_metrics": queue_metrics,
                    "result_payload_bytes": sum(len(pickle.dumps(n)) for n in nodes),
                    "facts_per_device": [[n["name"], n["facts"]] for n in nodes],
                    "bytes_per_fact": sum(n.get("bytes", 0) for n in nodes) / max(1, sum(n["facts"] for n in nodes)),

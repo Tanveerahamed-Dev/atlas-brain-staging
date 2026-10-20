@@ -54,5 +54,18 @@ class AdmissionTests(unittest.TestCase):
                 verify_catalogue(directory, {"pack.py": "0" * 64})
 
 
+class MeasurementTests(unittest.TestCase):
+    def test_real_queue_pickle_roundtrip_is_measured(self):
+        from multiprocessing.reduction import ForkingPickler
+        from spike import metrics
+        metrics.install(None)
+        before = metrics.snapshot()
+        raw = ForkingPickler.dumps(["synthetic", 1])
+        self.assertEqual(ForkingPickler.loads(raw), ["synthetic", 1])
+        after = metrics.snapshot()
+        self.assertGreater(after["dump_ns"], before["dump_ns"])
+        self.assertGreater(after["load_ns"], before["load_ns"])
+
+
 if __name__ == "__main__":
     unittest.main()

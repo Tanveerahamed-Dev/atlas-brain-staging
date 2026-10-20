@@ -105,14 +105,15 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
     sampled_cg, job_peak = {}, None
     try:
         if container:
-            arguments = ["python"] + FLAGS + ["/repo/spike/bootstrap.py", "--root", "/input", "--out", "/run/result", "--receipt", "/run/engine.json", "--control", "/run/control", "--workers", str(workers), "--fault", fault]
+            container_input = "/inputs/" + input_root.name
+            arguments = ["python"] + FLAGS + ["/repo/spike/bootstrap.py", "--root", container_input, "--out", "/run/result", "--receipt", "/run/engine.json", "--control", "/run/control", "--workers", str(workers), "--fault", fault]
             if recycle:
                 arguments += ["--recycle", str(recycle)]
             if cancel_half:
                 arguments += ["--pause-at-half"]
             create = ["docker", "create", "--network", "none", "--user", f"{os.getuid()}:{os.getgid()}",
                       "--mount", f"type=bind,src={ROOT},dst=/repo,readonly",
-                      "--mount", f"type=bind,src={input_root.resolve()},dst=/input,readonly",
+                      "--mount", f"type=bind,src={input_root.resolve()},dst={container_input},readonly",
                       "--mount", f"type=bind,src={output_root.resolve()},dst=/run", "--workdir", "/repo"]
             if cap:
                 create += ["--memory", str(cap), "--memory-swap", str(cap)]
