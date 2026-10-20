@@ -5,6 +5,13 @@ from atlas_brain.evidence.parsekit.token_lint import lint_token_handler
 
 
 @pytest.mark.parametrize("source", [
+    "Unknown = Known\ndef decode(field): return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
+    "def decode(field, Unknown): return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
+    "from atlas_brain.kernel.states import Known as Unknown\ndef decode(field): return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
+    "def decode(field):\n if Unknown := Known: return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
+    "def decode(field, values):\n for Unknown in values: return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
+    "def decode(field, values):\n match values:\n  case [*Unknown]: return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
+    "def decode(field, values):\n match values:\n  case {**Unknown}: return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
     "def decode(field):\n token = field.raw\n lookup = rows.get\n return lookup(token, 'full')\n",
     "def decode(field): return field.raw[:4] == 'half'\n",
     "def decode(field):\n rows = {'half': 'half'}\n return rows.pop(field.raw, 'full')\n",
@@ -48,6 +55,7 @@ def test_structural_token_policy_refuses_every_planted_escape(source):
 
 @pytest.mark.parametrize("source", [
     "def reject(reason, detail) -> Unknown: return Unknown(reason=reason, detail=detail)\ndef decode(field):\n text = field.raw\n if any(ord(char) < 32 for char in text): return reject(UnknownReason.PARSE_PARTIAL, text)\n reason = UnknownReason.CAPTURE_ERROR if text else UnknownReason.EMPTY_UNREGISTERED\n if not text: return reject(reason, text)\n return Known(value=text, basis=Basis.OBSERVED, raw=text)\n",
+    "from atlas_brain.kernel.states import Unknown\ndef decode(field): return Unknown(reason=UnknownReason.PARSE_PARTIAL, detail=field.raw, evidence=(), candidates=(), next_evidence=())\n",
     "def decode(field): return TABLE.resolve(field)\n",
     "def exact(token): return token\ndef decode(field): return exact(field.raw)\n",
     "def metadata():\n text = 'status'\n return Unknown()\ndef decode(field):\n text = field.raw\n return Known(value=text, basis=Basis.OBSERVED, raw=text)\n",
