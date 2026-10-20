@@ -7,9 +7,9 @@ from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import cast
 
-from atlas_brain.kernel.states import CaptureId, EntityKey, ReadScope, ViewConsistency
+from atlas_brain.kernel import states as k
 
-from .capture import Capture, classify_cli
+from .capture import Capture, Channel, Scope, classify_cli, unrecorded_time
 from .text import text_lines
 
 
@@ -205,9 +205,16 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
             lines = text_lines(raw, codec)
         except (ValueError, LookupError) as error:
             raise AdmissionRefused("unsupported_capture_codec") from error
-        captures.append(Capture(CaptureId("cap:" + sha256(json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode() + b"\0" + raw).hexdigest()), EntityKey("node:" + source),
-                                operation, rendered, codec, raw, classify_cli(raw, attempt.succeeded, row["prompt_verified"]),
-                                lines, ReadScope.UNKNOWN, ViewConsistency.UNKNOWN))
+        capture_id = k.CaptureId("cap:" + sha256(json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode() + b"\0" + raw).hexdigest())
+        source_id = k.EntityKey("node:" + source)
+        witness = k.EvidenceRef(capture=capture_id, locator=k.WholeCapture(), role=k.EvidenceRole.SUBJECT,
+                                excerpt_sha256=sha256(raw).hexdigest())
+        captures.append(Capture(id=capture_id, source=source_id, channel=Channel.CLI, operation=operation,
+                                rendered=rendered, scope=Scope(node=source_id, vrf=None, context=None, vdc=None,
+                                tenant=None, afi=None, instance=None, plane="exec"), collected_utc=unrecorded_time(witness),
+                                codec=codec, raw=raw, integrity=classify_cli(raw, attempt.succeeded, row["prompt_verified"]),
+                                error=None, integrity_evidence=(witness,), read_scope=k.ReadScope.UNKNOWN,
+                                read_scope_evidence=(), view=k.ViewConsistency.UNKNOWN, envelope=None, lines=lines))
     member_names(paths)
     return Bundle(string(manifest, "bundle_id"), string(manifest, "importer"), sha256(members["manifest.json"]).hexdigest(),
                   budgets.sha256, tuple(attempts), tuple(captures))
