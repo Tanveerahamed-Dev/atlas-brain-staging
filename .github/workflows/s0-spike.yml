@@ -137,6 +137,13 @@ jobs:
         run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 1000 --repetitions 5 --raw .s0/full/raw
       - name: One dense stress run, hard 4 GiB cap
         run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 1000 --repetitions 1 --dense --raw .s0/full/raw
+      - name: Separate full unconfined-host equality witness
+        if: runner.os == 'Linux'
+        run: |
+          python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 1000 --repetitions 1 --host --raw .s0/full/host-comparison
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/scale/compare_full.py .s0/full/raw .s0/full/host-comparison
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

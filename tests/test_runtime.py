@@ -55,6 +55,15 @@ class AdmissionTests(unittest.TestCase):
 
 
 class MeasurementTests(unittest.TestCase):
+    def test_full_host_comparison_refuses_one_different_manifest(self):
+        from tools.scale.compare_full import compare
+        confined = [{"status": "ok", "container": True, "cap_bytes": 2**31, "cap_verified": True, "manifest_sha256": "a" * 64} for _ in range(5)]
+        host = [{"status": "ok", "container": False, "cap_bytes": 0, "manifest_sha256": "b" * 64}]
+        with self.assertRaisesRegex(ValueError, "bytes_differ"):
+            compare(confined, host)
+        host[0]["manifest_sha256"] = "a" * 64
+        self.assertEqual(compare(confined, host)["status"], "pass")
+
     def test_final_cgroup_peak_requires_kernel_files(self):
         from tools.scale.container_supervisor import collect
         with tempfile.TemporaryDirectory() as root:

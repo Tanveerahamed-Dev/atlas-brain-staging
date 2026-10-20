@@ -23,7 +23,7 @@ def main():
     try:
         invoke("docker", "network", "create", "--subnet", "192.0.2.0/24", name)
         listener = invoke("docker", "run", "--detach", "--network", name, "--ip", "192.0.2.2", image,
-                          "python", "-I", "-S", "-c", "import socket,time;s=socket.socket();s.bind(('0.0.0.0',9000));s.listen();time.sleep(60)")
+                          "python", "-I", "-S", "-c", "import socket,time;s=socket.socket();s.bind(('192.0.2.2',9000));s.listen();time.sleep(60)")
         code = """import errno,json,socket,time
 result={'interfaces':sorted(name for _,name in socket.if_nameindex())}
 s=socket.socket();s.settimeout(2)

@@ -71,6 +71,15 @@ def _fault(payload):
                 os.kill(os.getpid(), signal.SIGKILL)
     if fault == "memory":
         raise MemoryError("planted")
+    if fault == "import-probe":
+        import importlib
+        importlib.import_module("spike.planted_import")
+    if fault == "swallow-probe":
+        import socket
+        try:
+            socket.socket(socket.AF_INET)
+        except BaseException:
+            pass  # Planted broad swallow: the task's counter must still fail the run.
     if fault == "pack":
         raise RuntimeError("planted_pack")
 
@@ -276,7 +285,7 @@ def main(startup_modules):
     parser.add_argument("--manual-isolation", action="store_true")
     parser.add_argument("--expected-seed", choices=("0", "4242"))
     parser.add_argument("--expected-hash", type=int)
-    parser.add_argument("--fault", default="none", choices=("none", "kill-once", "kill-twice", "memory", "pack"))
+    parser.add_argument("--fault", default="none", choices=("none", "kill-once", "kill-twice", "memory", "pack", "import-probe", "swallow-probe"))
     args = parser.parse_args()
     if args.manual_isolation and (args.expected_seed is None or args.expected_hash is None):
         parser.error("manual probes require an independently measured seed witness")

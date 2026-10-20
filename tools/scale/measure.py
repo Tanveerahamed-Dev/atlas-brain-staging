@@ -260,6 +260,8 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
         if engine_receipt.exists():
             engine = json.loads(engine_receipt.read_bytes())
             metadata["engine_status"] = engine["status"]
+            metadata["engine_failure"] = engine.get("failure")
+            metadata["engine_code"] = engine.get("code")
             for key in ("stages", "manifest_sha256", "facts", "task_bytes", "result_bytes", "result_payload_bytes", "serialization_probe_ns", "pickling_share"):
                 metadata[key] = engine.get(key)
             if engine["status"] != "ok" and metadata["status"] == "ok":
