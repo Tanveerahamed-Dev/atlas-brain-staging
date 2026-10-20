@@ -14,7 +14,7 @@ IP = re.compile(rb"(?<![\w:.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![\w.])|(?<![\w:])[
 DOCS = tuple(map(ipaddress.ip_network, ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32")))
 COMMENT = rb"\#[^\n]*|//[^\n]*|/\*.*?\*/"
 LITERAL = re.compile(rb"(?P<comment>" + COMMENT + rb")|(?i:br|rb|fr|rf|tr|rt|[bruft])?(?:" + rb'"(?:\\.|[^"\\])*"' + rb"|'(?:\\.|[^'\\])*')", re.ASCII | re.DOTALL)
-PIECE = re.compile(rb"\\(?:U[0-9a-fA-F]{8}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0-7]{1,3}|.)|[^\\]", re.ASCII | re.DOTALL)
+PIECE = re.compile(rb"\\(?:\r?\n|U[0-9a-fA-F]{8}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0-7]{1,3}|.)|[^\\]", re.ASCII | re.DOTALL)
 
 
 def literal_runs(data: bytes):
@@ -22,7 +22,7 @@ def literal_runs(data: bytes):
     for match in LITERAL.finditer(data):
         if match["comment"] is not None:
             continue
-        if re.fullmatch(rb"(?:[\s+()]|" + COMMENT + rb")*", data[previous:match.start()], re.ASCII | re.DOTALL) is None:
+        if re.fullmatch(rb"(?:[\s+()]|\\\r?\n|" + COMMENT + rb")*", data[previous:match.start()], re.ASCII | re.DOTALL) is None:
             yield b"".join(chunks), offsets
             chunks, offsets = [], []
         quote = next(i for i, char in enumerate(match[0]) if char in (34, 39))
@@ -38,7 +38,7 @@ def literal_runs(data: bytes):
     yield b"".join(chunks), offsets
 
 
-def scan(data: bytes, blob: str, markers: list[bytes]) -> list[dict[str, str | int]]:
+def structural_offsets(data: bytes) -> set[int]:
     offsets = {m.start() for pattern in (HOME, SERIAL) for m in pattern.finditer(data)}
     for match in IP.finditer(data):
         try:
@@ -47,10 +47,17 @@ def scan(data: bytes, blob: str, markers: list[bytes]) -> list[dict[str, str | i
             continue
         if address.is_private and not any(address in net for net in DOCS):
             offsets.add(match.start())
-    for content, positions in itertools.chain([(data, range(len(data)))], literal_runs(data)) if markers else []:
+    return offsets
+
+
+def scan(data: bytes, blob: str, markers: list[bytes]) -> list[dict[str, str | int]]:
+    offsets = set()
+    for content, positions in itertools.chain([(data, range(len(data)))], literal_runs(data)):
+        found = structural_offsets(content)
         for marker in markers:
             for match in re.finditer(re.escape(marker), content, re.ASCII | re.IGNORECASE):
-                offsets.add(positions[match.start()])
+                found.add(match.start())
+        offsets.update(positions[offset] for offset in found)
     return [{"blob": blob, "offset": offset} for offset in sorted(offsets)]
 
 
