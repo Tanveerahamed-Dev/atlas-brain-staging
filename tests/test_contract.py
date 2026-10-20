@@ -90,6 +90,3 @@ def test_canonical_recursive_roundtrip_property():
         encoded = canonical(value)
         assert canonical(json.loads(encoded)) == encoded
     roundtrip()
-
-
-
