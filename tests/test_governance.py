@@ -63,7 +63,7 @@ def test_size_refuses_planted_bypasses(repo, plant):
         audit(repo, base, "HEAD")
 
 
-@pytest.mark.parametrize("plant", ["overlong", "edit_accepted", "delete_accepted"])
+@pytest.mark.parametrize("plant", ["overlong", "overwide", "edit_accepted", "delete_accepted"])
 def test_adr_refuses_planted_violations(repo, plant):
     name = "docs/adr/0000-example.md"
     write(repo, name, "# Synthetic ADR\nStatus: accepted\nFrozen decision.\n")
@@ -71,6 +71,8 @@ def test_adr_refuses_planted_violations(repo, plant):
     base = git(repo, "rev-parse", "HEAD")
     if plant == "delete_accepted":
         (repo / name).unlink()
+    elif plant == "overwide":
+        write(repo, name, "x" * 4001)
     else:
         write(repo, name, "line\n" * 61 if plant == "overlong" else "# Synthetic ADR\nStatus: accepted\nAltered.\n")
     commit(repo)
