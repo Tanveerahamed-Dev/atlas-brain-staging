@@ -136,3 +136,10 @@ def test_no_value_rules_require_nonempty_fixed_literal_markers(pattern):
     rule = Rule("swallow", "start", pattern, "record", "start", "", ())
     with pytest.raises(ValueError):
         run_rules(b"unknown evidence\n", CaptureId("cap-a"), (rule,), ())
+
+
+def test_literal_state_marker_does_not_hide_a_following_unknown_line():
+    rule = Rule("marker", "start", r"BEGIN\(body\)", "enter_state", "start", "", ())
+    result = run_rules(b"BEGIN(body)\nnew evidence\n", CaptureId("cap-a"), (rule,), ())
+    assert result.quality == "partial"
+    assert [line.status for line in result.lines] == ["consumed", "unrecognised"]
