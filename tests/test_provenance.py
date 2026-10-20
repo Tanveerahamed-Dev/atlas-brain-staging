@@ -1,3 +1,4 @@
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,20 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(self.check_tree(extended), [])
         for old, new in [("succeeded: null", "succeeded: true"), ("result: pass", "result: fail"), ("line_count: 1", "line_count: true"), ("format_floor: false", "format_floor: true")]:
             self.assertTrue(self.check_tree(extended.replace(old, new)))
+    def test_planted_floor_is_deferred_to_parser_census(self):
+        stated = RECORD.replace("tier: S", "tier: P").replace("kind: synthetic", "kind: library_testdata").replace("family: unstated", "family: iosxe").replace("model: unstated", "model: C8000V").replace("version: unstated", 'version: "17.1"').replace("version_basis: unknown", "version_basis: source_stated")
+        for raw in (RAW, b""):
+            record = stated.replace(hashlib.sha256(RAW).hexdigest(), hashlib.sha256(raw).hexdigest())
+            self.assertTrue(self.check_tree(record + "format_floor: true\nline_count: " + str(int(bool(raw))) + "\n", raw))
+
+    def test_planted_missing_privacy_record(self):
+        self.assertTrue(self.check_tree(RECORD.split("\nprivacy:", 1)[0] + "\n"))
+
+    def test_capture_utc_requires_zero_offset(self):
+        capture = "capture:\n  tool: unstated\n  form: synthetic.raw\n  utc: TIME\n  attempted: null\n  succeeded: null\n  read_scope: unstated\n"
+        for stamp in ('"2026-10-20T12:00:00Z"', '"2026-10-20T12:00:00+00:00"'):
+            self.assertEqual(self.check_tree(RECORD + capture.replace("TIME", stamp)), [])
+        self.assertTrue(self.check_tree(RECORD + capture.replace("TIME", '"2026-10-20T15:00:00+03:00"')))
     def test_planted_duplicate_ids_and_invalid_encoding(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder) / "fixtures"
@@ -108,7 +123,6 @@ class ProvenanceTests(unittest.TestCase):
             self.assertTrue(validate_tree(root))
             (root / "second" / "provenance.yaml").write_bytes(b"\xff")
             self.assertTrue(validate_tree(root))
-    @unittest.skipIf(sys.platform == "win32", "symlinks need Windows developer privileges")
     def test_planted_symlink_file_directory_and_root(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder) / "fixtures"
@@ -116,9 +130,16 @@ class ProvenanceTests(unittest.TestCase):
             target = Path(folder) / "target"
             target.mkdir()
             link = root / "linked"
-            link.symlink_to(target, target_is_directory=True)
+            if sys.platform == "win32":
+                subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True)
+                self.assertTrue(link.is_junction())
+            else:
+                link.symlink_to(target, target_is_directory=True)
             self.assertTrue(validate_tree(root))
             self.assertTrue(validate_tree(link))
+            if sys.platform == "win32":
+                link.rmdir()
+                return
             link.unlink()
             (root / "dangling.txt").symlink_to(target / "missing")
             self.assertTrue(validate_tree(root))
