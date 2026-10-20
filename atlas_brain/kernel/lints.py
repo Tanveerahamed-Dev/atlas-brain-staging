@@ -150,7 +150,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 for field in node.body:
                     if isinstance(field, ast.AnnAssign) and field.value is not None and not contains(field.annotation, ('ClassVar',)):
                         hit(2, field)
-        if fallback_node(node):
+        if fallback_node(node, name(node.func) if isinstance(node, ast.Call) else ''):
             hit(3, node)
         if isinstance(node, ast.ExceptHandler) and (node.type is None or contains(node.type, ('BaseException',))):
             hit(5, node)
