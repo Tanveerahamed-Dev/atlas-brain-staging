@@ -17,7 +17,7 @@ def test_planted_backtracking_shapes_refused(pattern):
 
 @pytest.mark.parametrize("pattern,text", [
     (r"(?P<name>[A-Za-z]++) (?P<value>\d++)", b"port 12"),
-    (r"(?:up|down)", b"up"), (r"[()+*?{}]++", b"(*)"),
+    (r"up", b"up"), (r"[()+*?{}]++", b"(*)"),
     (r"a*+", b"aaa"), (r"a++", b"aaa"), (r"\(a\+\)", b"(a+)"),
     (r"[]a]++", b"]a"),
 ])

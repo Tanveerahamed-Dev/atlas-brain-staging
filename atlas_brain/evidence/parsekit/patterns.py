@@ -7,7 +7,7 @@ _NAME = re.compile(r"\(\?P<[A-Za-z_][A-Za-z_0-9]*+>", re.ASCII)
 
 
 def compile_pattern(pattern: str) -> re.Pattern[bytes]:
-    """Refuse nested repeats, repeated alternation and non-local constructs.
+    """Refuse nested repeats, alternation and non-local constructs.
 
     Deliberately conservative: even a bounded repeat around a repeated group
     is refused. Patterns use ASCII syntax and match bytes, preserving offsets.
@@ -20,9 +20,9 @@ def compile_pattern(pattern: str) -> re.Pattern[bytes]:
         compiled = re.compile(pattern.encode("ascii"), re.ASCII)
     except (UnicodeEncodeError, re.error) as exc:
         raise ValueError("invalid ASCII rule pattern") from exc
-    # Each frame records whether any descendant repeats or alternates.
-    frames: list[tuple[bool, bool]] = [(False, False)]
-    atom = (False, False)
+    # Each frame records whether any descendant repeats.
+    frames: list[bool] = [False]
+    atom = False
     index = 0
     while index < len(pattern):
         char = pattern[index]
@@ -30,7 +30,7 @@ def compile_pattern(pattern: str) -> re.Pattern[bytes]:
             if pattern[index + 1].isdigit():
                 raise ValueError("backreferences are forbidden")
             index += 2
-            atom = (False, False)
+            atom = False
             continue
         if char == "[":
             index += 1
@@ -41,7 +41,7 @@ def compile_pattern(pattern: str) -> re.Pattern[bytes]:
             while pattern[index] != "]":
                 index += 2 if pattern[index] == "\\" else 1
             index += 1
-            atom = (False, False)
+            atom = False
             continue
         if char == "(":
             if pattern.startswith("(?:", index):
@@ -53,28 +53,27 @@ def compile_pattern(pattern: str) -> re.Pattern[bytes]:
                 index = name.end()
             else:
                 index += 1
-            frames.append((False, False))
-            atom = (False, False)
+            frames.append(False)
+            atom = False
             continue
         if char == ")":
             atom = frames.pop()
             parent = frames[-1]
-            frames[-1] = (parent[0] or atom[0], parent[1] or atom[1])
+            frames[-1] = parent or atom
         elif char == "|":
-            frames[-1] = (frames[-1][0], True)
-            atom = (False, False)
+            raise ValueError("express alternatives as separate ordered rules")
         else:
             quantifier = _QUANTIFIER.match(pattern, index)
             if char in "*+?" or quantifier is not None:
-                if atom[0] or atom[1]:
-                    raise ValueError("nested repeat or repeated alternation")
-                frames[-1] = (True, frames[-1][1])
+                if atom:
+                    raise ValueError("nested repeat")
+                frames[-1] = True
                 index = quantifier.end() if quantifier is not None else index + 1
                 if index >= len(pattern) or pattern[index] != "+":
                     raise ValueError("every repeat must be explicitly possessive")
                 index += 1
-                atom = (True, False)
+                atom = True
                 continue
-            atom = (False, False)
+            atom = False
         index += 1
     return compiled
