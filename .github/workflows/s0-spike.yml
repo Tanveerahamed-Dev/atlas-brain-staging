@@ -53,7 +53,7 @@ jobs:
         run: python tools/scale/check_smoke.py .s0/smoke/raw/wl1-100-1
       - name: Egress probes in coordinator, worker, retry and import
         run: |
-          & $env:S0_RUNTIME -I -X warn_default_encoding -W error::EncodingWarning spike/probe_entry.py .s0/smoke/raw/egress.json
+          & $env:S0_RUNTIME -I -X utf8=1 -X warn_default_encoding -W error::EncodingWarning spike/probe_entry.py .s0/smoke/raw/egress.json
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
