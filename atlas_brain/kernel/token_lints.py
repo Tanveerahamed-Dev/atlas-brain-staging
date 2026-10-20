@@ -36,6 +36,16 @@ def _literal_pattern(pattern: ast.pattern) -> bool:
     return isinstance(pattern, ast.MatchOr) and all(_literal_pattern(p) for p in pattern.patterns)
 
 
+def _enum_comparison(node: ast.AST) -> bool:
+    return any(isinstance(part, ast.Compare) and any(
+        isinstance(value, ast.Constant) and type(value.value) is str
+        for value in ast.walk(part)) for part in ast.walk(node))
+
+
+def _literal_branch(body: list[ast.stmt]) -> bool:
+    return bool(body) and isinstance(body[-1], (ast.Assign, ast.AnnAssign, ast.Return)) and isinstance(body[-1].value, ast.Constant)
+
+
 def fallback_node(node: ast.AST, called: str = '') -> bool:
     """True means rule 3 must refuse this node; no code under scan executes."""
     if isinstance(node, ast.Call):
@@ -43,9 +53,10 @@ def fallback_node(node: ast.AST, called: str = '') -> bool:
         return short in ('get', 'setdefault', 'defaultdict') or (
             short == 'pop' and (len(node.args) > 1 or bool(node.keywords)))
     if isinstance(node, ast.IfExp):
-        return _lookup_value(node.body) or _lookup_value(node.orelse)
+        return (_lookup_value(node.body) or _lookup_value(node.orelse) or
+                (_enum_comparison(node.test) and isinstance(node.body, ast.Constant) and isinstance(node.orelse, ast.Constant)))
     if isinstance(node, ast.If) and node.orelse:
-        return any(_lookup_value(part.value)
+        return (_enum_comparison(node.test) and _literal_branch(node.body) and _literal_branch(node.orelse)) or any(_lookup_value(part.value)
                    for statement in node.body + node.orelse for part in ast.walk(statement)
                    if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
     if isinstance(node, ast.Match):
