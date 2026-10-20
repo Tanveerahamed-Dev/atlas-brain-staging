@@ -1,7 +1,6 @@
 """Conservative admission guard for every parse-kit regex (no runtime parsers)."""
 import re
 
-
 # These expressions inspect pattern syntax, never capture data.
 _QUANTIFIER = re.compile(r"\{(?:\d+(?:,\d*)?|,\d*)\}", re.ASCII)
 _NAME = re.compile(r"\(\?P<[A-Za-z_][A-Za-z_0-9]*>", re.ASCII)
@@ -76,4 +75,3 @@ def compile_pattern(pattern: str) -> re.Pattern[bytes]:
             atom = (False, False)
         index += 1
     return compiled
-
