@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,8 @@ from tools.fence import allowed, dependencies_allowed, source_allowed
     "tools/agent-notes.md", "tests/AGENTS.md", "tools/CLAUDE.md",
     "tools/.claude/x", "tools/.codex/x", "tools/.agents/x", "tools/.mcp.json",
     "tools/.specify/x", "tools/specs/x", "tools/plans/x", "docs/other.md",
-    "governance/STATUS.md", "governance/notes.txt", "governance/nested/readme.md",
+    "governance/STATUS.md", "governance/STATUS.json", "governance/probe.json",
+    "governance/notes.txt", "governance/nested/readme.md",
 ])
 def test_planted_paths_fail(path):
     assert not allowed(path)
@@ -42,12 +44,18 @@ def test_current_tree_passes():
     "import socketserver", "__import__('webbrowser')",
     "from importlib import import_module as load; load('http.server')",
     "__import__(module_name)", "import unapproved_third_party",
+    "exec('import webbrowser')", "eval(\"__import__('webbrowser')\")",
+    "compile('import webbrowser', 'synthetic', 'exec')",
+    "from builtins import exec as run; run('import webbrowser')",
+    "import builtins as b; b.exec('import webbrowser')",
+    "run = exec; run('import webbrowser')", "__builtins__['exec']('import webbrowser')",
+    "import builtins; getattr(builtins, 'exec')('import webbrowser')",
 ])
 def test_denied_engine_imports(source):
     assert not source_allowed(source)
 
 
-@pytest.mark.parametrize("source", ["import json", "from typing import Literal", "from atlas_brain.kernel import states"])
+@pytest.mark.parametrize("source", ["import json", "from typing import Literal", "from atlas_brain.kernel import states", "import re; re.compile('x')"])
 def test_allowed_engine_imports(source):
     assert source_allowed(source)
 
@@ -64,16 +72,23 @@ def test_empty_runtime_dependencies_pass():
     assert dependencies_allowed({"project": {"dependencies": []}})
 
 
-@pytest.mark.parametrize("plant", ["none", "import", "dependency", "prose", "invalid_json", "scalar_json"])
+@pytest.mark.parametrize("plant", ["none", "import", "exec", "dependency", "prose", "status_json", "invalid_json", "scalar_json", "wrong_gate_shape"])
 def test_required_fence_command_refuses_real_tracked_plants(tmp_path, plant):
     source = "import webbrowser" if plant == "import" else "import json"
+    if plant == "exec":
+        source = "exec('import webbrowser')"
     deps = '["unapproved==1.0"]' if plant == "dependency" else "[]"
     files = {"pyproject.toml": f"[project]\ndependencies = {deps}\n",
-             "atlas_brain/probe.py": source, "governance/probe.json": "{}"}
+             "atlas_brain/probe.py": source, "governance/generators.json": json.dumps({
+                 "uv.lock": {"command": "uv lock", "tool": "uv==0.13.1", "inputs": ["pyproject.toml"]}})}
     if plant == "prose":
         files["governance/STATUS.md"] = "Synthetic process document."
+    if plant == "status_json":
+        files["governance/STATUS.json"] = '{"status": "Synthetic process document"}'
+    if plant == "wrong_gate_shape":
+        files["governance/generators.json"] = '{"status": "Synthetic process document"}'
     if plant in {"invalid_json", "scalar_json"}:
-        files["governance/probe.json"] = "invalid" if plant == "invalid_json" else '"prose"'
+        files["governance/generators.json"] = "invalid" if plant == "invalid_json" else '"prose"'
     for name, text in files.items():
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)

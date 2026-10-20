@@ -2,7 +2,6 @@
 import argparse
 import importlib
 import os
-import pkgutil
 import sys
 from pathlib import Path
 
@@ -33,9 +32,17 @@ def main() -> int:
     try:
         if args.probe == "engine":
             package = importlib.import_module("atlas_brain")
-            modules = list(pkgutil.walk_packages(package.__path__, package.__name__ + "."))
-            for module in modules:
-                importlib.import_module(module.name)
+            package_root = Path(package.__file__).parent
+            modules = set()
+            for source in package_root.rglob("*.py"):
+                if source.is_symlink() or not source.resolve().is_relative_to(package_root.resolve()):
+                    raise RuntimeError("engine source link refused")
+                parts = source.relative_to(package_root).with_suffix("").parts
+                parts = parts[:-1] if parts[-1] == "__init__" else parts
+                if parts:
+                    modules.add(package.__name__ + "." + ".".join(parts))
+            for module in sorted(modules):
+                importlib.import_module(module)
             if not modules:
                 raise RuntimeError("engine witness exercised no modules")
         elif args.probe == "rename":
