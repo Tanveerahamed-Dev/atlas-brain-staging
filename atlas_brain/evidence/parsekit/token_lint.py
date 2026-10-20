@@ -48,6 +48,13 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
     )}
     raw_names.update(n.arg for n in ast.walk(tree) if isinstance(n, ast.arg)
                      and (n.arg == "token" or (isinstance(n.annotation, ast.Name) and n.annotation.id == "str")))
+    fallback_names = {name for name, values in assignments.items() if any(_scalar(value) for value in values)}
+    for _ in assignments:
+        for name, values in assignments.items():
+            if any(isinstance(value, ast.Name) and value.id in raw_names for value in values):
+                raw_names.add(name)
+            if any(isinstance(value, ast.Name) and value.id in fallback_names for value in values):
+                fallback_names.add(name)
     span_slices: set[ast.AST] = set()
     if structural:
         for func in ast.walk(tree):
@@ -71,11 +78,21 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
                 ):
                     failures.add((statement.lineno, "token_catchall"))
         if isinstance(node, ast.Attribute) and (
-            node.attr in ("get", "setdefault") or (node.attr in ("startswith", "endswith", "find", "index")
+            node.attr in ("get", "setdefault", "pop") or (node.attr in ("startswith", "endswith", "find", "index")
             and (not structural or (isinstance(node.value, ast.Attribute) and node.value.attr == "raw")
                  or (isinstance(node.value, ast.Name) and node.value.id in raw_names)))
         ):
             failures.add((node.lineno, "token_convenience_lookup"))
+        if structural and isinstance(node, ast.Call):
+            arguments = [*node.args, *(kw.value for kw in node.keywords)]
+            arguments = [part for value in arguments for part in (
+                value.value.elts if isinstance(value, ast.Starred) and isinstance(value.value, (ast.Tuple, ast.List)) else [value])]
+            raw_input = any((isinstance(child, ast.Attribute) and child.attr == "raw")
+                            or (isinstance(child, ast.Name) and child.id in raw_names)
+                            for value in arguments for child in ast.walk(value))
+            if raw_input and any(_scalar(value) or (isinstance(value, ast.Name) and value.id in fallback_names)
+                                 for value in arguments):
+                failures.add((node.lineno, "token_fallback_argument"))
         if isinstance(node, ast.Name) and node.id in ("getattr", "vars", "__getattribute__", "eval", "exec"):
             failures.add((node.lineno, "token_unproved_lookup"))
         if isinstance(node, ast.Lambda) and _scalar(node.body):
