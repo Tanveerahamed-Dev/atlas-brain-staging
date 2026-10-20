@@ -72,7 +72,7 @@ class MutationTests(unittest.TestCase):
             (b"full", "duplex", 0, 4, b"full"),
             (b"1", "native-vlan", 0, 1, b"4095"),
             (b"1500", "mtu", 0, 4, b"0"),
-            (b"192.0.2.1", "duplicate-address", 0, 9, b"8.8.8.8"),
+            (b"192.0.2.1", "duplicate-address", 0, 9, b"192.0.2.0"),
         ):
             with self.subTest(raw=raw, operator=operator, start=start), self.assertRaises(ValueError):
                 apply_span(raw, operator, start, end, after)
@@ -107,15 +107,15 @@ class MutationTests(unittest.TestCase):
             OPERATORS["injected"] = OPERATORS["duplex"]
 
     def test_receipt_is_identical_across_processes_and_hash_seeds(self):
-        script = "\n".join((
-            "import json",
-            "from hashlib import sha256",
-            "from tools.mutations import Capture, mutate",
-            "def double(raw):",
-            "    return Capture('double', 'nxos', 'test-train', 'P', raw, sha256(raw).hexdigest(), 'fixtures/double')",
-            "out, receipt = mutate(double(b'FULL'), 'ospf-state', 0, 4, b'EXSTART', double(b'EXSTART'), 0, 7)",
-            "print(json.dumps([out.hex(), receipt], sort_keys=True, separators=(',', ':')))",
-        ))
+        script = (
+            "import json\n"
+            "from hashlib import sha256\n"
+            "from tools.mutations import Capture, mutate\n"
+            "def double(raw):\n"
+            "    return Capture('double', 'nxos', 'test-train', 'P', raw, sha256(raw).hexdigest(), 'fixtures/double')\n"
+            "out, receipt = mutate(double(b'FULL'), 'ospf-state', 0, 4, b'EXSTART', double(b'EXSTART'), 0, 7)\n"
+            "print(json.dumps([out.hex(), receipt], sort_keys=True, separators=(',', ':')))\n"
+        )
         outputs = [subprocess.check_output([sys.executable, "-c", script],
                    env=dict(os.environ, PYTHONHASHSEED=seed)) for seed in ("1", "98765")]
         self.assertEqual(outputs[0], outputs[1])
