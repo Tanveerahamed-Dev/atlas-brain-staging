@@ -12,7 +12,7 @@ HOME = re.compile(rb"(?i:[a-z]:[\\/]+Users[\\/]+[^\\/\s\"'<>]+|/(?:home|Users)/[
 SERIAL = re.compile(rb"\b[A-Z]{3}[0-9]{4}[A-Z0-9]{4}\b", re.ASCII | re.IGNORECASE)
 IP = re.compile(rb"(?<![\w:.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![\w.])|(?<![\w:])[0-9a-fA-F:.]*:[0-9a-fA-F:.]*:[0-9a-fA-F:.]*(?![\w:])", re.ASCII)
 DOCS = tuple(map(ipaddress.ip_network, ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32")))
-LITERAL = re.compile(rb"(?i:br|rb|[bru])?(?:" + rb'"(?:\\.|[^"\\])*"' + rb"|'(?:\\.|[^'\\])*')", re.ASCII | re.DOTALL)
+LITERAL = re.compile(rb"(?i:br|rb|fr|rf|tr|rt|[bruft])?(?:" + rb'"(?:\\.|[^"\\])*"' + rb"|'(?:\\.|[^'\\])*')", re.ASCII | re.DOTALL)
 PIECE = re.compile(rb"\\(?:U[0-9a-fA-F]{8}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0-7]{1,3}|.)|[^\\]", re.ASCII | re.DOTALL)
 
 
