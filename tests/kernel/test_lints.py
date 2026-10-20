@@ -132,11 +132,33 @@ def test_actual_imported_ascii_flag_control():
                     'atlas_brain/packs/example/parser.py')
 
 
-def test_parsekit_compiler_requires_pk_extension():
+def test_parsekit_compiler_extension_is_exact_source_and_path_bound():
     path = 'atlas_brain/evidence/parsekit/patterns.py'
     source = Path(path).read_text(encoding='utf-8')
-    assert 12 in {r for r, _ in lint(source, path)}
+    assert not lint(source, path)
     changed = source.replace('raise ValueError("nested repeat")', 'pass')
     assert changed != source
     assert 12 in {r for r, _ in lint(changed, path)}
     assert 12 in {r for r, _ in lint(source, 'atlas_brain/packs/example/parser.py')}
+
+
+@pytest.mark.parametrize("replacement", [
+    ('def compile_pattern(', 'def other_compiler('),
+    ('re.ASCII)', '0)'),
+    ('raise ValueError("every repeat must be explicitly possessive")', 'pass'),
+    ('raise ValueError("express alternatives as separate ordered rules")', 'pass'),
+])
+def test_compiler_extension_refuses_modified_policy(replacement):
+    path = 'atlas_brain/evidence/parsekit/patterns.py'
+    source = Path(path).read_text(encoding='utf-8')
+    changed = source.replace(*replacement)
+    assert changed != source
+    assert 12 in {r for r, _ in lint(changed, path)}
+
+
+def test_same_dynamic_compiler_call_elsewhere_is_refused():
+    source = 'import re\ndef compile_pattern(pattern):\n return re.compile(pattern.encode("ascii"), re.ASCII)'
+    for path in ('atlas_brain/evidence/parsekit/patterns.py',
+                 'atlas_brain/evidence/parsekit/other.py',
+                 'atlas_brain/packs/example/parser.py'):
+        assert 12 in {r for r, _ in lint(source, path)}
