@@ -14,6 +14,8 @@ from tools.fence import SCOPED_API, source_allowed
 SOURCES = {
     "atlas_brain/kernel/token_lints.py": "2d2e451e143371118bf62662b86aad32d1fb0193",
     "atlas_brain/kernel/lints.py": "a4e7f07ee17d0b8b0fd9dee6b0535c2279cedeb2",
+    "atlas_brain/evidence/parsekit/token_lint.py": "18c946ae96026765ef08366bacf6b9d0990b2729",
+    "atlas_brain/evidence/parsekit/token_audit.py": "8941179ab94e030643cef6f5e049e3aa8cfff986",
 }
 
 
@@ -31,12 +33,18 @@ def tracked_borrowing_probe(sources):
         subprocess.run([sys.executable, tool], cwd=root, check=True)
         plant = root / "atlas_brain/model/runtime.py"
         plant.parent.mkdir(parents=True)
-        plant.write_text("from atlas_brain.kernel.lints import sha256; digest = sha256(raw)\n", encoding="utf-8")
-        subprocess.run(["git", "-C", directory, "add", "."], check=True)
-        result = subprocess.run([sys.executable, tool], cwd=root, capture_output=True, text=True, check=False)
-        if result.returncode != 1 or "scope fence: 1 refused" not in result.stdout:
-            raise ValueError("real tracked-file gate accepted protected-module global re-export")
-    return {"pinned_source_tree": "allowed", "runtime_global_reexport": "refused"}
+        refusals = {}
+        for label, source in (
+            ("runtime_global_reexport", "from atlas_brain.kernel.lints import sha256; digest = sha256(raw)"),
+            ("runtime_pk_global_reexport", "from atlas_brain.evidence.parsekit.token_audit import dataclass; dataclass(Record)"),
+        ):
+            plant.write_text(source + "\n", encoding="utf-8")
+            subprocess.run(["git", "-C", directory, "add", "."], check=True)
+            result = subprocess.run([sys.executable, tool], cwd=root, capture_output=True, text=True, check=False)
+            if result.returncode != 1 or "scope fence: 1 refused" not in result.stdout:
+                raise ValueError(f"real tracked-file gate accepted {label}")
+            refusals[label] = "refused"
+    return {"pinned_source_tree": "allowed", **refusals}
 
 
 def main() -> int:
