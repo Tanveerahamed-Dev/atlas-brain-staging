@@ -34,9 +34,10 @@ def test_planted_collisions_refuse(names):
 
 
 @pytest.mark.parametrize("raw", [b'{"x":1,"x":2}', b'{"x":{"a":1,"a":2}}', b'{"x":NaN}', b'{"x":Infinity}', b'{"x":1e999}', b'"\xff"'])
-def test_planted_json_refuses(raw):
+def test_planted_json_refuses(raw, tmp_path):
+    (tmp_path / "payload.JSON").write_bytes(raw)
     with pytest.raises(a.AdmissionRefused):
-        a.strict_json(raw)
+        a.folder_members(tmp_path, a.Budgets(10000, 10000, 10))
 
 
 def test_manifest_and_missing_attempt(tmp_path):
@@ -69,7 +70,6 @@ def test_link_refuses(tmp_path):
     try:
         (tmp_path / "linked.json").symlink_to(source)
     except OSError:
-        # Windows without symlink privilege still exercises the hard-link refusal.
         import os
         os.link(source, tmp_path / "linked.json")
     with pytest.raises(a.AdmissionRefused):
