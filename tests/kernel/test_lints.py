@@ -133,3 +133,16 @@ def test_regex_flag_and_nonliteral_pattern_bypasses_are_refused(source):
 def test_actual_imported_ascii_flag_control():
     assert not lint('import re\nfrom re import ASCII as F\nx = re.compile("abc", F)',
                     'atlas_brain/packs/example/parser.py')
+
+
+def test_parsekit_runtime_guard_is_bound_to_its_reviewed_source():
+    path = 'atlas_brain/evidence/parsekit/patterns.py'
+    source = Path(path).read_text(encoding='utf-8')
+    assert not lint(source, path)
+    changed = source.replace('raise ValueError("nested repeat")', 'pass')
+    assert changed != source
+    assert 12 in {r for r, _ in lint(changed, path)}
+    from atlas_brain.evidence.parsekit.patterns import compile_pattern
+    assert compile_pattern(r'(?P<state>[A-Z]++)').fullmatch(b'UP')
+    with pytest.raises(ValueError):
+        compile_pattern('(a+)+')
