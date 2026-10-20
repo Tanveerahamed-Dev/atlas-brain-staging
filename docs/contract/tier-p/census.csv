@@ -37,7 +37,7 @@
 "nxos.show_ip_interface_vrf_all","nxos","show ip interface vrf all","True","False","False","False","exact candidate","exact candidate","none found","exact candidate","False","no_version_stated_import"
 "nxos.show_ip_ospf_vrf_all","nxos","show ip ospf vrf all","True","False","False","False","exact candidate","none found","none found","none found","False","no_version_stated_import"
 "nxos.show_ip_ospf_interface_vrf_all","nxos","show ip ospf interface vrf all","True","False","False","False","exact candidate","none found","none found","none found","False","no_version_stated_import"
-"nxos.show_ip_ospf_neighbors_vrf_all","nxos","show ip ospf neighbors vrf all","False","False","False","False","none found","none found","none found","none found","False","no_version_stated_import"
+"nxos.show_ip_ospf_neighbors_vrf_all","nxos","show ip ospf neighbors vrf all","True","False","False","False","none found","exact candidate","none found","none found","False","no_version_stated_import"
 "nxos.show_interface_trunk","nxos","show interface trunk","False","False","False","False","none found","none found","none found","none found","False","no_version_stated_import"
 "nxos.show_interface_switchport","nxos","show interface switchport","True","False","True","False","exact candidate","exact candidate","none found","none found","False","no_version_stated_import"
 "nxos.show_vlan_brief","nxos","show vlan brief","False","False","False","False","none found","none found","none found","none found","False","no_version_stated_import"

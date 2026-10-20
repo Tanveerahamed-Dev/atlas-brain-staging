@@ -1,7 +1,7 @@
 # Tier-P public corpus
 
 These public library samples supply format and robustness evidence, never device semantics or accuracy truth.
-The inventory covers 54 Engine v1 variants: 28 IOS-XE and 26 NX-OS. Four pinned repositories supply 44 exact-family/form candidates; eight variants have source-stated versions; ten have no confirmed exact source. Eighteen exact-byte raw samples are imported. Ninety-three shortlisted candidates are recorded.
+The inventory covers 54 Engine v1 variants: 28 IOS-XE and 26 NX-OS. Four pinned repositories supply 45 exact-family/form candidates; eight variants have source-stated versions; nine have no confirmed exact source. Eighteen exact-byte raw samples are imported. Ninety-four shortlisted candidates are recorded.
 
 `inventory.csv` retains immutable URLs, full commits, raw hashes, line/byte counts, source-stated platform/version, lexical fault-token locations, dispositions and imported paths. `census.csv` separates discovery, imports and floor candidacy. Generic IOS labels do not establish IOS-XE, and scoped/filtered/JSON/default-VRF commands do not establish a different requested command. NX-OS `show role` remains provisional for the adapter author to settle.
 
@@ -16,3 +16,5 @@ The IOS-XE C9300 `show vrf detail` sample is held for inconsistent version evide
 Capture time, collection tool, privilege and attempt/success fields are unstated; null preserves that uncertainty. The `q-public-import-v1` privacy declaration describes the original import screen and manual review of the selected bytes: non-documentation addresses, MACs, serials, prompts/hostnames, domains, credentials, descriptions and custom VRF names. No exemption was used. Hosted privacy gates and the pre-push guard remain independent requirements. `initial-custody-checks.json` is the historical local receipt before validator integration, not current CI acceptance or a public-push hold.
 
 Fault-token matches are lexical witnesses and can occur in legends. No sample establishes a paired native-VLAN mismatch. A tier-M operator requires same-family/train verbatim token witnesses and independently registered labels; P itself is never accuracy truth. No upstream expected-output files were read, imported or executed. No truth labels, mutations, holdout records, measurements, qualification or support-range claims are supplied.
+
+R2's pinned NTC all-VRF OSPF-neighbor table was independently hash-checked and added as a reference candidate. Its leading sh abbreviation is preserved; command scope, plural neighbors and all-VRF text mode are unchanged. Non-documentation addresses prevent import, and its release is unstated. This closes one discovery gap without creating a floor, mutation witness or admissible truth bundle.
