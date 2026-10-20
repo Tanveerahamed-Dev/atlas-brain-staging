@@ -87,9 +87,14 @@ def test_two_q_public_samples_keep_exact_bytes_and_grammar(folder, digest):
     assert sha256(raw).hexdigest() == digest
     provenance = (root / "provenance.yaml").read_text()
     assert 'tier: P' in provenance and 'format_floor: false' in provenance
-    names = [line[6:] if line.startswith(b"Name: ") else line.split(b" is ")[0]
-             for line in raw.splitlines() if line.startswith(b"Name: ") or b" is " in line]
-    assert names and all(interface_name(name) is not None for name in names)
+    if folder == "show-interface":
+        assert raw.splitlines()[0] == b"nve1 is up"
+        names = [raw.splitlines()[0].split(b" is ", 1)[0]]
+        assert names == [b"nve1"]
+    else:
+        names = [line[6:] for line in raw.splitlines() if line.startswith(b"Name: ")]
+        assert names == [b"Ethernet2/2", b"Ethernet2/3"]
+    assert all(interface_name(name) is not None for name in names)
 
 
 @pytest.mark.parametrize("denial", [b"% Permission denied for the role", b"%Permission denied for the role"])
