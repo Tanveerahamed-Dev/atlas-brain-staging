@@ -112,6 +112,17 @@ class ProvenanceTests(unittest.TestCase):
             (root / "provenance.yaml").write_text(RECORD, encoding="utf-8")
             self.assertTrue(validate_tree(root))
 
+    def test_planted_duplicate_ids_and_invalid_encoding(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "fixtures"
+            for name in ("first", "second"):
+                case = root / name
+                case.mkdir(parents=True)
+                (case / "output.txt").write_bytes(RAW)
+                (case / "provenance.yaml").write_text(RECORD, encoding="utf-8")
+            self.assertTrue(validate_tree(root))
+            (root / "second" / "provenance.yaml").write_bytes(b"\xff")
+            self.assertTrue(validate_tree(root))
     @unittest.skipIf(sys.platform == "win32", "symlinks need Windows developer privileges")
     def test_planted_symlink_file_directory_and_root(self):
         with tempfile.TemporaryDirectory() as folder:
