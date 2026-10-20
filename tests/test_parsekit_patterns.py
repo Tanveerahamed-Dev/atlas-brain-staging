@@ -40,3 +40,9 @@ def test_ascii_digit_class_does_not_accept_unicode():
 def test_omitted_repeat_lower_bound_cannot_bypass_lint(pattern):
     with pytest.raises(ValueError):
         compile_pattern(pattern)
+
+
+@pytest.mark.parametrize("pattern", [r"a+a+", r"a*a*", r"a{1,}a+", r"a++a+", r"a+?"])
+def test_planted_adjacent_overlapping_repeats_are_refused(pattern):
+    with pytest.raises(ValueError):
+        compile_pattern(pattern)
