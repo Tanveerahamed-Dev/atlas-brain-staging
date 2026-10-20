@@ -12,8 +12,8 @@ from pathlib import Path
 from tools.fence import SCOPED_API, source_allowed
 
 SOURCES = {
-    "atlas_brain/kernel/token_lints.py": "2d2e451e143371118bf62662b86aad32d1fb0193",
-    "atlas_brain/kernel/lints.py": "a4e7f07ee17d0b8b0fd9dee6b0535c2279cedeb2",
+    "atlas_brain/kernel/token_lints.py": "066b1ed8a767b1a3edd8b399e82afe264d33b3af",
+    "atlas_brain/kernel/lints.py": "542d75f03d4f71a85d2c3397b5829e28e71a9ff0",
     "atlas_brain/evidence/parsekit/token_lint.py": "1b2661492e19387ba0bd602d085d0e93ee1ee177",
     "atlas_brain/evidence/parsekit/token_audit.py": "7082fec06a7253d028b359ada44423d2c0391587",
 }

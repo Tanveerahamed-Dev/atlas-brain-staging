@@ -33,6 +33,8 @@ STDLIB_API = {
 # ADR-0003 amends ADR-0002: exact AST endpoints at their actual using paths.
 SCOPED_API = {
     "atlas_brain/kernel/token_lints.py": {
+        "ast.AnnAssign", "ast.Assign", "ast.Compare", "ast.Constant", "ast.Expr", "ast.MatchAs",
+        "ast.Return", "ast.stmt", "ast.Subscript",
         "ast.AST", "ast.Attribute", "ast.Call", "ast.If", "ast.IfExp", "ast.Match", "ast.MatchClass",
         "ast.MatchOr", "ast.MatchSingleton", "ast.MatchValue", "ast.Name", "ast.pattern", "ast.walk",
     },
