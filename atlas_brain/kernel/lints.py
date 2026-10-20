@@ -88,7 +88,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
         identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)) else ''
         if identifier:
             rebound.add(name(ast.Name(id=identifier, ctx=ast.Load())))
-    rebound.update(name(ast.Name(id=k, ctx=ast.Load())) for k in bound_names(tree))
+    rebound.update(name(ast.Name(id=k, ctx=ast.Load())) for k in sorted(bound_names(tree)))
     assertions = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.Call) and name(n.func) == 'typing.assert_never' and name(n.func) not in rebound and 'typing' not in rebound)
 
     def ascii_flag(node: ast.AST) -> bool:
