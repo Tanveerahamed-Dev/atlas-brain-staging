@@ -63,10 +63,6 @@ def source_allowed(source: str) -> bool:
     tree, aliases, modules = ast.parse(source), {}, []
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Name, ast.Attribute)) and qualified(node) in {"__import__", "builtins.__import__"}:
-            parent = parents.get(node)
-            if not isinstance(parent, ast.Call) or parent.func is not node:
-                return False
         if isinstance(node, ast.Import):
             for item in node.names:
                 modules.append(item.name)
@@ -82,6 +78,10 @@ def source_allowed(source: str) -> bool:
             return aliases.get(node.id, node.id)
         return qualified(node.value) + "." + node.attr if isinstance(node, ast.Attribute) else ""
     for node in ast.walk(tree):
+        if isinstance(node, (ast.Name, ast.Attribute)) and qualified(node) in {"__import__", "builtins.__import__"}:
+            parent = parents.get(node)
+            if not isinstance(parent, ast.Call) or parent.func is not node:
+                return False
         if isinstance(node, (ast.Name, ast.Attribute)) and qualified(node) in DYNAMIC:
             return False
         if isinstance(node, ast.Call) and qualified(node.func) in {"getattr", "vars", "builtins.getattr", "builtins.vars"} and node.args and qualified(node.args[0]) == "builtins":
