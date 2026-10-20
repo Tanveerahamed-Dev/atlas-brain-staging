@@ -8,7 +8,15 @@ from atlas_brain.kernel.states import (
     Basis, ByteSpan, CaptureId, EntityKey, EvidenceRef, EvidenceRole, Known,
     Unknown, UnknownReason,
 )
-from atlas_brain.kernel.verdict import CheckInput, CheckSpec, CheckState, Decision, VerdictBasis, verdict
+from atlas_brain.kernel.verdict import (
+    CheckInput,
+    CheckSpec,
+    CheckState,
+    Decision,
+    StatePredicates,
+    VerdictBasis,
+    verdict,
+)
 
 
 def evidence():
@@ -18,20 +26,24 @@ def evidence():
 
 def spec():
     return CheckSpec(id='example.check', population='example.population',
+                     subject_kind='node', aggregate_scope='node',
+                     states=StatePredicates(healthy=(), transient=(), broken=()),
+                     transient_min_separation_s=None, time_reference='none',
+                     max_evidence_skew_s=None, evaluate='example.checks.evaluate',
                      inputs=(CheckInput(ref='example.fact', role='required', accepts_absent=False),),
                      basis=VerdictBasis.OPERATIONAL_STATE, ok_bases=frozenset({Basis.OBSERVED}),
                      problem_from_subset=frozenset({'broken'}), reasons=(('broken', CheckState.PROBLEM), ('healthy', CheckState.OK)),
                      severity='major', aggregates=())
 
 
-def run(fact, state=CheckState.OK, reason='healthy', policy=None, closed=True, aggregates=()):
+def run(fact, state=CheckState.OK, reason='healthy', policy=None, closed=True, aggregates=(), predicate=None):
     expected = ExpectedSet(population='example.population', candidates=('node:a',), members=('node:a',),
                            member_evidence=(('node:a', (evidence(),)),), exclusions=(), unresolved=(),
                            closed=closed, lower_bound_nodes=(), closure_evidence=(evidence(),))
     return verdict(spec=policy or spec(), subject=EntityKey('node:a'), expected=expected,
                    inputs=(('example.fact', fact),), aggregates=aggregates,
                    admissions=((CaptureId('cap:synthetic'), Admission(problem=True, ok=True, population=True, reason=None)),),
-                   predicate=lambda facts: Decision(state=state, reason=reason, proofs=tuple(facts), params=()))
+                   predicate=predicate or (lambda facts: Decision(state=state, reason=reason, proofs=tuple(facts), params=())))
 
 
 def test_only_not_collected_can_never_be_ok():
@@ -66,3 +78,19 @@ def test_aggregate_unknown_and_unclaimed_member_block_ok():
 def test_reason_binding_registration_is_closed():
     with pytest.raises(ValueError):
         replace(spec(), reasons=(('same', CheckState.OK), ('same', CheckState.PROBLEM)))
+
+
+def test_time_sensitive_claims_require_timing_proof():
+    fact = Known(value=1, basis=Basis.OBSERVED, evidence=(evidence(),), raw=None)
+    assert run(fact, policy=replace(spec(), max_evidence_skew_s=10)).state is CheckState.UNKNOWN
+    assert run(fact, policy=replace(spec(), time_reference='analysis_as_of')).reason == 'as_of_missing'
+
+
+def test_predicate_cannot_mutate_the_kernel_input_mapping():
+    fact = Known(value=1, basis=Basis.OBSERVED, evidence=(evidence(),), raw=None)
+    def destructive_predicate(facts):
+        facts.clear()
+        return Decision(state=CheckState.OK, reason='healthy', proofs=('example.fact',), params=())
+    result = run(fact, predicate=destructive_predicate)
+    assert result.state is CheckState.UNKNOWN
+    assert result.reason == 'analysis_failed'

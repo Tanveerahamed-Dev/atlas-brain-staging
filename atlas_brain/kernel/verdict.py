@@ -7,6 +7,7 @@ Unsupported proof paths fail closed, rather than borrowing an observation basis.
 from collections.abc import Callable, Mapping
 from dataclasses import InitVar, dataclass
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Literal, assert_never, final
 
 from .admissibility import Admission
@@ -46,8 +47,23 @@ class CheckInput:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class StatePredicates:
+    healthy: tuple[tuple[str, str, str], ...]
+    transient: tuple[tuple[str, str, str], ...]
+    broken: tuple[tuple[str, str, str], ...]
+
+    def __post_init__(self) -> None:
+        rows = self.healthy + self.transient + self.broken
+        require(len(set(rows)) == len(rows), 'overlapping_state_predicates')
+        for group in (self.healthy, self.transient, self.broken):
+            require(type(group) is tuple and group == tuple(sorted(group)), 'invalid_state_predicates')
+            require(all(type(row) is tuple and len(row) == 3 and all(type(v) is str for v in row) for row in group), 'invalid_state_predicate_row')
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CheckSpec:
     id: str
+    subject_kind: str
     population: str
     inputs: tuple[CheckInput, ...]
     basis: VerdictBasis
@@ -56,6 +72,12 @@ class CheckSpec:
     reasons: tuple[tuple[str, CheckState], ...]
     severity: str
     aggregates: tuple[str, ...]
+    aggregate_scope: Literal['node', 'domain_pair']
+    states: StatePredicates
+    transient_min_separation_s: int | None
+    time_reference: Literal['evidence', 'analysis_as_of', 'none']
+    max_evidence_skew_s: int | None
+    evaluate: str
 
     def __post_init__(self) -> None:
         require(bool(self.id) and bool(self.population) and bool(self.severity), 'missing_check_identity')
@@ -67,6 +89,11 @@ class CheckSpec:
         require(self.reasons == tuple(sorted(self.reasons)) and len(dict(self.reasons)) == len(self.reasons), 'invalid_reason_bindings')
         require(all(type(s) is CheckState and s in (CheckState.OK, CheckState.PROBLEM) and r not in UnknownReason for r, s in self.reasons), 'invalid_reason_state')
         require(self.problem_from_subset <= {r for r, s in self.reasons if s is CheckState.PROBLEM}, 'invalid_subset_reasons')
+        require(bool(self.subject_kind) and bool(self.evaluate) and self.aggregate_scope in ('node', 'domain_pair'), 'invalid_check_context')
+        require(type(self.states) is StatePredicates and self.time_reference in ('evidence', 'analysis_as_of', 'none'), 'invalid_state_context')
+        for bound in (self.transient_min_separation_s, self.max_evidence_skew_s):
+            require(bound is None or (type(bound) is int and bound >= 0), 'invalid_time_bound')
+        require(not self.states.transient or self.transient_min_separation_s is not None, 'transient_without_separation')
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -187,7 +214,16 @@ def verdict(*, spec: CheckSpec, subject: EntityKey, expected: ExpectedSet,
         if supported(gate.evidence, 'population'):
             return result(CheckState.NOT_APPLICABLE, gate.reason)
         return result(CheckState.UNKNOWN, UnknownReason.ANALYSIS_GAP)
-    decision = predicate(resolved)
+    if spec.time_reference == 'analysis_as_of':
+        return result(CheckState.UNKNOWN, UnknownReason.AS_OF_MISSING)
+    if spec.transient_min_separation_s is not None:
+        return result(CheckState.UNKNOWN, UnknownReason.SINGLE_SAMPLE)
+    if spec.max_evidence_skew_s is not None or spec.time_reference == 'evidence':
+        return result(CheckState.UNKNOWN, UnknownReason.STALE_EVIDENCE)
+    try:
+        decision = predicate(MappingProxyType(resolved))
+    except Exception:
+        return result(CheckState.UNKNOWN, UnknownReason.ANALYSIS_FAILED)
     bindings = dict(spec.reasons)
     if decision.reason not in bindings or bindings[decision.reason] is not decision.state:
         return result(CheckState.UNKNOWN, UnknownReason.ANALYSIS_FAILED)
