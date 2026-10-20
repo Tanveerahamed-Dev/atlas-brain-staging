@@ -39,8 +39,12 @@ def test_foreign_pack_violation_is_discovered_without_registration(tmp_path, sou
     assert any("packs/new/parsers/fields.py" in path for path, _, _ in report.findings)
 
 
-def test_foreign_safe_lookup_is_scanned_without_importing_it(tmp_path):
-    report = audit_tree(_tree(tmp_path, "def decode(field): return TABLE.resolve(field)\n"))
+@pytest.mark.parametrize("source", [
+    "def decode(field): return TABLE.resolve(field)\n",
+    "def decode(field): return exact(field.raw)\n",
+])
+def test_foreign_safe_lookup_is_scanned_without_importing_it(tmp_path, source):
+    report = audit_tree(_tree(tmp_path, source))
     assert report.expected == report.audited and report.findings == ()
 
 
