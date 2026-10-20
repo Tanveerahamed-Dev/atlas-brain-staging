@@ -115,3 +115,8 @@ def test_interface_subset_uses_only_family_spellings_and_no_speed_inference(raw,
 @pytest.mark.parametrize("raw", [b"Tw1/0/1", b"Twe1/0/1", b"Eth1/1", b"Gi01/0/1", b"Gi1//1", b"Gi1/0/1\n"])
 def test_unknown_or_ambiguous_interface_is_not_passed_through(raw):
     assert interface_name(raw) is None
+
+
+def test_prompt_crlf_terminator_is_distinct_from_a_lone_cr():
+    assert classify(b"sw-a#\r\n") is IntegrityState.UNVERIFIED_PROMPT
+    assert classify(b"sw-a#\r") is IntegrityState.UNKNOWN_FORMAT
