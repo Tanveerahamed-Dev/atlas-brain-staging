@@ -1,7 +1,4 @@
-"""The fifteen static kernel guards frozen for the language spike (S3 3.3.1).
-Scan the product tree, including uncalled functions. This conservative AST gate
-complements strict typing and runtime admission; it is not a Python sandbox.
-"""
+"""Fifteen conservative AST guards over every product source, including uncalled code."""
 import ast
 import re
 from hashlib import sha256
@@ -187,7 +184,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             unbound = called in ('open', 'builtins.open', 'io.open', '_io.open',
                                  'pathlib.Path.open', 'pathlib.PosixPath.open', 'pathlib.WindowsPath.open')
             mode_index = 1 if unbound else 0
-            mode = node.args[mode_index] if len(node.args) > mode_index else None
+            mode = next((value for index, value in enumerate(node.args) if index == mode_index), None)
             for keyword in node.keywords:
                 if keyword.arg == 'mode':
                     mode = keyword.value
@@ -196,7 +193,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             if not binary and not encoding:
                 hit(10, node)
         if called.startswith('re.') and short in ('compile', 'search', 'match', 'fullmatch', 'findall', 'finditer', 'split', 'sub', 'subn'):
-            flags = list(node.args[1:] if short == 'compile' else node.args[2:]) + [k.value for k in node.keywords if k.arg == 'flags']
+            flags = list(node.args[2:]) + [k.value for k in node.keywords if k.arg == 'flags']
+            if short == 'compile':
+                flags.extend(node.args[1:2])
             if not any(ascii_flag(f) for f in flags):
                 hit(12, node)
             nonliteral = not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str)
