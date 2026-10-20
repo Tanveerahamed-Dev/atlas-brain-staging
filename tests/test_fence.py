@@ -54,12 +54,20 @@ def test_current_tree_passes():
     "import importlib; getattr(importlib, 'import_module')('webbrowser')",
     "load = __import__; load('webbrowser')",
     "from builtins import __import__ as load; load('webbrowser')",
+    "getattr(__import__('builtins'), 'exec')('import webbrowser')",
+    "__import__('json')",
+    "import builtins as b; alias = b; getattr(alias, 'exec')('import webbrowser')",
+    "import sys; sys.modules['builtins'].exec('import webbrowser')",
+    "import sys; alias = sys; getattr(alias, 'modules')['builtins'].exec('import webbrowser')",
+    "from sys import modules as loaded; loaded['builtins'].exec('import webbrowser')",
+    "globals()['__builtins__']['exec']('import webbrowser')",
+    "def helper(): pass\nhelper.__globals__['__builtins__']['exec']('import webbrowser')",
 ])
 def test_denied_engine_imports(source):
     assert not source_allowed(source)
 
 
-@pytest.mark.parametrize("source", ["import json", "from typing import Literal", "from atlas_brain.kernel import states", "import re; re.compile('x')", "__import__('json')"])
+@pytest.mark.parametrize("source", ["import json; json.dumps({})", "from json import dumps; dumps({})", "from typing import Literal", "from atlas_brain.kernel import states", "import re; re.compile('x')"])
 def test_allowed_engine_imports(source):
     assert source_allowed(source)
 
@@ -76,11 +84,13 @@ def test_empty_runtime_dependencies_pass():
     assert dependencies_allowed({"project": {"dependencies": []}})
 
 
-@pytest.mark.parametrize("plant", ["none", "import", "exec", "dependency", "prose", "status_json", "invalid_json", "scalar_json", "wrong_gate_shape"])
+@pytest.mark.parametrize("plant", ["none", "import", "exec", "nested_builtin", "dependency", "prose", "status_json", "invalid_json", "scalar_json", "wrong_gate_shape"])
 def test_required_fence_command_refuses_real_tracked_plants(tmp_path, plant):
     source = "import webbrowser" if plant == "import" else "import json"
     if plant == "exec":
         source = "exec('import webbrowser')"
+    if plant == "nested_builtin":
+        source = "getattr(__import__('builtins'), 'exec')('import webbrowser')"
     deps = '["unapproved==1.0"]' if plant == "dependency" else "[]"
     files = {"pyproject.toml": f"[project]\ndependencies = {deps}\n",
              "atlas_brain/probe.py": source, "governance/generators.json": json.dumps({
