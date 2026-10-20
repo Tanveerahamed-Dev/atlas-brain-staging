@@ -23,6 +23,8 @@ OPTIONS = {"json.dumps": {"ensure_ascii", "separators"}, "dataclasses.dataclass"
            "method.encode": {"encoding", "errors"}, "method.fullmatch": {"pos", "endpos"}}
 DECLARATIVE = {"collections.abc", "__future__"}
 BUILTIN_CALLS = {"type", "isinstance", "str", "range", "map", "sorted", "all", "tuple", "list", "dict"}
+EXCEPTIONS = {"ValueError", "TypeError"}
+TYPE_NAMES = {"str", "int", "bool", "bytes", "list", "tuple", "dict", "object", "type"}
 METHOD_CALLS = {"encode", "join", "fullmatch", "hexdigest", "items", "keys", "values"}
 STRUCTURAL = {ast.dump(ast.parse(text, mode="eval").body) for text in (
     "type(value) not in (type(None), bool, int, str, list, tuple, dict)",
@@ -79,7 +81,8 @@ def violations(source: str) -> list[int]:
             for target in ([member.target] if isinstance(member, ast.AnnAssign) else member.targets if isinstance(member, ast.Assign) else []):
                 members.update((n, n.id) for n in ast.walk(target) if isinstance(n, ast.Name))
     safe_names = BUILTIN_CALLS | trusted | local
-    protected = safe_names | set(aliases)
+    protected = safe_names | set(aliases) | EXCEPTIONS | TYPE_NAMES
+    raises = {n.exc for n in ast.walk(tree) if isinstance(n, ast.Raise)}
 
     def qualified(node):
         if isinstance(node, ast.Name):
@@ -108,14 +111,31 @@ def violations(source: str) -> list[int]:
             return True
         return all(k.arg in OPTIONS.get(identity, set()) for k in call.keywords)
 
+    def literal_exception(call):
+        return (call in raises and isinstance(call.func, ast.Name) and call.func.id in EXCEPTIONS
+                and len(call.args) == 1 and isinstance(call.args[0], ast.Constant)
+                and type(call.args[0].value) is str and not call.keywords)
+
     def admitted_callback(callback):
         if isinstance(callback, ast.Lambda):
             return True  # Its body and bindings are inspected by the same walk.
         return admitted_call(callback) and not (isinstance(callback, ast.Name) and callback.id in {*VALIDATORS, "map", "sorted"})
 
+    def structural_type(node):
+        if isinstance(node, ast.Name):
+            return node.id in TYPE_NAMES
+        if isinstance(node, ast.Constant):
+            return node.value is None
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return structural_type(node.left) and structural_type(node.right)
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in {"list", "tuple", "dict"}:
+            parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            return all(structural_type(part) or (node.value.id == "tuple" and isinstance(part, ast.Constant) and part.value is Ellipsis) for part in parts)
+        return False  # Unknown names and literal operands cannot prove a type union.
+
     bad = []
     for node in ast.walk(tree):
-        if node in annotations and isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        if node in annotations and isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr) and structural_type(node):
             continue
         arithmetic = isinstance(node, (ast.BinOp, ast.AugAssign))
         unary = isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd, ast.Invert))
@@ -125,7 +145,7 @@ def violations(source: str) -> list[int]:
         imported = isinstance(node, ast.Import) and any(not admitted_module(a.name) for a in node.names)
         imported_from = isinstance(node, ast.ImportFrom) and (node.level or not admitted_module(node.module or "") or any(a.name == "*" for a in node.names))
         private_or_write = isinstance(node, ast.Attribute) and (node.attr.startswith("_") or isinstance(node.ctx, (ast.Store, ast.Del)))
-        call = isinstance(node, ast.Call) and (not admitted_call(node.func) or not admitted_options(node) or (isinstance(node.func, ast.Name) and node.func.id in VALIDATORS and ast.dump(node) != VALIDATORS[node.func.id]))
+        call = isinstance(node, ast.Call) and not literal_exception(node) and (not admitted_call(node.func) or not admitted_options(node) or (isinstance(node.func, ast.Name) and node.func.id in VALIDATORS and ast.dump(node) != VALIDATORS[node.func.id]))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             if node.func.id == "type":
                 call = call or len(node.args) != 1 or bool(node.keywords)
@@ -136,12 +156,16 @@ def violations(source: str) -> list[int]:
         shadow = (isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in protected) or (isinstance(node, ast.arg) and node.arg in protected)
         if isinstance(node, ast.alias):
             alias = node.asname or node.name.split(".")[0]
-            shadow = bindings[alias] > 1 or alias in BUILTIN_CALLS or alias in local
+            shadow = bindings[alias] > 1 or alias in BUILTIN_CALLS | EXCEPTIONS | TYPE_NAMES or alias in local
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            shadow = node.name in BUILTIN_CALLS or node.name in aliases
+            shadow = node.name in BUILTIN_CALLS | EXCEPTIONS | TYPE_NAMES or node.name in aliases
             call = any(not admitted_call(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list)
         if isinstance(node, ast.ExceptHandler):
             shadow = node.name in protected
+        if isinstance(node, (ast.MatchAs, ast.MatchStar)):
+            shadow = node.name in EXCEPTIONS | TYPE_NAMES
+        if isinstance(node, ast.MatchMapping):
+            shadow = node.rest in EXCEPTIONS | TYPE_NAMES
         protocol_binding = node in members and (members[node].startswith("__") or members[node] in METHOD_CALLS)
         class_hook = isinstance(node, ast.ClassDef) and (bool(node.keywords) or any(not isinstance(base, ast.Name) or base.id != "object" for base in node.bases))
         if arithmetic or (unary and not literal) or compare or name in DENIED or imported or imported_from or private_or_write or call or shadow or class_hook or protocol_binding:

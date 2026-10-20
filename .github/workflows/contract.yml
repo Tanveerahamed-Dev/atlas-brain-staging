@@ -27,4 +27,4 @@ jobs:
           enable-cache: false
       - run: uv sync --locked
       - run: uv run --no-sync python tools/contract_lint.py
-      - run: uv run --no-sync pytest -v tests/test_contract_lint.py
+      - run: uv run --no-sync pytest -v tests/test_contract_lint.py tests/test_contract.py
