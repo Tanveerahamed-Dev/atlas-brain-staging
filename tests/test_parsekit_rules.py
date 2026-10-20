@@ -44,3 +44,26 @@ def test_ordered_states_and_cited_ignore():
     assert [line.rule_id for line in result.lines] == ["open", "blank", "value", "close"]
     assert result.lines[1].status == "ignored"
     assert result.records[0].fields[0][1].raw == "42"
+
+
+def test_first_rule_wins_and_lone_cr_is_not_a_line_break():
+    rules = (Rule("first", "start", r"(?P<value>[\s\S]*)", "record", "start", "", ("value",)),
+             Rule("second", "start", r".*", "record", "start", "", ()))
+    result = run_rules(b"a\rb\r\n", CaptureId("cap-a"), rules, ())
+    assert len(result.lines) == 1
+    assert result.records[0].rule_id == "first"
+    assert result.records[0].fields[0][1].raw == "a\rb"
+
+
+def test_invalid_ignore_and_undeclared_capture_are_refused():
+    import pytest
+
+    for rule in (Rule("bad", "start", "", "ignore", "start", "", ()),
+                 Rule("bad", "start", r"(?P<x>.*)", "record", "start", "", ())):
+        with pytest.raises(ValueError):
+            run_rules(b"\n", CaptureId("cap-a"), (rule,), ())
+
+
+def test_empty_capture_does_not_invent_a_record():
+    result = run_rules(b"", CaptureId("cap-a"), table(), ())
+    assert result.lines == result.records == ()

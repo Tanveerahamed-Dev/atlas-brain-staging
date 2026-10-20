@@ -1,11 +1,17 @@
 """Ordered byte rules with exhaustive line and enumerated-token accounting."""
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
-from typing import Literal, Mapping
+from typing import Literal
 
 from atlas_brain.kernel.states import (
-    ByteSpan, CaptureId, EvidenceRef, EvidenceRole, Unknown, UnknownReason,
+    ByteSpan,
+    CaptureId,
+    EvidenceRef,
+    EvidenceRole,
+    Unknown,
+    UnknownReason,
 )
 
 from .patterns import compile_pattern
@@ -29,7 +35,7 @@ class TokenMap:
             raise ValueError("token map requires unique rows from one closed enum")
 
     @classmethod
-    def closed(cls, entries: Mapping[str, StrEnum]) -> "TokenMap":
+    def closed(cls, entries: Mapping[str, StrEnum]) -> TokenMap:
         return cls(tuple(sorted(entries.items())))
 
     def resolve(self, field: Captured, capture: CaptureId) -> Captured:
