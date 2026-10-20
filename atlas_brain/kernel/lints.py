@@ -125,7 +125,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
     sets: set[str] = set()
     for node in ast.walk(tree):
-        if fact_path and ((isinstance(node, ast.Constant) and type(node.value).__name__ == 'float') or
+        if fact_path and ((isinstance(node, ast.Constant) and not isinstance(node.value, (str, bytes, int, type(None), type(Ellipsis)))) or
                           (isinstance(node, ast.Name) and node.id == 'float')):
             hit(7, node)
         if isinstance(node, ast.AnnAssign) and contains(node.annotation, ('set', 'frozenset')) and isinstance(node.target, ast.Name):
