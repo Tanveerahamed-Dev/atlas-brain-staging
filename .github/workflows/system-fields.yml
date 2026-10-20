@@ -25,4 +25,4 @@ jobs:
           version: '0.13.1'
           enable-cache: false
       - run: uv sync --locked
-      - run: uv run --no-sync pytest -v tests/test_system_fields.py
+      - run: uv run --no-sync pytest -v tests/test_system_fields.py tests/test_system_capture.py
