@@ -36,6 +36,7 @@ def test_planted_unmapped_token_is_unknown_with_raw_kept():
     assert isinstance(field.value, Unknown)
     assert field.value.reason is UnknownReason.PARSE_PARTIAL
     assert field.value.evidence[0].locator == field.span
+    assert result.tokens == (("duplex", field),)
 
 
 def test_ordered_states_and_cited_ignore():
