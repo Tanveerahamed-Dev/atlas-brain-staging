@@ -108,7 +108,9 @@ def test_planted_arithmetic_fails_real_lint_entrypoint(tmp_path):
 
 def test_canonical_recursive_roundtrip_property():
     import json
-    from hypothesis import given, strategies as st
+
+    from hypothesis import given
+    from hypothesis import strategies as st
     strings = st.text(st.characters(exclude_categories=("Cs",)))
     leaves = st.none() | st.booleans() | st.integers(-9007199254740991, 9007199254740991) | strings
     values = st.recursive(leaves, lambda v: st.lists(v) | st.dictionaries(strings, v), max_leaves=30)
