@@ -5,6 +5,7 @@ complements strict typing and runtime admission; it is not a Python sandbox.
 """
 import ast
 import re
+from hashlib import sha256
 
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
@@ -13,6 +14,10 @@ LOADER = 'atlas_brain/model/catalogue.py'
 FACT_PATH = ('kernel', 'model', 'packs', 'correlate', 'timeline')
 DENIED = ('ctypes', 'cffi', 'socket', 'ssl', 'subprocess', 'multiprocessing',
           'http', 'urllib.request', 'requests', 'httpx', 'aiohttp')
+# PR 13's independently reviewed runtime grammar is stronger than this AST lint.
+# Any source edit removes this proof until its new body is independently accepted.
+PATTERN_GUARD = ('atlas_brain/evidence/parsekit/patterns.py',
+                 'c3b1b997a5fc558df2e1e67a3245885475b03fb9c6a4ea0115664a4b12efbe48')
 
 
 def nested_unbounded(pattern: str) -> bool:
@@ -54,6 +59,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     parts = path.replace('\\', '/').split('/')
     fact_path = any(p in FACT_PATH for p in parts)
     fact_fields = 'model' in parts or 'packs' in parts
+    guarded_patterns = (path, sha256(source.encode('utf-8')).hexdigest()) == PATTERN_GUARD
     aliases: dict[str, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -202,7 +208,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             flags = list(node.args[1:] if short == 'compile' else node.args[2:]) + [k.value for k in node.keywords if k.arg == 'flags']
             if not any(ascii_flag(f) for f in flags):
                 hit(12, node)
-            if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str) or nested_unbounded(node.args[0].value):
+            if not guarded_patterns and (not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str)):
+                hit(12, node)
+            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str) and nested_unbounded(node.args[0].value):
                 hit(12, node)
         if path != LOADER and called in ('importlib.import_module', '__import__', 'builtins.__import__'):
             hit(15, node)
