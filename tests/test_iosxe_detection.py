@@ -24,8 +24,8 @@ XE16 = b"Cisco IOS XE Software, Version 16.10.1\n"
     (b"Cisco IOS Software, generic image, Version Denali 16.2.1\n", "iosxe"),
     (XE16, "iosxe"),
     (b"Cisco IOS XE Software, Version 17.09.05a\n", "iosxe"),
-    (b"Cisco IOS Software, IOS-XE Software (generic image), Version 15.5(3)S\n"
-     b"IOS XE Version: 03.16.04.S\n", "iosxe"),
+    ((b"Cisco IOS Software, IOS-XE Software (generic image), Version 15.5(3)S\n"
+      b"IOS XE Version: 03.16.04.S\n"), "iosxe"),
     (b"Cisco IOS Software, generic image, Version 12.2(55)SE\n", "ios"),
     (b"Cisco IOS Software, generic image, Version 15.2(4)E\n", "ios"),
 ])
