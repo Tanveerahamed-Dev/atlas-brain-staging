@@ -1,5 +1,6 @@
 """Deterministic producer graph; entity readers wait for every mention (S1 1.9.2)."""
 from dataclasses import dataclass
+from heapq import heapify, heappop, heappush
 from typing import Literal
 
 from atlas_brain.kernel.states import require, text_fields
@@ -52,24 +53,31 @@ def order_steps(steps: tuple[StepSpec, ...]) -> tuple[StepSpec, ...]:
         needs[step.id] = dependencies
     pending = dict(by_id)
     result: list[StepSpec] = []
-    while pending:
-        ready = tuple(sorted(key for key in pending if not needs[key]))
-        if not ready:
-            def cyclic(node: str) -> bool:
-                seen: set[str] = set()
-                frontier = sorted(needs[node])
-                while frontier:
-                    current = frontier.pop()
-                    if current == node:
-                        return True
-                    if current not in seen:
-                        seen.add(current)
-                        frontier.extend(sorted(needs[current]))
-                return False
-            members = tuple(key for key in sorted(pending) if cyclic(key))
-            raise ValueError('cyclic_steps:' + ','.join(members))
-        for key in ready:
-            result.append(pending.pop(key))
-        for key in pending:
-            needs[key].difference_update(ready)
+    dependents: dict[str, set[str]] = {key: set() for key in by_id}
+    for key in sorted(needs):
+        for dependency in sorted(needs[key]):
+            dependents[dependency].add(key)
+    ready = [key for key in sorted(pending) if not needs[key]]
+    heapify(ready)
+    while ready:
+        key = heappop(ready)
+        result.append(pending.pop(key))
+        for dependent in sorted(dependents[key]):
+            needs[dependent].remove(key)
+            if not needs[dependent]:
+                heappush(ready, dependent)
+    if pending:
+        def cyclic(node: str) -> bool:
+            seen: set[str] = set()
+            frontier = sorted(needs[node])
+            while frontier:
+                current = frontier.pop()
+                if current == node:
+                    return True
+                if current not in seen:
+                    seen.add(current)
+                    frontier.extend(sorted(needs[current]))
+            return False
+        members = tuple(key for key in sorted(pending) if cyclic(key))
+        raise ValueError('cyclic_steps:' + ','.join(members))
     return tuple(result)

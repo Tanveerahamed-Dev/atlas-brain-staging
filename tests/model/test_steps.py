@@ -34,6 +34,11 @@ def test_independent_ties_and_input_order_are_deterministic():
     assert tuple(s.id for s in order_steps(steps)) == ('example/a', 'example/z', 'example/join')
 
 
+def test_newly_ready_step_competes_with_all_other_ready_steps():
+    steps = (step('a', produces=('example.a',)), step('b', consumes=('example.a',)), step('z'))
+    assert tuple(s.id for s in order_steps(steps)) == ('example/a', 'example/b', 'example/z')
+
+
 def test_every_entity_mention_precedes_complete_entity_consumption():
     steps = (step('owner', produces=('entities:interface',)),
              step('mention', mentions=('interface',)),
