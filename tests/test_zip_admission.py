@@ -135,3 +135,37 @@ def test_archive_options_are_positive_integers_and_hashed(field):
     for bad in (0, -1, True):
         with pytest.raises(ValueError):
             limits(**{field: bad})
+
+
+def test_deflated_member_and_explicit_directory_pass(tmp_path):
+    path = archive(tmp_path, [("dir/", b""), ("dir/file.txt", b"data\n")],
+                   compression=zipfile.ZIP_DEFLATED)
+    assert z.zip_members(path, limits()) == {"dir/file.txt": b"data\n"}
+
+
+def test_forged_small_count_does_not_bypass_index_count_limit(tmp_path):
+    path = archive(tmp_path, [("a", b"a"), ("b", b"b")])
+    raw = bytearray(path.read_bytes())
+    raw[-14:-10] = b"\1\0\1\0"
+    path.write_bytes(raw)
+    with (patch.object(z, "ZipFile", side_effect=AssertionError("index allocated")),
+          pytest.raises(a.BudgetExceeded)):
+        z.zip_members(path, a.Budgets(1000, 1000, 1))
+
+
+def test_encryption_flag_and_unsupported_compression_refuse(tmp_path):
+    for change, message in ((8, "encrypted_zip_member"), (10, "unsupported_zip_compression")):
+        path = archive(tmp_path, [("a", b"data")])
+        raw = bytearray(path.read_bytes())
+        central = raw.index(b"PK\1\2")
+        raw[central + change:central + change + 2] = (1).to_bytes(2, "little")
+        path.write_bytes(raw)
+        with pytest.raises(a.AdmissionRefused, match=message):
+            z.zip_members(path, limits())
+
+
+def test_bad_deflate_has_stable_refusal(tmp_path):
+    path = archive(tmp_path, [("a", b"data")], compression=zipfile.ZIP_DEFLATED)
+    with (patch.object(zipfile.ZipExtFile, "read", side_effect=z.DecompressionError("invalid stream")),
+          pytest.raises(a.AdmissionRefused, match="invalid_zip")):
+        z.zip_members(path, limits())

@@ -1,7 +1,8 @@
 """ZIP32 payload admission: bounded reads, no extraction or nested archives."""
 import stat
 from pathlib import Path
-from zipfile import BadZipFile, ZipFile
+from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile
+from zlib import error as DecompressionError
 
 from .admission import (
     AdmissionRefused,
@@ -68,6 +69,8 @@ def zip_members(path: Path, budgets: Budgets) -> dict[str, bytes]:
                     mode = entry.external_attr >> 16
                     if entry.flag_bits & 1:
                         raise AdmissionRefused("encrypted_zip_member")
+                    if entry.compress_type not in (ZIP_STORED, ZIP_DEFLATED):
+                        raise AdmissionRefused("unsupported_zip_compression")
                     if entry.is_dir():
                         if entry.file_size or (stat.S_IFMT(mode) and not stat.S_ISDIR(mode)):
                             raise AdmissionRefused("special_zip_member")
@@ -97,7 +100,9 @@ def zip_members(path: Path, budgets: Budgets) -> dict[str, bytes]:
                     if name.casefold().endswith(".json"):
                         strict_json(raw, budgets.nesting_depth, budgets.numeric_digits, name)
                     result[name] = raw
-    except (BadZipFile, OSError, EOFError, RuntimeError, NotImplementedError) as error:
+    except (AdmissionRefused, BudgetExceeded):
+        raise
+    except (BadZipFile, OSError, EOFError, RuntimeError, NotImplementedError, ValueError, DecompressionError) as error:
         raise AdmissionRefused("invalid_zip") from error
     return result
 
