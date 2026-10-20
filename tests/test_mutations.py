@@ -1,11 +1,13 @@
 """Planted counterexamples; all in-memory attestations below are synthetic test doubles."""
+import os
+import subprocess
+import sys
 import unittest
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 
 from tools.mutations import OPERATORS, Capture, apply_span, mutate
-
 
 CASES = (
     ("ospf-state", b"FULL", b"EXSTART"),
@@ -79,7 +81,7 @@ class MutationTests(unittest.TestCase):
         parent, witness = capture(b"FULL"), capture(b"EXSTART")
         for changed in (
             {"family": "nxos"}, {"train": "other-train"}, {"train": None},
-            {"train": "unstated"}, {"tier": "M"}, {"tier": "S"},
+            {"train": "unknown"}, {"train": " unknown "}, {"train": "unstated"}, {"tier": "M"}, {"tier": "S"},
             {"sha256": "0" * 64}, {"provenance": ""}, {"fixture_id": ""},
         ):
             for side in ("parent", "witness"):
@@ -92,6 +94,31 @@ class MutationTests(unittest.TestCase):
                               (capture(b"EXSTARTED"), 0, 7), (witness, 0, 8)):
             with self.subTest(witness=w.raw), self.assertRaises(ValueError):
                 mutate(parent, "ospf-state", 0, 4, b"EXSTART", w, start, end)
+
+    def test_declared_transition_set_and_numeric_endpoints(self):
+        for operator, declaration in OPERATORS.items():
+            for before, after in declaration.transitions:
+                with self.subTest(operator=operator, before=before, after=after):
+                    self.assertEqual(apply_span(before, operator, 0, len(before), after), after)
+        for operator, before, after in (("native-vlan", b"1", b"4094"),
+                                        ("mtu", b"68", b"65535")):
+            self.assertEqual(apply_span(before, operator, 0, len(before), after), after)
+        with self.assertRaises(TypeError):
+            OPERATORS["injected"] = OPERATORS["duplex"]
+
+    def test_receipt_is_identical_across_processes_and_hash_seeds(self):
+        script = "\n".join((
+            "import json",
+            "from hashlib import sha256",
+            "from tools.mutations import Capture, mutate",
+            "def double(raw):",
+            "    return Capture('double', 'nxos', 'test-train', 'P', raw, sha256(raw).hexdigest(), 'fixtures/double')",
+            "out, receipt = mutate(double(b'FULL'), 'ospf-state', 0, 4, b'EXSTART', double(b'EXSTART'), 0, 7)",
+            "print(json.dumps([out.hex(), receipt], sort_keys=True, separators=(',', ':')))",
+        ))
+        outputs = [subprocess.check_output([sys.executable, "-c", script],
+                   env=dict(os.environ, PYTHONHASHSEED=seed)) for seed in ("1", "98765")]
+        self.assertEqual(outputs[0], outputs[1])
 
     def test_pinned_q_inputs_refuse_unsupported_tier_m_claims(self):
         root = Path("fixtures/mutations/q")
