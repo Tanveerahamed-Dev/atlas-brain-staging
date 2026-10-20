@@ -291,6 +291,7 @@ def execute(args, startup_modules):
                                "startup_baseline_enforced": admission.INSTALLED,
                                "interpreter": {"executable": sys.executable, "prefix": sys.prefix, "base_prefix": sys.base_prefix,
                                                "venv": sys.prefix != sys.base_prefix},
+                               "node_serialization": "canonical streaming into unpublished node file; no whole-document string/bytes pair",
                                "worker_imports": sorted({name for n in nodes for name in n.get("imports", [])}),
                                "absent_imports": sorted(admission.ABSENT_IMPORTS),
                                "worker_absent_imports": sorted({name for n in nodes for name in n.get("absent_imports", [])}),

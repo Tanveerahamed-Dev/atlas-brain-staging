@@ -1,7 +1,7 @@
 # ADR-0001: runtime spike evidence (draft)
 
-Status: provisional. S0-b, final admission requalification and the worker-growth
-decision remain open. This is not a language acceptance or a merge approval.
+Status: provisional. S0-b and final performance requalification remain open.
+This is not a language acceptance or a merge approval.
 The disposable `spike/` pipeline never merges. Plan item 5 is not open.
 
 ## Worker recycling: owner clarification, 2026-10-20
@@ -38,7 +38,7 @@ retained, not relabelled as a historically green run.
 points below 25%. The scale ratchet must remeasure post-task growth with real
 packs in M1. The separately measured S0-a cap passed in the day-5 checkpoint.
 
-**Later counterexample remains open:** the diagnostic originally omitted the
+**Later counterexample retained:** the diagnostic originally omitted the
 normal metrics initializer. After matching it, [run 39443425120](https://github.com/Tanveerahamed-Dev/atlas-brain-staging/actions/runs/39443425120),
 head `0bb9b1b05bbff458215895547e219fc28f8586c6`, recorded Linux post-task RSS
 26,877,952 -> 33,906,688 bytes, or 26.150563852484%. That exceeds 25% even under
@@ -47,6 +47,25 @@ retained as the owner's selected default, but its growth qualification is open.
 That run also exposed three Windows PID reuses among 100 worker generations;
 the probe now binds samples and acknowledgements to process birth identity.
 Missing generations were refused, never counted as a passing growth result.
+
+**Bounded profiling result:** the final birth-bound probe reproduced Linux
+26.121331914246615% post-task growth in run 39445809827 at head
+`e9f107fe700d7f2edf08c2e093690eefc896636c`. The task writer kept complete fact
+rows, a whole JSON string and its encoded bytes together. One bounded profile
+changed it to stream canonical JSON into the unpublished node file; no forced
+collection or artificially inflated first-task baseline was added.
+
+[Run 39446618389](https://github.com/Tanveerahamed-Dev/atlas-brain-staging/actions/runs/39446618389),
+head `59548d5d680ca3f7e2cbff3f72f2c554f3a64553`, passed both growth jobs:
+post-task maxima with `None` were **22.716736207695873% Linux** and
+**17.096165933375235% Windows**. Transient maxima remained 30.50533147890589%
+and 35.75786015954951%, respectively. Recycling at 3 had post-task maxima
+15.826006478482185% and 14.95518163233213%. Every diagnostic device file matched
+its normal-run counterpart; the 300-device manifest also matched the prior
+`c812629ee58d533293ca28ca09c62e5e04e5379bf2693910c0df50b9fc2de259`.
+`max_tasks_per_child=None` therefore remains selected under the clarified rule.
+The full performance, determinism and failure matrix must qualify the new
+writer before this result is accepted. The M1 growth ratchet remains required.
 
 ## Other retained plan corrections and evidence boundaries
 
