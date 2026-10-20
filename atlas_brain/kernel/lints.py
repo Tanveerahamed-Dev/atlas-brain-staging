@@ -148,9 +148,10 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 for field in node.body:
                     if isinstance(field, ast.AnnAssign) and field.value is not None and not contains(field.annotation, ('ClassVar',)):
                         hit(2, field)
-        if isinstance(node, (ast.If, ast.IfExp)) and node.orelse:
-            test = node.test
-            if any(isinstance(n, ast.Name) and 'token' in n.id.lower() for n in ast.walk(test)):
+        if isinstance(node, (ast.If, ast.IfExp, ast.Match)):
+            test = node.subject if isinstance(node, ast.Match) else node.test
+            fallback = any(isinstance(p, ast.MatchAs) for case in node.cases for p in ast.walk(case.pattern)) if isinstance(node, ast.Match) else bool(node.orelse)
+            if fallback and any(isinstance(n, ast.Name) and 'token' in n.id.lower() for n in ast.walk(test)):
                 hit(3, node)
         if isinstance(node, ast.ExceptHandler) and (node.type is None or contains(node.type, ('BaseException',))):
             hit(5, node)
@@ -173,7 +174,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             continue
         called = name(node.func)
         short = tail(node.func)
-        if short == 'get' and (len(node.args) > 1 or node.keywords):
+        if short == 'setdefault' or (short == 'get' and (len(node.args) > 1 or node.keywords)):
             hit(3, node)
         if short == 'CheckResult' and (path != 'atlas_brain/kernel/verdict.py' or not inside_verdict(node)):
             hit(4, node)
