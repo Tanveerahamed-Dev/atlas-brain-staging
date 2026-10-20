@@ -30,6 +30,20 @@ STDLIB_API = {
     "pathlib.Path", "pathlib.PurePosixPath", "re.ASCII", "re.Pattern", "re.compile", "re.error",
     "re.fullmatch", "re.search", "typing.Literal", "typing.NewType", "typing.final", "typing.cast",
 }
+# ADR-0003 amends ADR-0002: exact AST endpoints at their actual using paths.
+SCOPED_API = {
+    "atlas_brain/kernel/token_lints.py": {
+        "ast.AST", "ast.Attribute", "ast.Call", "ast.If", "ast.IfExp", "ast.Match", "ast.MatchClass",
+        "ast.MatchOr", "ast.MatchSingleton", "ast.MatchValue", "ast.Name", "ast.pattern", "ast.walk",
+    },
+    "atlas_brain/kernel/lints.py": {
+        "ast.AnnAssign", "ast.arg", "ast.Assign", "ast.AST", "ast.AsyncFor", "ast.AsyncFunctionDef",
+        "ast.Attribute", "ast.BinOp", "ast.BitOr", "ast.Call", "ast.ClassDef", "ast.comprehension",
+        "ast.Constant", "ast.ExceptHandler", "ast.expr", "ast.For", "ast.FunctionDef", "ast.Import",
+        "ast.ImportFrom", "ast.iter_child_nodes", "ast.Lambda", "ast.Load", "ast.Module", "ast.Name",
+        "ast.NamedExpr", "ast.parse", "ast.Set", "ast.SetComp", "ast.stmt", "ast.Store", "ast.Subscript", "ast.walk",
+    },
+}
 
 
 def allowed(path: str) -> bool:
@@ -145,14 +159,15 @@ class ImportIndex:
 
 def source_allowed(source: str, sources=None, path="atlas_brain/probe.py") -> bool:
     tree = ast.parse(source)
+    apis = STDLIB_API | SCOPED_API.get(path, set())
     try:
         aliases = import_bindings(tree, path)[0]
         index = ImportIndex(sources or {})
     except ValueError:
         return False
     def admitted(name):
-        return name is not None and (index.namespace(name) or name.startswith("atlas_brain.") or name in STDLIB_API
-                                     or any(api.startswith(name + ".") for api in STDLIB_API))
+        return name is not None and (index.namespace(name) or name.startswith("atlas_brain.") or name in apis
+                                     or any(api.startswith(name + ".") for api in apis))
     if not all(admitted(index.origin(name)) for name in aliases.values()):
         return False
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
@@ -174,7 +189,7 @@ def source_allowed(source: str, sources=None, path="atlas_brain/probe.py") -> bo
             name = index.origin(raw)
             if not admitted(name):
                 return False
-            if index.namespace(name) or any(api.startswith(name + ".") for api in STDLIB_API):
+            if index.namespace(name) or any(api.startswith(name + ".") for api in apis):
                 parent = parents.get(node)
                 if not isinstance(parent, ast.Attribute) or parent.value is not node:
                     return False
