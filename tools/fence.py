@@ -19,9 +19,17 @@ BANNED = ("tkinter", "curses", "webbrowser", "http.server", "wsgiref", "socketse
 GOVERNANCE = {"governance/generators.json", "governance/review.schema.json", "governance/review-policy.json"}
 DYNAMIC = {"exec", "eval", "compile", "__import__", "__builtins__", "globals", "locals", "vars",
            "getattr", "setattr", "delattr", "hasattr", "dir",
+           "help", "breakpoint", "__loader__", "__spec__",
            "builtins.exec", "builtins.eval", "builtins.compile", "builtins.__import__", "sys.modules", "sys._getframe"}
 CODE_ATTRIBUTES = {"__globals__", "__builtins__", "__code__", "__closure__", "__dict__", "__subclasses__",
                    "f_builtins", "f_globals", "f_locals", "gi_frame", "cr_frame", "ag_frame", "tb_frame"}
+# ADR-0002: changes require an amendment, REV verdict and supervisor approval.
+STDLIB_API = {
+    "collections.abc.Mapping", "dataclasses.asdict", "dataclasses.dataclass", "enum.StrEnum",
+    "hashlib.sha256", "json.dumps", "json.loads", "math.isfinite", "stat.S_ISDIR", "stat.S_ISREG",
+    "pathlib.Path", "pathlib.PurePosixPath", "re.ASCII", "re.Pattern", "re.compile", "re.error",
+    "re.fullmatch", "re.search", "typing.Literal", "typing.NewType", "typing.final", "typing.cast",
+}
 
 
 def allowed(path: str) -> bool:
@@ -63,39 +71,114 @@ def gate_data_allowed(path: str, data) -> bool:
     return False
 
 
-def source_allowed(source: str) -> bool:
-    tree, aliases, modules, module_aliases = ast.parse(source), {}, [], set()
-    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-    for node in ast.walk(tree):
+def import_bindings(tree, path):
+    aliases, exports, declarations = {}, {}, set()
+    def walk(node, scope=""):
+        pairs = []
         if isinstance(node, ast.Import):
             for item in node.names:
-                modules.append(item.name)
-                aliases[item.asname or item.name.split(".")[0]] = item.name if item.asname else item.name.split(".")[0]
-                module_aliases.add(item.asname or item.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom) and not node.level:
-            modules.append(node.module or "")
-            for item in node.names:
-                qualified = f"{node.module}.{item.name}"
-                modules.append(qualified)
-                aliases[item.asname or item.name] = qualified
+                pairs.append((item.asname or item.name.split(".")[0], item.name if item.asname else item.name.split(".")[0]))
+        elif isinstance(node, ast.ImportFrom):
+            if any(item.name == "*" for item in node.names):
+                raise ValueError("wildcard import has no closed provenance")
+            base = node.module or ""
+            if node.level:
+                anchor = PurePosixPath(path).parent.parts
+                if node.level >= len(anchor) + 1:
+                    raise ValueError("relative import leaves engine")
+                base = ".".join((*anchor[:len(anchor) - node.level + 1], *([base] if base else [])))
+            pairs = [(item.asname or item.name, f"{base}.{item.name}") for item in node.names]
+        for name, target in pairs:
+            if name in aliases and aliases[name] != target:
+                raise ValueError("ambiguous import binding")
+            aliases[name], exports[scope + name] = target, target
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            declarations.add(scope + node.name)
+            scope += node.name + "."
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            declarations.add(scope + node.id)
+        for child in ast.iter_child_nodes(node):
+            walk(child, scope)
+    walk(tree)
+    return aliases, exports, declarations
+
+
+class ImportIndex:
+    def __init__(self, sources):
+        self.modules = {}
+        packages = set()
+        for path, source in sources.items():
+            module = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__")
+            if module in self.modules:
+                raise ValueError("ambiguous engine module")
+            self.modules[module] = import_bindings(ast.parse(source), path)[1:]
+            if path.endswith("/__init__.py"):
+                packages.add(module)
+        for module, (exports, declarations) in self.modules.items():
+            if module not in packages and any(m.startswith(module + ".") for m in self.modules):
+                raise ValueError("non-package module has descendants")
+            if any(self.namespace(module + "." + key) and target != module + "." + key for key, target in exports.items()):
+                raise ValueError("ambiguous imported module export")
+            if any(self.namespace(module + "." + key) for key in declarations):
+                raise ValueError("ambiguous declared module export")
+
+    def namespace(self, name):
+        return name in self.modules or any(module.startswith(name + ".") for module in self.modules)
+
+    def origin(self, name, seen=frozenset()):
+        if not name.startswith("atlas_brain.") and name != "atlas_brain":
+            return name
+        if name in seen:
+            return None
+        if self.namespace(name):
+            return name
+        module = max((m for m in self.modules if name.startswith(m + ".")), key=len, default="")
+        if not module:
+            return None
+        exports, declarations = self.modules[module]
+        tail = name[len(module) + 1:]
+        binding = max((key for key in exports if tail == key or tail.startswith(key + ".")), key=len, default="")
+        if binding:
+            return self.origin(exports[binding] + tail[len(binding):], seen | {name})
+        return name if any(tail == key or tail.startswith(key + ".") for key in declarations) else None
+
+
+def source_allowed(source: str, sources=None, path="atlas_brain/probe.py") -> bool:
+    tree = ast.parse(source)
+    try:
+        aliases = import_bindings(tree, path)[0]
+        index = ImportIndex(sources or {})
+    except ValueError:
+        return False
+    def admitted(name):
+        return name is not None and (index.namespace(name) or name.startswith("atlas_brain.") or name in STDLIB_API
+                                     or any(api.startswith(name + ".") for api in STDLIB_API))
+    if not all(admitted(index.origin(name)) for name in aliases.values()):
+        return False
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     def qualified(node):
         if isinstance(node, ast.Name):
-            return aliases.get(node.id, node.id)
-        return qualified(node.value) + "." + node.attr if isinstance(node, ast.Attribute) else ""
+            return aliases.get(node.id, "")
+        base = qualified(node.value) if isinstance(node, ast.Attribute) else ""
+        return base + "." + node.attr if base else ""
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id in module_aliases:
-            parent = parents.get(node)
-            if not isinstance(parent, ast.Attribute) or parent.value is not node:
+        if isinstance(node, ast.Attribute) and (node.attr in CODE_ATTRIBUTES
+                or node.attr.startswith("_") and node.attr not in {"__init__", "__init_subclass__"}):
+            return False
+        if isinstance(node, ast.Name) and node.id in DYNAMIC:
+            return False
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            raw = qualified(node)
+            if not raw:
+                continue
+            name = index.origin(raw)
+            if not admitted(name):
                 return False
-        if isinstance(node, ast.Attribute) and node.attr in CODE_ATTRIBUTES:
-            return False
-        if isinstance(node, (ast.Name, ast.Attribute)) and qualified(node) in DYNAMIC:
-            return False
-    return all(
-        name not in DYNAMIC and name.split(".")[0] in sys.stdlib_module_names | {"atlas_brain"}
-        and not any(name == banned or name.startswith(banned + ".") for banned in BANNED)
-        for name in modules
-    )
+            if index.namespace(name) or any(api.startswith(name + ".") for api in STDLIB_API):
+                parent = parents.get(node)
+                if not isinstance(parent, ast.Attribute) or parent.value is not node:
+                    return False
+    return True
 
 
 def main() -> int:
@@ -104,9 +187,14 @@ def main() -> int:
     ).decode("utf-8").rstrip("\0").split("\0")
     try:
         failures = sum(not allowed(path) for path in paths)
+        sources = {}
         for path in paths:
             if path.startswith("atlas_brain/") and path.endswith(".py"):
-                failures += not source_allowed(Path(path).read_text(encoding="utf-8"))
+                if Path(path).is_symlink():
+                    raise ValueError("engine source link refused")
+                sources[path] = Path(path).read_text(encoding="utf-8")
+        failures += sum(not source_allowed(source, sources, path) for path, source in sources.items())
+        for path in paths:
             if path.startswith("governance/") and allowed(path):
                 failures += not gate_data_allowed(path, json.loads(Path(path).read_text(encoding="utf-8")))
         failures += not dependencies_allowed(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8")))
