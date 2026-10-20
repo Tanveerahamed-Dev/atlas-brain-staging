@@ -15,6 +15,10 @@ class Admission:
     population: bool
     reason: UnknownReason | None
 
+    def __post_init__(self) -> None:
+        require(all(type(f) is bool for f in (self.problem, self.ok, self.population)), 'invalid_admission_flags')
+        require(self.reason is None or type(self.reason) is UnknownReason, 'invalid_admission_reason')
+
 
 # integrity, printed-record problem, printed-record ok, population, refusal
 ROWS: tuple[tuple[IntegrityState, bool, bool, bool, UnknownReason | None], ...] = (
