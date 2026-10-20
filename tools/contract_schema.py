@@ -1,18 +1,27 @@
 """Generate draft 2020-12 schemas from contract dataclasses; no runtime dependency."""
+import re
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from types import UnionType
-from typing import Literal, Union, get_args, get_origin, get_type_hints
+from typing import Literal, NewType, Union, get_args, get_origin, get_type_hints
 
 from atlas_brain.contract.canonical import canonical
 
+NUMBER = r"(?:0|[1-9][0-9]*)"
+PRE = r"(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+SEMVER = re.compile(rf"{NUMBER}\.{NUMBER}\.{NUMBER}(?:-{PRE}(?:\.{PRE})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", re.ASCII)
+
 
 def schema_for(root: type, version: str) -> dict:
+    if not SEMVER.fullmatch(version):
+        raise ValueError("invalid_schema_version")
     definitions = {}
     owners = {}
 
     def describe(annotation):
         origin, args = get_origin(annotation), get_args(annotation)
+        if isinstance(annotation, NewType):
+            return describe(annotation.__supertype__)
         if annotation is int:
             return {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991}
         if annotation in (str, bool, type(None)):
