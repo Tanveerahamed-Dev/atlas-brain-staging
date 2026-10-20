@@ -139,6 +139,24 @@ class ParserTests(unittest.TestCase):
     def test_known_healthy_middle_hop_cannot_complete_fault_chain(self):
         self.assertFalse(correlate("problem", "ok", "problem")["complete"])
 
+    def test_root_placement_needs_printed_identity_and_explicit_intent(self):
+        from spike.estate import device_checks
+        rows = [["root_address", ["0100", "0200.0000.0010"], ["capture", 0, 10, 1]],
+                ["bridge_address", ["0100", "0200.0000.0011"], ["capture", 10, 20, 2]]]
+        node = {"name": "sw-00017", "profile": "core_xe", "estate_rows": rows,
+                "stp_expected_root": "0200.0000.0010", "stp_expected_vlan": "0100", "stp_intent_ref": ["manifest", "/intent/stp_root_mac/17"]}
+        result = device_checks(node)
+        self.assertEqual(result[0][3], "ok")
+        node["stp_expected_root"] = "0200.0000.0024"
+        self.assertEqual(device_checks(node)[0][3], "problem")
+        node.pop("stp_expected_root")
+        self.assertEqual(device_checks(node)[0][3], "unknown")
+
+    def test_stp_intent_wraps_at_the_selected_size(self):
+        self.assertEqual(workload.stp_root(16, 100), 16)
+        self.assertEqual(workload.stp_root(19, 100), 36)
+        self.assertEqual(workload.stp_root(99, 100), 16)
+
 
 class ThresholdTests(unittest.TestCase):
     def test_determinism_covering_design(self):

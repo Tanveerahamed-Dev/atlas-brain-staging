@@ -36,13 +36,15 @@ def device_checks(node):
         port, admin, oper = row[1]
         state = "problem" if admin == "up" and oper == "down" else "ok" if admin == "up" and oper == "up" else "unknown"
         checks.append([CHECKS[0], node["name"], port, state, [row[2]], "collect explicit admin and peer interface state"])
-    roots, bridges = by_kind(rows, "root_priority"), by_kind(rows, "bridge_priority")
-    if not roots or not bridges:
+    roots, bridges = by_kind(rows, "root_address"), by_kind(rows, "bridge_address")
+    desired = node.get("stp_expected_root")
+    if not roots or not bridges or desired is None or not node.get("stp_intent_ref"):
         checks.append([CHECKS[4], node["name"], "node", "unknown", [], "collect spanning-tree and root intent"])
-    for root, bridge in zip(roots, bridges):
-        # Equal priority cannot establish identity: no root/bridge MAC or intent
-        # is printed in this synthetic slice. Preserve the coverage gap.
-        checks.append([CHECKS[4], node["name"], root[1][0], "unknown", [root[2], bridge[2]], "collect root and bridge identifiers and root intent"])
+    else:
+        for root, bridge in zip(roots, bridges):
+            scoped = root[1][0] == bridge[1][0] == node.get("stp_expected_vlan")
+            state = "unknown" if not scoped else "ok" if root[1][1] == desired else "problem"
+            checks.append([CHECKS[4], node["name"], root[1][0], state, [root[2], bridge[2], node["stp_intent_ref"]], "validate root placement intent"])
     return checks
 
 

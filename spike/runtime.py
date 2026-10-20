@@ -78,7 +78,7 @@ def task(payload):
     facts, refs, estate, accounts = [], [], [], []
     route_summary = {"complete": False, "expected_present": False, "evidence": []}
     total_rows = 0
-    keep = {"interface", "interface_attributes", "system_mtu", "native", "channel", "interface_mtu", "neighbor", "trunk", "root_priority", "bridge_priority", "ospf_neighbor", "ospf_network"}
+    keep = {"interface", "interface_attributes", "system_mtu", "native", "channel", "interface_mtu", "neighbor", "trunk", "root_priority", "bridge_priority", "root_address", "bridge_address", "ospf_neighbor", "ospf_network"}
     for index, item in enumerate(payload["captures"]):
         body = (Path(payload["root"]) / item["path"]).read_bytes()
         if digest(body) != item["sha256"] or len(body) != item["bytes"]:
@@ -104,6 +104,8 @@ def task(payload):
     raw = canonical(result)
     (Path(payload["pending"]) / f"{name}.json").write_bytes(raw)
     return {"name": name, "profile": payload["profile"], "estate_rows": estate, "route_summary": route_summary,
+            "stp_expected_root": payload["stp_expected_root"], "stp_intent_ref": payload["stp_intent_ref"],
+            "stp_expected_vlan": payload["stp_expected_vlan"],
             "facts": total_rows, "bytes": len(raw), "pid": os.getpid(), "violations": safety.VIOLATIONS,
             "environment": environment(), "wall_ns": time.perf_counter_ns() - start, "cpu_ns": time.process_time_ns() - cpu,
             "process_cpu_ns": time.process_time_ns(), "initializer_to_task_ns": start - _START,
@@ -172,7 +174,11 @@ def execute(args, startup_modules):
         grouped = [[] for _ in range(doc["size"])]
         for item in doc["artifacts"]:
             grouped[item["node"]].append(item)
+        estate_hash = digest((args.root / "ESTATE.json").read_bytes())
         payloads = [{"node": i, "profile": items[0]["profile"], "root": str(args.root.absolute()),
+                     "stp_expected_root": doc["intent"]["stp_root_mac"][str(i)],
+                     "stp_expected_vlan": doc["intent"]["stp_vlan"],
+                     "stp_intent_ref": [estate_hash, f"/intent/stp_root_mac/{i}"],
                      "pending": str(pending.resolve()), "captures": items, "control": str(args.control.resolve()), "fault": args.fault} for i, items in enumerate(grouped)]
         transfer_wall = time.perf_counter_ns()
         task_bytes = sum(len(pickle.dumps(item)) for item in payloads)

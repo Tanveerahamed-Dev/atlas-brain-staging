@@ -67,6 +67,17 @@ def iface(profile, index):
     return f"Ethernet1/{index + 1}" if profile == "core_nx" else f"GigabitEthernet1/0/{index + 1}"
 
 
+def stp_root(node, size, spec=None):
+    intent = (spec or load_spec())["stp_intent"]
+    block_size = intent["block_devices"]
+    block = (node // block_size + (node % block_size == block_size - 1 and intent["wan_in_next_block"])) % (size // block_size)
+    return intent["root_indices"][block]
+
+
+def stp_intent(size, spec):
+    return {str(i): f"0200.0000.{stp_root(i, size, spec):04x}" for i in range(size)}
+
+
 def padded(line, width):
     if len(line) > width - 1:
         raise ValueError("row_width")
@@ -74,7 +85,8 @@ def padded(line, width):
 
 
 def render(form, profile, node, size, dense):
-    row = load_spec()["profiles"][profile]
+    spec = load_spec()
+    row = spec["profiles"][profile]
     interface = lambda i: "Port-channel1" if i == row["interfaces"] - 1 else iface(profile, i)
     count = lambda key: row[key] * (2 if dense and key in ("mac", "arp", "syslog") else 1)
     lines = []
@@ -101,7 +113,10 @@ def render(form, profile, node, size, dense):
         lines = ["Port  Mode  Encapsulation  Status  Native vlan\n"]
         lines += [f"{interface(i)} on 802.1q trunking 100\n" for i in range(2)]
     elif form == "stp":
-        lines = ["VLAN0100\n", "  Root ID Priority 4096\n", f"  Bridge ID Priority {4096 if profile.startswith('core') else 32768}\n"]
+        root = stp_root(node, size, spec)
+        observed = root + 1 if node % 100 == 0 else root  # Planted wrong-root case.
+        lines = [f"VLAN{spec['stp_intent']['vlan']}\n", "  Root ID Priority 4096\n", f"             Address     0200.0000.{observed:04x}\n",
+                 f"  Bridge ID Priority {4096 if node == root else 32768}\n", f"             Address     0200.0000.{node:04x}\n"]
     elif form == "mac":
         lines = ["Vlan Mac Address Type Ports\n"]
         lines += [padded(f"100 0200.0000.{i:04x} DYNAMIC {interface(i % row['interfaces'])}", 80) for i in range(count("mac"))]
@@ -154,7 +169,7 @@ def generate(root, size, dense):
             rel = f"{name}/{form}.txt"
             (root / rel).write_bytes(body)
             artifacts.append({"path": rel, "sha256": digest(body), "bytes": len(body), "form": form, "node": node, "profile": profile})
-    manifest = {"schema": 1, "workload": spec["id"], "frozen_sha256": digest(SPEC.read_bytes()), "size": size, "dense": dense, "totals": totals, "artifacts": artifacts,
+    manifest = {"schema": 1, "workload": spec["id"], "frozen_sha256": digest(SPEC.read_bytes()), "size": size, "dense": dense, "totals": totals, "artifacts": artifacts, "intent": {"stp_root_mac": stp_intent(size, spec), "stp_vlan": spec["stp_intent"]["vlan"]},
                 "public_excerpt_sha256": [digest(item["excerpt"].encode("ascii")) for item in strict_json(SPEC.with_name("provenance.json").read_bytes())["public_material"]]}
     (root / "ESTATE.json").write_bytes(canonical(manifest))
     verify(root)
@@ -173,6 +188,8 @@ def verify(root):
     mix = profiles(size)
     if doc["totals"] != expected(size, dense) or doc["frozen_sha256"] != digest(SPEC.read_bytes()):
         raise ValueError("manifest_counts")
+    if doc["intent"] != {"stp_root_mac": stp_intent(size, spec), "stp_vlan": spec["stp_intent"]["vlan"]}:
+        raise ValueError("manifest_intent")
     wanted = {f"sw-{i:05d}/{form}.txt" for i in range(size) for form in spec["forms"]}
     found, byte_count = set(), 0
     per_node = [0] * size

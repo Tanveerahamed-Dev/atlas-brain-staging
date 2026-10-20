@@ -25,4 +25,7 @@ if __name__ == "__main__":
         raise ValueError("unknown_bridge")
     if any(row[3] != "unknown" for row in estate["checks"] if row[0] == CHECKS[4] and int(row[1][3:]) % 20 == 18):
         raise ValueError("unparsed_nx_stp_not_unknown")
+    stp_states = {row[3] for row in estate["checks"] if row[0] == CHECKS[4]}
+    if stp_states != {"ok", "problem", "unknown"}:
+        raise ValueError("stp_positive_negative_unknown_not_exercised")
     print("six checks, three-hop chain, unknown stop, per-device facts: passed")

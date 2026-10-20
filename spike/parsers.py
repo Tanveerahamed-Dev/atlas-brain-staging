@@ -34,7 +34,7 @@ RULES = {
     "cdp": [("peer", rx(r"Device ID: (\S+)")), ("neighbor", rx(r"Interface: (\S+), Port ID \(outgoing port\): (\S+)"))],
     "lldp": [("peer", rx(r"Device ID: (\S+)")), ("neighbor", rx(r"Interface: (\S+), Port ID \(outgoing port\): (\S+)"))],
     "trunk": [("trunk", rx(r"(\S+) on 802\.1q trunking (\d+)"))],
-    "stp": [("stp_vlan", rx(r"VLAN(\d+)")), ("root_priority", rx(r"  Root ID Priority (\d+)")), ("bridge_priority", rx(r"  Bridge ID Priority (\d+)"))],
+    "stp": [("stp_vlan", rx(r"VLAN(\d+)")), ("root_priority", rx(r"  Root ID Priority (\d+)")), ("bridge_priority", rx(r"  Bridge ID Priority (\d+)")), ("stp_address", rx(r"             Address +(\S+)"))],
     "mac": [("mac", rx(r"(\d+) (\S+) (DYNAMIC|STATIC) (\S+) *"))],
     "arp": [("arp", rx(r"Internet (\S+) (\d+) (\S+) ARPA (\S+) *"))],
     "routes": [("vrf", rx(r"Routing Table: (\S+)")), ("route", rx(r"(O|C|S) (\S+) via (\S+), (\S+)"))],
@@ -50,7 +50,7 @@ HEADERS = {"Port  Mode  Encapsulation  Status  Native vlan", "Vlan Mac Address T
 def parse_capture(family, form, body):
     counts = {"consumed": 0, "ignored": 0, "unrecognized": 0, "unclaimed": 0}
     rows, unknown = [], []
-    offset, context = 0, "unknown"
+    offset, context, stp_area = 0, "unknown", None
     parsed = (family, form) in PARSERS
     for number, raw in enumerate(body.splitlines(keepends=True), 1):
         end = offset + len(raw)
@@ -67,9 +67,15 @@ def parse_capture(family, form, body):
                 if match is None:
                     continue
                 values = match.groups()
+                if kind in ("root_priority", "bridge_priority"):
+                    stp_area = kind.split("_")[0]
+                if kind == "stp_address":
+                    if stp_area is None:
+                        continue
+                    kind = stp_area + "_address"
                 if kind in ("interface", "config_interface", "ospf_interface", "peer", "vrf", "stp_vlan"):
                     context = values[0]
-                elif kind in ("interface_attributes", "admin", "native", "channel", "interface_mtu", "neighbor", "route", "ospf_network", "root_priority", "bridge_priority"):
+                elif kind in ("interface_attributes", "admin", "native", "channel", "interface_mtu", "neighbor", "route", "ospf_network", "root_priority", "bridge_priority", "root_address", "bridge_address"):
                     if kind == "interface_attributes":
                         mtu, token = values
                         values = (mtu, {"Full": "full", "Half": "half"}.get(token, "unknown"))
