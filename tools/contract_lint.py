@@ -5,8 +5,15 @@ from pathlib import Path
 
 DENIED = {"sum", "min", "max", "len", "abs", "round", "pow", "divmod",
           "math", "operator", "statistics", "functools", "Counter", "count",
-          "eval", "exec", "__import__", "getattr", "__add__", "__sub__", "__mul__",
-          "__truediv__", "__floordiv__", "__pow__", "__mod__"}
+          "eval", "exec", "__import__", "getattr"}
+# Discover the complete syntax operator class; only spelling differences are mapped.
+SPELLING = {"mult": "mul", "div": "truediv"}
+ARITHMETIC_METHODS = {f"__{prefix}{SPELLING.get(name, name)}__"
+    for operation in ast.operator.__subclasses__()
+    for name in (operation.__name__.lower().removeprefix("bit"),)
+    for prefix in ("", "r", "i")}
+ARITHMETIC_METHODS.update(f"__{name}__" for name in ("neg", "pos", "invert", "abs", "round", "divmod"))
+DENIED.update(ARITHMETIC_METHODS)
 
 
 # These predicates validate JSON shape/bounds, not network or fact values.

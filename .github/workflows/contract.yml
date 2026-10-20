@@ -4,6 +4,9 @@ on:
   merge_group:
   push:
     branches: [main]
+concurrency:
+  group: ct-${{ github.workflow }}-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
