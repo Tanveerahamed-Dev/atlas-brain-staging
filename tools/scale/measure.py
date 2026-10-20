@@ -70,7 +70,7 @@ def kill_tree(processes):
 
 
 def measure(input_root, output_root, runtime, size, dense=False, workers=4, recycle=None,
-            container=False, cap=2**31, fault="none", cancel_half=False, environment=None):
+            container=False, cap=2**31, fault="none", cancel_half=False, environment=None, interpreter="3.14.8"):
     output_root.mkdir(parents=True, exist_ok=False)
     control = output_root / "control"
     control.mkdir()
@@ -101,7 +101,9 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
                       "--mount", f"type=bind,src={output_root.resolve()},dst=/run", "--workdir", "/repo"]
             if cap:
                 create += ["--memory", str(cap), "--memory-swap", str(cap)]
-            container_id = command(*(create + ["python:3.14.8-slim"] + arguments))
+            for key, value in (environment or {}).items():
+                create += ["--env", f"{key}={value}"]
+            container_id = command(*(create + [f"python:{interpreter}-slim"] + arguments))
             started = time.monotonic()
             process = subprocess.Popen(["docker", "start", "--attach", container_id], stdout=logfile, stderr=subprocess.STDOUT)
             pid = 0
@@ -115,7 +117,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             root_process = psutil.Process(pid)
             cg = cgroup_files(pid)
         else:
-            arguments = [str(runtime)] + FLAGS + [str(ROOT / "spike" / "bootstrap.py"), "--root", str(input_root.resolve()), "--out", str(result.resolve()), "--receipt", str(engine_receipt.resolve()), "--control", str(control.resolve()), "--workers", str(workers), "--fault", fault]
+            arguments = [str(runtime)] + FLAGS + [str(ROOT / "spike" / "bootstrap.py"), "--root", str(input_root.absolute()), "--out", str(result.resolve()), "--receipt", str(engine_receipt.resolve()), "--control", str(control.resolve()), "--workers", str(workers), "--fault", fault]
             if recycle:
                 arguments += ["--recycle", str(recycle)]
             options = {"env": dict(os.environ, **(environment or {})), "stdout": logfile, "stderr": subprocess.STDOUT}

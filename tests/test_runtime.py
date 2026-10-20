@@ -2,11 +2,26 @@
 from pathlib import Path
 import tempfile
 import unittest
+import os
+import subprocess
+import sys
 
 from spike.safety import census, verify_catalogue
 
 
 class AdmissionTests(unittest.TestCase):
+    def test_creation_grammar_allows_only_real_spawn_shapes(self):
+        from spike.safety import _creation_allowed
+        executable = sys._base_executable if os.name == "nt" else sys.executable
+        prefix = [executable] + subprocess._args_from_interpreter_flags()
+        code = "from multiprocessing.spawn import spawn_main; spawn_main(" + ("parent_pid=1, pipe_handle=2)" if os.name == "nt" else "tracker_fd=1, pipe_handle=2)")
+        argv = prefix + ["-c", code, "--multiprocessing-fork"]
+        args = (executable, " ".join('"' + s + '"' for s in argv), None) if os.name == "nt" else ([os.fsencode(executable)], [os.fsencode(v) for v in argv], None)
+        self.assertTrue(_creation_allowed(args))
+        argv[-2] = "print('planted arbitrary code')"
+        bad = (executable, " ".join('"' + s + '"' for s in argv), None) if os.name == "nt" else ([os.fsencode(executable)], [os.fsencode(v) for v in argv], None)
+        self.assertFalse(_creation_allowed(bad))
+
     def test_five_startup_witnesses(self):
         witnesses = {
             "probe.pth": "import socket; socket.socket()\n",

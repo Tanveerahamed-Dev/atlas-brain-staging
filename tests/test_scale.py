@@ -108,6 +108,13 @@ class ParserTests(unittest.TestCase):
 
 
 class ThresholdTests(unittest.TestCase):
+    def test_determinism_covering_design(self):
+        from collections import Counter
+        design = json.loads(workload.SPEC.with_name("determinism-design.json").read_bytes())
+        self.assertEqual(len(design), 12)
+        for axis in ("interpreter", "seed", "workers", "recycle", "path", "drive", "tz", "lang", "capped", "container"):
+            self.assertGreaterEqual(min(Counter(row[axis] for row in design).values()), 2, axis)
+
     def test_private_runner_never_gets_reference_pass(self):
         rows = [{"status": "ok", "size": 1000, "dense": False,
                  "wall_s": 100, "cap_bytes": 2**31,

@@ -156,7 +156,7 @@ def execute(args, startup_modules):
         grouped = [[] for _ in range(doc["size"])]
         for item in doc["artifacts"]:
             grouped[item["node"]].append(item)
-        payloads = [{"node": i, "profile": items[0]["profile"], "root": str(args.root.resolve()),
+        payloads = [{"node": i, "profile": items[0]["profile"], "root": str(args.root.absolute()),
                      "pending": str(pending.resolve()), "captures": items, "control": str(args.control.resolve()), "fault": args.fault} for i, items in enumerate(grouped)]
         transfer_wall = time.perf_counter_ns()
         task_bytes = sum(len(pickle.dumps(item)) for item in payloads)

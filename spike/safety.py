@@ -27,7 +27,9 @@ def _creation_allowed(args):
         return False
     if os.name == "nt":
         application, command = args[:2]
-        if application is not None and os.path.normcase(application) != os.path.normcase(sys.executable):
+        # CPython's Windows venv spawn bypasses the redirector via this exact base.
+        executable = sys._base_executable if sys.executable != sys._base_executable else sys.executable
+        if application is not None and os.path.normcase(application) != os.path.normcase(executable):
             return False
         # Windows quoting and numeric handles are checked, never arbitrary code.
         import re
@@ -38,8 +40,9 @@ def _creation_allowed(args):
         if [os.fsdecode(e) for e in executable_list] != [sys.executable]:
             return False
         values = [os.fsdecode(value) for value in argv]
+        executable = sys.executable
     import subprocess
-    prefix = [sys.executable] + subprocess._args_from_interpreter_flags()
+    prefix = [executable] + subprocess._args_from_interpreter_flags()
     if values[:len(prefix)] != prefix:
         return False
     import re
