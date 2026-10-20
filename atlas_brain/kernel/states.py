@@ -188,7 +188,8 @@ class Known[T]:
     def __post_init__(self) -> None:
         require(type(self.basis) is Basis, 'invalid_basis')
         evidence_tuple(self.evidence, nonempty=True)
-        if isinstance(self.value, (tuple, list, dict, set, frozenset)) and not self.value:
+        require(type(self.value) not in (list, dict, set, frozenset), 'mutable_or_unordered_value')
+        if self.value == ():
             absence_witness(self.evidence)
         require(self.raw is None or type(self.raw) is str, 'invalid_raw')
 
