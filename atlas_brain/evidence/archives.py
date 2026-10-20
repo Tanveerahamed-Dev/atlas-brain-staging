@@ -67,6 +67,8 @@ def zip_members(path: Path, budgets: Budgets) -> dict[str, bytes]:
                         raise AdmissionRefused("zip_path_conflict")
                 for entry, name in zip(entries, names, strict=True):
                     mode = entry.external_attr >> 16
+                    if entry.extract_version >= 45:
+                        raise AdmissionRefused("unsupported_zip_profile")
                     if entry.flag_bits & 1:
                         raise AdmissionRefused("encrypted_zip_member")
                     if entry.compress_type not in (ZIP_STORED, ZIP_DEFLATED):
