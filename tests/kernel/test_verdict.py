@@ -5,8 +5,15 @@ import pytest
 from atlas_brain.kernel.admissibility import Admission
 from atlas_brain.kernel.population import ExpectedSet
 from atlas_brain.kernel.states import (
-    Basis, ByteSpan, CaptureId, EntityKey, EvidenceRef, EvidenceRole, Known,
-    Unknown, UnknownReason,
+    Basis,
+    ByteSpan,
+    CaptureId,
+    EntityKey,
+    EvidenceRef,
+    EvidenceRole,
+    Known,
+    Unknown,
+    UnknownReason,
 )
 from atlas_brain.kernel.verdict import (
     CheckInput,
@@ -36,12 +43,12 @@ def spec():
                      severity='major', aggregates=())
 
 
-def run(fact, state=CheckState.OK, reason='healthy', policy=None, closed=True, aggregates=(), predicate=None):
+def run(fact, state=CheckState.OK, reason='healthy', policy=None, closed=True, aggregates=(), predicate=None, extra=()):
     expected = ExpectedSet(population='example.population', candidates=('node:a',), members=('node:a',),
                            member_evidence=(('node:a', (evidence(),)),), exclusions=(), unresolved=(),
                            closed=closed, lower_bound_nodes=(), closure_evidence=(evidence(),))
     return verdict(spec=policy or spec(), subject=EntityKey('node:a'), expected=expected,
-                   inputs=(('example.fact', fact),), aggregates=aggregates,
+                   inputs=(('example.fact', fact),) + extra, aggregates=aggregates,
                    admissions=((CaptureId('cap:synthetic'), Admission(problem=True, ok=True, population=True, reason=None)),),
                    predicate=predicate or (lambda facts: Decision(state=state, reason=reason, proofs=tuple(facts), params=())))
 
@@ -58,6 +65,15 @@ def test_positive_observation_can_be_ok_and_wrong_reason_state_is_refused():
     bad = run(fact, CheckState.PROBLEM, 'healthy')
     assert bad.state is CheckState.UNKNOWN
     assert bad.reason == 'analysis_failed'
+
+
+def test_problem_from_known_subset_retains_missing_input():
+    fact = Known(value=1, basis=Basis.OBSERVED, evidence=(evidence(),), raw=None)
+    missing = Unknown(reason=UnknownReason.NOT_COLLECTED, detail=None, evidence=(), candidates=(), next_evidence=())
+    policy = replace(spec(), inputs=spec().inputs + (CheckInput(ref='example.peer', role='required', accepts_absent=False),))
+    result = run(fact, CheckState.PROBLEM, 'broken', policy=policy, extra=(('example.peer', missing),))
+    assert result.state is CheckState.PROBLEM
+    assert result.reason == 'broken'
 
 
 def test_open_denominator_and_disallowed_basis_cannot_be_ok():

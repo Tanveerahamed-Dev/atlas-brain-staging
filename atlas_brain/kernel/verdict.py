@@ -13,9 +13,22 @@ from typing import Literal, assert_never, final
 from .admissibility import Admission
 from .population import ExpectedSet
 from .states import (
-    Absent, Basis, ByteSpan, CaptureId, EntityKey, Evidence, EvidenceNeed,
-    EvidenceRef, EvidenceRole, Fact, Known, NotApplicable, Unknown, UnknownReason,
-    evidence_tuple, require,
+    Absent,
+    Basis,
+    ByteSpan,
+    CaptureId,
+    EntityKey,
+    Evidence,
+    EvidenceNeed,
+    EvidenceRef,
+    EvidenceRole,
+    Fact,
+    Known,
+    NotApplicable,
+    Unknown,
+    UnknownReason,
+    evidence_tuple,
+    require,
 )
 
 type Scalar = str | int | bool | None
