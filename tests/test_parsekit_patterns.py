@@ -34,3 +34,9 @@ def test_invalid_regex_is_refused():
 
 def test_ascii_digit_class_does_not_accept_unicode():
     assert compile_pattern(r"\d+").fullmatch("١".encode()) is None
+
+
+@pytest.mark.parametrize("pattern", [r"(a{,3})+", r"(a{,})+", r"(a{2}){,4}"])
+def test_omitted_repeat_lower_bound_cannot_bypass_lint(pattern):
+    with pytest.raises(ValueError):
+        compile_pattern(pattern)
