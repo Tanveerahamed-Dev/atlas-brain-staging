@@ -122,3 +122,17 @@ def test_closed_map_snapshots_the_source_dictionary():
     rows["full"] = Duplex.HALF
     result = run_rules(b"duplex full\n", CaptureId("cap-a"), table(), (("duplex", mapping),))
     assert result.records[0].fields[0][1].value is Duplex.FULL
+
+
+@pytest.mark.parametrize("kind", ["enter_state", "leave_state", "record"])
+def test_planted_no_value_catchall_cannot_consume_unknown_evidence(kind):
+    rule = Rule("swallow", "start", ".*+", kind, "start", "", ())
+    with pytest.raises(ValueError):
+        run_rules(b"unknown evidence\n", CaptureId("cap-a"), (rule,), ())
+
+
+@pytest.mark.parametrize("pattern", ["", ".", r"[A-Z]++", r"\w++"])
+def test_no_value_rules_require_nonempty_fixed_literal_markers(pattern):
+    rule = Rule("swallow", "start", pattern, "record", "start", "", ())
+    with pytest.raises(ValueError):
+        run_rules(b"unknown evidence\n", CaptureId("cap-a"), (rule,), ())
