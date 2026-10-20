@@ -53,20 +53,29 @@ def child_probe(args, payload) -> int:
     root.mkdir(parents=True, exist_ok=True)
     violations, imported = [], []
     reason, code = None, 1
+    terminate = os._exit
     sys.dont_write_bytecode = True
     mutations = {"os.remove", "os.rmdir", "os.mkdir", "os.rename", "os.link", "os.symlink", "os.chmod", "os.chown", "os.utime", "os.truncate"}
     def audit(event, values):
-        paths = []
-        if event == "open" and values[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
-            paths = values[:1]
-        elif event in mutations:
-            paths = values[:2] if event in {"os.rename", "os.link", "os.symlink"} else values[:1]
-        if event in {"subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork", "os.forkpty", "os.startfile", "os.startfile/2", "os.link", "os.symlink"}:
-            paths = [None]
-        for path in paths:
-            if not contract_path(path, root, directory=event == "os.mkdir"):
-                violations.append(event)
-                raise RuntimeError("non-contract output refused")
+        checked = False
+        try:
+            paths = []
+            if event == "open" and values[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
+                paths = values[:1]
+            elif event in mutations:
+                paths = values[:2] if event in {"os.rename", "os.link", "os.symlink"} else values[:1]
+            if event in {"subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork", "os.forkpty", "os.startfile", "os.startfile/2", "os.link", "os.symlink"}:
+                paths = [None]
+            for path in paths:
+                if not contract_path(path, root, directory=event == "os.mkdir"):
+                    violations.append(event)
+                    print(json.dumps({"nonce": payload["nonce"], "completed": False, "modules": imported,
+                                      "violations": violations, "reason": "audit refusal"}), flush=True)
+                    terminate(1)
+            checked = True
+        finally:
+            if not checked:
+                terminate(1)
     sys.addaudithook(audit)
     try:
         if args.probe == "engine":
@@ -121,7 +130,7 @@ def main() -> int:
         receipt = json.loads(result.stdout)
         if not isinstance(receipt, dict) or receipt.get("nonce") != nonce:
             raise ValueError("missing completion receipt")
-        completed = (result.returncode == 0 and receipt.get("completed") is True
+        completed = (result.returncode == 0 and not result.stderr and receipt.get("completed") is True
                      and receipt.get("modules") == [name for name, _ in census] and receipt.get("violations") == [])
         receipt.pop("nonce")
         receipt["completed"] = completed
