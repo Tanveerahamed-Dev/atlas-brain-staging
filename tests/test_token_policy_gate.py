@@ -32,6 +32,7 @@ def _tree(tmp_path, source):
     "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes, evidence):\n original = raw\n if raw != b'full': raw = b'full'\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return Known(value=text, basis=Basis.OBSERVED, evidence=evidence, raw=original.decode('ascii'))\n",
     "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes):\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return text.startswith('half')\n",
     "def decode(token: bytes): return token[:4]\n",
+    "def reject(reason, detail) -> Unknown: return Known(value=True)\ndef decode(field):\n text = field.raw\n if any(ord(char) < 32 for char in text): return reject(None, text)\n return Known(value=text, basis=Basis.OBSERVED, raw=text)\n",
     "def truth(x):\n return bool(x)\ndef decode(field, evidence): return Known(value=truth(field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
     "def truth(x):\n return bool(x)\nconvert = truth\ndef decode(field, evidence): return Known(value=convert(field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
     "def apply(fn, x): return fn(x)\ndef decode(field, evidence): return Known(value=apply(bool, field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
@@ -66,6 +67,7 @@ def test_foreign_pack_violation_is_discovered_without_registration(tmp_path, sou
 
 
 @pytest.mark.parametrize("source", [
+    "def reject(reason, detail) -> Unknown: return Unknown(reason=reason, detail=detail)\ndef decode(field):\n text = field.raw\n if any(ord(char) < 32 for char in text): return reject(UnknownReason.PARSE_PARTIAL, text)\n reason = UnknownReason.CAPTURE_ERROR if text else UnknownReason.EMPTY_UNREGISTERED\n if not text: return reject(reason, text)\n return Known(value=text, basis=Basis.OBSERVED, raw=text)\n",
     "def decode(field): return TABLE.resolve(field)\n",
     "def exact(token): return token\ndef decode(field): return exact(field.raw)\n",
     "def metadata():\n text = 'status'\n return Unknown()\ndef decode(field):\n text = field.raw\n return Known(value=text, basis=Basis.OBSERVED, raw=text)\n",
