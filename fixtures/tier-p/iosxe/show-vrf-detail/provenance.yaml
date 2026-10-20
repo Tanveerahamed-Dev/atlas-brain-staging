@@ -1,0 +1,34 @@
+fixture_id: iosxe-show-vrf-detail-public-001
+tier: P
+source:
+  kind: library_testdata
+  repository:
+    url: "https://github.com/netenglabs/suzieq"
+    commit: "75198b5585ebef91f0659b6b1ec3c964cc2cd1ad"
+    path: "tests/integration/nossim/iosxe/16.10.1/C9300/show_vrf_detail.txt"
+  archive_sha256: "977452f540f0863ee84c9ee7d172738775e6353596cb13161b4dcb1f47297963"
+capture:
+  tool: unstated
+  form: "iosxe.show_vrf_detail"
+  utc: null
+  attempted: null
+  succeeded: null
+  read_scope: unstated
+platform:
+  family: iosxe
+  model: "C9300"
+  version: "16.10.1"
+  version_basis: source_stated
+licence:
+  name: Apache-2.0
+  redistribution: public
+  notice: "../../_licences/suzieq/NOTICE"
+sha256: "61938c1dae531302c13fe2396ec689acad731f4ae83e12f86b258b8209163ed6"
+privacy:
+  scanner_version: q-public-import-v1
+  result: pass
+  exemption: null
+line_count: 25
+format_floor: false
+format_floor_hold: source_version_conflict
+version_caveat: 'Path label is 16.10.1; sibling show_version.txt reports BLD_V1610_THROTTLE_LATEST_20180903_070602_V16_10_0_101_2. Exact capture train requires source clarification.'
