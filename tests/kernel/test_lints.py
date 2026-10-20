@@ -33,13 +33,18 @@ def test_every_lint_fires_on_its_plant(rule, source):
     ('from atlas_brain.kernel.verdict import CheckResult as R\nr = R()', 4),
     ('try:\n pass\nexcept BaseException as e:\n pass', 5),
     ('from math import sqrt', 7),
+    ('value = 1.5', 7),
+    ('class R:\n value: float', 7),
     ('from zoneinfo import ZoneInfo as Z\nz = Z("UTC")', 8),
     ('import datetime as d\nx = d.datetime.now()', 9),
+    ('from os import environ as env\nx = env["X"]', 9),
     ('from pathlib import Path\nx = Path("x").read_text()', 10),
     ('def f(xs: frozenset[str]):\n for x in xs:\n  pass', 11),
     ('import re as r\nx = r.compile("abc")', 12),
     ('class Forged(kernel.Unknown):\n pass', 13),
+    ('class Forged(Known[int]):\n pass', 13),
     ('import socket as s', 14),
+    ('from urllib import request as r', 14),
     ('x = __import__("pack")', 15),
 ])
 def test_alias_and_alternate_plants(source, rule):

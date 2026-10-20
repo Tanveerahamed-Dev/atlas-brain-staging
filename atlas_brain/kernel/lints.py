@@ -67,6 +67,8 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             return aliases[node.id] if node.id in aliases else node.id
         if isinstance(node, ast.Attribute):
             return name(node.value) + '.' + node.attr
+        if isinstance(node, ast.Subscript):
+            return name(node.value)
         return ''
 
     def tail(node: ast.AST) -> str:
@@ -82,6 +84,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
     sets: set[str] = set()
     for node in ast.walk(tree):
+        if fact_path and ((isinstance(node, ast.Constant) and type(node.value).__name__ == 'float') or
+                          (isinstance(node, ast.Name) and node.id == 'float')):
+            hit(7, node)
         if isinstance(node, ast.AnnAssign) and contains(node.annotation, ('set', 'frozenset')):
             if isinstance(node.target, ast.Name):
                 sets.add(node.target.id)
@@ -115,7 +120,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             if broad and path != 'atlas_brain/runner/__main__.py':
                 hit(5, node)
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or '']
+            modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or '', *[f'{node.module}.{a.name}' for a in node.names]]
             for module in modules:
                 if fact_path and (module == 'math' or module.startswith('math.')):
                     hit(7, node)
@@ -127,7 +132,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             iterator = node.iter
             if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and tail(iterator.func) in ('set', 'frozenset')):
                 hit(11, node)
-        if isinstance(node, ast.Attribute) and fact_path and name(node) in ('os.environ', 'os.environb'):
+        if isinstance(node, (ast.Attribute, ast.Name)) and fact_path and name(node) in ('os.environ', 'os.environb'):
             hit(9, node)
         if not isinstance(node, ast.Call):
             continue
