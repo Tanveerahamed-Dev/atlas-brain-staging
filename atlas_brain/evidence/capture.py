@@ -94,7 +94,7 @@ class Capture:
         k.evidence_tuple(self.read_scope_evidence, nonempty=self.read_scope is not k.ReadScope.UNKNOWN)
         k.require(type(self.collected_utc) in (TimeInterval, k.Unknown), "invalid_collector_time")
         if isinstance(self.collected_utc, TimeInterval):
-            k.require(self.collected_utc.bound is BoundSource.COLLECTOR_RECORDED
+            k.require(self.collected_utc.bound in (BoundSource.COLLECTOR_RECORDED, BoundSource.UNBOUNDED)
                       and self.collected_utc.clock.startswith("collector:"), "recorded_collector_time_required")
 
     @property

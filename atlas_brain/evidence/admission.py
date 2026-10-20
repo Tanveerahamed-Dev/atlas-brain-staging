@@ -252,12 +252,10 @@ def capture_metadata(row: dict[str, object], source: k.EntityKey, witness: k.Evi
     if not version_two or row["collected_utc"] is None:
         return result, unrecorded_time(witness)
     time = record(row["collected_utc"], ("earliest", "latest", "clock", "bound"))
-    if type(time["earliest"]) is not int or type(time["latest"]) is not int or time["bound"] != "collector_recorded":
-        raise AdmissionRefused("invalid_collector_time")
     try:
-        interval = TimeInterval(earliest=time["earliest"], latest=time["latest"], clock=string(time, "clock"),
-                                bound=BoundSource.COLLECTOR_RECORDED)
-        if not interval.clock.startswith("collector:"):
+        interval = TimeInterval(earliest=cast(int | None, time["earliest"]), latest=cast(int | None, time["latest"]),
+                                clock=string(time, "clock"), bound=BoundSource(string(time, "bound")))
+        if not interval.clock.startswith("collector:") or interval.bound not in (BoundSource.COLLECTOR_RECORDED, BoundSource.UNBOUNDED):
             raise ValueError("collector_clock_required")
     except ValueError as error:
         raise AdmissionRefused("invalid_collector_time") from error
