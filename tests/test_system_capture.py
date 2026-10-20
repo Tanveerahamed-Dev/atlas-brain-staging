@@ -3,7 +3,13 @@ from hashlib import sha256
 
 import pytest
 
-from atlas_brain.evidence.capture import Capture, Channel, ErrorKind, Scope, unrecorded_time
+from atlas_brain.evidence.capture import (
+    Capture,
+    Channel,
+    ErrorKind,
+    Scope,
+    unrecorded_time,
+)
 from atlas_brain.evidence.text import text_lines
 from atlas_brain.kernel import states as k
 from atlas_brain.kernel.time import BoundSource, TimeInterval
@@ -29,8 +35,9 @@ def record(raw=RAW, operation="iosxe.show_version", rendered="show version",
                    view=k.ViewConsistency.SINGLE_RESPONSE, envelope=None, raw=raw, lines=text_lines(raw, codec))
 
 
-def test_capture_binding_preserves_observed_fields_and_time_unknown():
-    item = record()
+@pytest.mark.parametrize("codec", ["utf-8", "ascii"])
+def test_capture_binding_preserves_observed_fields_and_time_unknown(codec):
+    item = record(codec=codec)
     result = build_capture(item)
     assert isinstance(result.image, k.Known)
     assert result.image.value == "bootflash:packages.conf"
