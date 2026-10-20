@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -6,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tools.output_witness import contract_path
+from tools.fence import source_allowed
 
 
 @pytest.mark.parametrize("probe,expected", [("engine", 0), ("inside", 0), ("noncontract", 1), ("outside", 1), ("rename", 1), ("launch", 1)] + ([("fork", 1)] if hasattr(os, "fork") else []))
@@ -70,3 +72,54 @@ def test_namespace_module_write_is_exercised_and_refused(tmp_path):
                             capture_output=True, check=False)
     assert result.returncode == 1, result.stderr
     assert not (tmp_path / "forbidden").exists()
+
+
+def run_synthetic_engine(tmp_path, files):
+    package = tmp_path / "atlas_brain"
+    for name, source in files.items():
+        file = package / name
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(source, encoding="utf-8")
+    tool = str(Path("tools/output_witness.py").resolve())
+    return subprocess.run([sys.executable, tool, "--root", str(tmp_path / "contract")], cwd=tmp_path,
+                          env={**os.environ, "PYTHONPATH": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"},
+                          capture_output=True, text=True, check=False)
+
+
+@pytest.mark.parametrize("plant", ["module_exit", "root_exit", "caught_write_exit", "caught_write_continue", "silent_exit"])
+def test_early_success_or_swallowed_violation_cannot_pass(tmp_path, plant):
+    source = "raise SystemExit(0)"
+    if plant.startswith("caught_write"):
+        source = ("from pathlib import Path\ntry:\n Path(" + repr(str(tmp_path / "forbidden"))
+                  + ").write_text('x', encoding='utf-8')\nexcept RuntimeError:\n pass\n"
+                  + ("raise SystemExit(0)" if plant == "caught_write_exit" else ""))
+    if plant == "silent_exit":
+        source = "import os\nos._exit(0)"
+    assert source_allowed(source) is (plant != "silent_exit")
+    last = "from pathlib import Path\nPath(" + repr(str(tmp_path / "contract/result.json")) + ").write_text('{}', encoding='utf-8')"
+    files = {"__init__.py": source if plant == "root_exit" else "",
+             "aa_first.py": "" if plant == "root_exit" else source, "zz_last.py": last}
+    result = run_synthetic_engine(tmp_path, files)
+    assert result.returncode == 1, result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["completed"] is False
+    assert not (tmp_path / "forbidden").exists()
+    assert (tmp_path / "contract/result.json").exists() is (plant == "caught_write_continue")
+    if plant.startswith("caught_write"):
+        assert "open" in receipt["violations"]
+
+
+def test_completion_receipt_follows_all_real_imports(tmp_path):
+    last = "from pathlib import Path\nPath(" + repr(str(tmp_path / "contract/result.json")) + ").write_text('{}', encoding='utf-8')"
+    result = run_synthetic_engine(tmp_path, {"__init__.py": "", "aa_first.py": "", "zz_last.py": last})
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["completed"] is True and receipt["violations"] == []
+    assert receipt["modules"] == ["atlas_brain", "atlas_brain.aa_first", "atlas_brain.zz_last"]
+    assert (tmp_path / "contract/result.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_import_origin_must_match_planned_source(tmp_path):
+    result = run_synthetic_engine(tmp_path, {"__init__.py": "__file__ = 'other.py'", "probe.py": ""})
+    assert result.returncode == 1, result.stderr
+    assert json.loads(result.stdout)["completed"] is False
