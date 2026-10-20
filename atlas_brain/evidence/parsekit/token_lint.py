@@ -38,7 +38,9 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    assignments.setdefault(target.id, []).append(node.value)
+                    if target.id not in assignments:
+                        assignments[target.id] = []
+                    assignments[target.id].append(node.value)
     tables = {name for name, values in assignments.items() if all(
         isinstance(value, ast.Dict) or (isinstance(value, ast.Call)
         and isinstance(value.func, ast.Name) and value.func.id == "dict") for value in values
