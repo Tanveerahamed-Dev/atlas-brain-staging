@@ -23,6 +23,7 @@ from atlas_brain.kernel.token_lints import bound_names, fallback_node
     'value = 1 if raw == "up" else 2',
     'def mapped(raw):\n if raw == "up": return "up"\n else: return "up" + ""',
     'def mapped(raw):\n if raw == "up": raise ValueError("refused")\n else: return "up" + ""',
+    'def map_state(raw):\n if raw == "up": return "up"\n else: pass\n return "up"',
     'if raw == "up": value = "up"\nelse: value = "up" + ""',
     'value = "up" if raw == "up" else "up" + ""',
     'def assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"',
