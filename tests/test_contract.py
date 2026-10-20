@@ -49,7 +49,9 @@ def test_manifest_refuses_unsafe_or_noncontract_names(name):
 @pytest.mark.parametrize("plant", ["x = a + b", "x += 1", "x = a * b",
     "x = -a", "x = a < b", "x = a == b", "x = sum(rows)",
     "x = min(rows)", "x = statistics.mean(rows)", "from operator import add",
-    "import math", "f = sum", "from builtins import sum as fold"])
+    "import math", "f = sum", "from builtins import sum as fold",
+    "x: a + b", "x: tuple[sum(rows)]", "type X = a + b", "x = ~a",
+    "x = value.__add__(other)", "x = eval(source)"])
 def test_contract_lint_fires_on_each_planted_computation(plant):
     assert violations(plant)
 
@@ -90,3 +92,14 @@ def test_schema_is_202012_generated_and_integer_bounded():
 def test_schema_fails_closed_on_unsupported_types(annotation):
     with pytest.raises(TypeError):
         schema_for(annotation, "0.1.0")
+
+
+def test_planted_arithmetic_fails_real_lint_entrypoint(tmp_path):
+    import subprocess
+    import sys
+    plant = tmp_path / "projection.py"
+    plant.write_text("result = left + right", encoding="utf-8")
+    result = subprocess.run([sys.executable, "tools/contract_lint.py", str(plant)],
+        capture_output=True, text=True, check=False)
+    assert result.returncode == 1
+    assert "computation refused" in result.stdout
