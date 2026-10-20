@@ -6,9 +6,10 @@ from pathlib import Path
 import statistics
 
 
-def judge(rows):
+def judge(rows, os_name=None):
     missing, breaches, aggregates = [], [], []
-    for os_name in ("Linux", "Windows"):
+    operating_systems = (os_name,) if os_name else ("Linux", "Windows")
+    for os_name in operating_systems:
         for size in (100, 300, 1000):
             selected = [r for r in rows if r.get("os") == os_name and r.get("size") == size and not r.get("dense")]
             valid = [r for r in selected if r.get("status") == "ok"]
@@ -48,13 +49,15 @@ def judge(rows):
                 if exponent > 1.3:
                     breaches.append(f"{os_name}: {stage} superlinear algorithm")
     full = [r.get("manifest_sha256") for r in rows if r.get("size") == 1000 and not r.get("dense") and r.get("status") == "ok"]
-    if len(full) == 10 and (None in full or len(set(full)) != 1):
+    if len(full) != 5 * len(operating_systems):
+        missing.append("full-volume manifest count")
+    elif None in full or len(set(full)) != 1:
         breaches.append("full-volume determinism")
     failures = [r for r in rows if r.get("status") != "ok"]
     reference = bool(rows) and all(r.get("runner", {}).get("cpu_count") == 4 and r.get("runner", {}).get("memory_bytes", 0) >= 15 * 2**30 for r in rows)
     if not reference:
         missing.append("4-vCPU/16-GB reference runner")
-    return {"schema": 1, "reference_verdict": "pass" if not missing and not failures and not breaches else "not_verified",
+    return {"schema": 1, "operating_systems": operating_systems, "reference_verdict": "pass" if not missing and not failures and not breaches else "not_verified",
             "observed_status": "failed" if failures or breaches else "partial" if missing else "pass",
             "missing": missing, "breaches": breaches, "aggregates": aggregates,
             "language_verdict": "not_verified (bounded profiling and S0-b remain separate)"}
@@ -64,6 +67,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("raw", type=Path)
     parser.add_argument("out", type=Path)
+    parser.add_argument("--os-name", choices=("Linux", "Windows"))
     args = parser.parse_args()
     rows = [json.loads(p.read_bytes()) for p in sorted(args.raw.rglob("measurement.json"))]
-    args.out.write_text(json.dumps(judge(rows), indent=2) + "\n", encoding="ascii")
+    result = judge(rows, args.os_name)
+    args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="ascii")
+    if args.os_name and result["reference_verdict"] != "pass":
+        raise SystemExit(1)

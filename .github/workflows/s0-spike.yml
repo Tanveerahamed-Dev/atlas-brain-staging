@@ -45,7 +45,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python -m pip install psutil==7.2.2
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -m unittest tools.scale.test_sampler -v
+          python -X warn_default_encoding -W error::EncodingWarning -m unittest tools.scale.test_sampler -v
           exit $LASTEXITCODE
       - name: End-to-end 100-device smoke (uncapped, not acceptance)
         run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 100 --repetitions 1 --host --raw .s0/smoke/raw
@@ -133,10 +133,12 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           if (-not $IsWindows) { docker pull python:3.14.8-slim }
           exit $LASTEXITCODE
-      - name: Five full-volume runs, hard 2 GiB cap
-        run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 1000 --repetitions 5 --raw .s0/full/raw
+      - name: Five runs at all sizes on this same runner, hard 2 GiB cap
+        run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 100 300 1000 --repetitions 5 --raw .s0/full/raw
       - name: One dense stress run, hard 4 GiB cap
         run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 1000 --repetitions 1 --dense --raw .s0/full/raw
+      - name: Enforce same-runner thresholds without changing any budget
+        run: python tools/scale/thresholds.py .s0/full/raw .s0/full/thresholds.json --os-name ${{ runner.os }}
       - name: Separate full unconfined-host equality witness
         if: runner.os == 'Linux'
         run: |

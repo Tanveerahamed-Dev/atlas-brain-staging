@@ -181,6 +181,21 @@ class ParserTests(unittest.TestCase):
 
 
 class ThresholdTests(unittest.TestCase):
+    def test_same_runner_scaling_breach_fails_the_local_gate(self):
+        rows = []
+        for size in (100, 300, 1000):
+            for _ in range(5):
+                rows.append({"status": "ok", "size": size, "dense": False, "wall_s": 60 if size == 1000 else 3,
+                             "cap_bytes": 2**31, "cap_verified": True, "os": "Linux", "manifest_sha256": "a" * 64,
+                             "runner": {"cpu_count": 4, "memory_bytes": 16 * 2**30},
+                             "stages": {"intake": {"wall_ns": 100000000}, "device": {"wall_ns": (40 if size == 1000 else 2) * 10**9},
+                                        "estate": {"wall_ns": 100000000}, "output": {"wall_ns": 100000000}}})
+        rows.append({"status": "ok", "size": 1000, "dense": True, "wall_s": 90, "cap_bytes": 4 * 2**30,
+                     "cap_verified": True, "os": "Linux", "runner": {"cpu_count": 4, "memory_bytes": 16 * 2**30}})
+        verdict = judge(rows, os_name="Linux")
+        self.assertEqual(verdict["reference_verdict"], "not_verified")
+        self.assertIn("Linux: device superlinear algorithm", verdict["breaches"])
+
     def test_determinism_covering_design(self):
         from collections import Counter
         design = json.loads(workload.SPEC.with_name("determinism-design.json").read_bytes())
