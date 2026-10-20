@@ -95,6 +95,8 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             arguments = ["python"] + FLAGS + ["/repo/spike/bootstrap.py", "--root", "/input", "--out", "/run/result", "--receipt", "/run/engine.json", "--control", "/run/control", "--workers", str(workers), "--fault", fault]
             if recycle:
                 arguments += ["--recycle", str(recycle)]
+            if cancel_half:
+                arguments += ["--pause-at-half"]
             create = ["docker", "create", "--network", "none", "--user", f"{os.getuid()}:{os.getgid()}",
                       "--mount", f"type=bind,src={ROOT},dst=/repo,readonly",
                       "--mount", f"type=bind,src={input_root.resolve()},dst=/input,readonly",
@@ -120,6 +122,8 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             arguments = [str(runtime)] + FLAGS + [str(ROOT / "spike" / "bootstrap.py"), "--root", str(input_root.absolute()), "--out", str(result.resolve()), "--receipt", str(engine_receipt.resolve()), "--control", str(control.resolve()), "--workers", str(workers), "--fault", fault]
             if recycle:
                 arguments += ["--recycle", str(recycle)]
+            if cancel_half:
+                arguments += ["--pause-at-half"]
             options = {"env": dict(os.environ, **(environment or {})), "stdout": logfile, "stderr": subprocess.STDOUT}
             if os.name == "nt":
                 from tools.scale.windows_job import Job

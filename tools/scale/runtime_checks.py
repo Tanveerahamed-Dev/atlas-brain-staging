@@ -65,7 +65,7 @@ def main():
             if row["status"] != "ok":
                 break
     else:
-        for index, (fault, cancel) in enumerate((("none", False), ("kill-once", False), ("kill-twice", False), ("none", True), ("memory", False), ("pack", False))):
+        for index, (fault, cancel) in enumerate((("none", False), ("kill-once", False), ("kill-twice", False), ("none", True), ("memory", False), ("pack", False), ("pack", False))):
             rows.append(measure(input_root, args.raw / f"fault-{index}-{fault}", args.runtime, 300,
                                 container=platform.system() == "Linux", fault=fault, cancel_half=cancel))
     digests = [r.get("manifest_sha256") for r in rows if r["status"] == "ok"]
@@ -83,13 +83,15 @@ def main():
         assessment["status"] = "pass" if all_ok and len(rows) == 20 and cv <= 0.1 and len(set(digests)) == 1 else "failed"
         assessment["missing"] = ["per-worker first-task-plateau memory growth decision requires review of USS traces"]
     else:
-        expected = ["ok", "ok", "failed", "failed", "failed", "ok"]
+        expected = ["ok", "ok", "failed", "failed", "failed", "ok", "ok"]
         statuses = [r["status"] for r in rows]
         matching_retry = len(rows) > 1 and rows[0].get("manifest_sha256") == rows[1].get("manifest_sha256")
         clean_abort = all(r.get("prior_intact") and not r.get("result_exists") and not r.get("pending_directories") for r in rows[2:5])
         assessment["single_retry_identical"] = matching_retry
         assessment["clean_abort"] = clean_abort
-        assessment["status"] = "pass" if statuses == expected and matching_retry and clean_abort else "failed"
+        pack_identical = len(rows) == 7 and rows[5].get("manifest_sha256") == rows[6].get("manifest_sha256")
+        assessment["pack_exception_identical"] = pack_identical
+        assessment["status"] = "pass" if statuses == expected and matching_retry and clean_abort and pack_identical else "failed"
     (args.raw / "assessment.json").write_bytes(canonical(assessment))
     hashes = [f"{digest(path.read_bytes())}  {path.relative_to(args.raw).as_posix()}\n" for path in sorted(args.raw.rglob("*")) if path.is_file()]
     (args.raw / "ALL-RAW.sha256").write_text("".join(hashes), encoding="ascii")

@@ -140,3 +140,110 @@ jobs:
           path: .s0/full/
           if-no-files-found: error
           retention-days: 90
+  determinism:
+    needs: pilot
+    if: contains(github.event.head_commit.message, '[qualify]') || inputs.tier == 'qualification'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.14.8', '3.15.0']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 29
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Prepare profile
+        run: |
+          python -m pip install psutil==7.2.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m venv --without-pip .s0/runtime
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $runtime = if ($IsWindows) { '.s0/runtime/Scripts/python.exe' } else { '.s0/runtime/bin/python' }
+          "S0_RUNTIME=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $runtime -I -S tools/scale/prepare.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (-not $IsWindows) { docker pull python:${{ matrix.python }}-slim }
+          exit $LASTEXITCODE
+      - name: Run six of the twelve covering rows
+        run: python tools/scale/runtime_checks.py determinism --runtime $env:S0_RUNTIME --interpreter ${{ matrix.python }} --raw .s0/determinism
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: determinism-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: .s0/determinism/
+          if-no-files-found: error
+          retention-days: 90
+  stability:
+    needs: pilot
+    if: contains(github.event.head_commit.message, '[qualify]') || inputs.tier == 'qualification'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        recycle: ['none', '3']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 29
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.8'
+      - name: Prepare profile
+        run: |
+          python -m pip install psutil==7.2.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m venv --without-pip .s0/runtime
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $runtime = if ($IsWindows) { '.s0/runtime/Scripts/python.exe' } else { '.s0/runtime/bin/python' }
+          "S0_RUNTIME=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $runtime -I -S tools/scale/prepare.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (-not $IsWindows) { docker pull python:3.14.8-slim }
+          exit $LASTEXITCODE
+      - name: Twenty consecutive 300-device runs
+        run: python tools/scale/runtime_checks.py stability --runtime $env:S0_RUNTIME --recycle ${{ matrix.recycle }} --raw .s0/stability
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: stability-${{ matrix.os }}-${{ matrix.recycle }}-${{ github.sha }}
+          path: .s0/stability/
+          if-no-files-found: error
+          retention-days: 90
+  faults:
+    needs: pilot
+    if: contains(github.event.head_commit.message, '[qualify]') || inputs.tier == 'qualification'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 29
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.8'
+      - name: Prepare profile
+        run: |
+          python -m pip install psutil==7.2.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m venv --without-pip .s0/runtime
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $runtime = if ($IsWindows) { '.s0/runtime/Scripts/python.exe' } else { '.s0/runtime/bin/python' }
+          "S0_RUNTIME=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $runtime -I -S tools/scale/prepare.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (-not $IsWindows) { docker pull python:3.14.8-slim }
+          exit $LASTEXITCODE
+      - name: Kill, retry, double kill, cancel, MemoryError and pack exception
+        run: python tools/scale/runtime_checks.py faults --runtime $env:S0_RUNTIME --raw .s0/faults
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: faults-${{ matrix.os }}-${{ github.sha }}
+          path: .s0/faults/
+          if-no-files-found: error
+          retention-days: 90

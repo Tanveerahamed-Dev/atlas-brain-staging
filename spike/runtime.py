@@ -47,7 +47,11 @@ def _fault(payload):
         if count < (1 if fault == "kill-once" else 2):
             mark.write_text(str(count + 1), encoding="ascii")
             # Test-only abrupt worker death; includes Windows TerminateProcess equivalent exit.
-            os._exit(97)
+            if os.name == "nt":
+                import _winapi
+                _winapi.TerminateProcess(_winapi.GetCurrentProcess(), 97)
+            else:
+                os.kill(os.getpid(), signal.SIGKILL)
     if fault == "memory":
         raise MemoryError("planted")
     if fault == "pack":
@@ -61,6 +65,7 @@ def task(payload):
     try:
         _fault(payload)
     except RuntimeError:
+        (Path(payload["pending"]) / f"{name}.json").write_bytes(canonical({"schema": 1, "node": name, "state": "unknown", "reason": "ANALYSIS_FAILED", "facts": []}))
         return {"name": name, "profile": payload["profile"], "estate_rows": [], "route_summary": {"complete": False, "expected_present": False, "evidence": []},
                 "analysis_failed": True, "facts": 0, "pid": os.getpid(), "violations": safety.VIOLATIONS, "wall_ns": time.perf_counter_ns() - start, "cpu_ns": time.process_time_ns() - cpu}
     if payload["fault"] == "probes":
@@ -100,13 +105,13 @@ def task(payload):
             "startup_ns": start - _START, "gc": gc.get_stats()}
 
 
-def pool_run(payloads, workers, recycle, expected, census, catalogue, progress):
+def pool_run(payloads, workers, recycle, expected, census, catalogue, progress, pause_at_half=False):
     completed, pending, failures = [], [], []
     pool = ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("spawn"),
                                max_tasks_per_child=recycle, initializer=initialize, initargs=(expected, census, catalogue))
-    futures = {pool.submit(task, item): item for item in payloads}
     broken = False
     try:
+        futures = {pool.submit(task, item): item for item in payloads}
         for future in as_completed(futures):
             payload = futures[future]
             try:
@@ -120,6 +125,9 @@ def pool_run(payloads, workers, recycle, expected, census, catalogue, progress):
                 raise
             completed.append(result)
             progress.write_bytes(canonical({"completed": len(completed), "total": len(payloads)}))
+            if pause_at_half and len(completed) == len(payloads) // 2:
+                while True:
+                    time.sleep(0.05)  # Test-only cancellation barrier; never in normal runs.
     except BaseException:
         pool.kill_workers()
         raise
@@ -164,7 +172,7 @@ def execute(args, startup_modules):
             raise ValueError("task_payload_budget")
         serialize_ns = time.perf_counter_ns() - transfer_wall
         def devices():
-            results, retry, failures = pool_run(payloads, worker_count, args.recycle, environment(), census, catalogue, args.control / "progress.json")
+            results, retry, failures = pool_run(payloads, worker_count, args.recycle, environment(), census, catalogue, args.control / "progress.json", args.pause_at_half)
             if retry:
                 second, failed, extra = pool_run(retry, 1, args.recycle, environment(), census, catalogue, args.control / "retry-progress.json")
                 if failed:
@@ -218,6 +226,7 @@ def main(startup_modules):
     parser.add_argument("--control", required=True, type=Path)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--recycle", type=int)
+    parser.add_argument("--pause-at-half", action="store_true")
     parser.add_argument("--fault", default="none", choices=("none", "kill-once", "kill-twice", "memory", "pack"))
     args = parser.parse_args()
     if args.workers < 1 or (args.recycle is not None and args.recycle < 1):
@@ -231,5 +240,5 @@ def main(startup_modules):
         execute(args, startup_modules)
     except BaseException as exc:
         args.receipt.parent.mkdir(parents=True, exist_ok=True)
-        args.receipt.write_bytes(canonical({"schema": 1, "status": "failed", "failure": type(exc).__name__, "code": str(exc)[:120]}))
+        args.receipt.write_bytes(canonical({"schema": 1, "status": "failed", "failure": type(exc).__name__, "code": str(exc)[:120], "creations": safety.CREATIONS}))
         raise

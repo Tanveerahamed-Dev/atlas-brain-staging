@@ -64,7 +64,8 @@ def _audit(event, args):
         refused = args[1] != 1  # AF_UNIX only; numeric avoids importing socket in hook.
     if event in ("_posixsubprocess.fork_exec", "_winapi.CreateProcess"):
         allowed = _creation_allowed(args)
-        CREATIONS.append({"event": event, "allowed": allowed, "grammar": "cpython-spawn-or-tracker"})
+        CREATIONS.append({"event": event, "allowed": allowed, "grammar": "cpython-spawn-or-tracker",
+                          "observed": [repr(value) for value in args[:2]]})
         refused = not allowed
     if refused:
         VIOLATIONS += 1
