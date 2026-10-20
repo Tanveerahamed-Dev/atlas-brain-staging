@@ -33,7 +33,9 @@ class TokenMap:
     entries: tuple[tuple[str, StrEnum], ...]
 
     def __post_init__(self) -> None:
-        if (not self.entries or len(dict(self.entries)) != len(self.entries)
+        if (type(self.entries) is not tuple or not self.entries
+                or any(type(row) is not tuple for row in self.entries)
+                or len(dict(self.entries)) != len(self.entries)
                 or any(not _is_enum(v) for _, v in self.entries)
                 or len({type(v) for _, v in self.entries}) != 1):
             raise ValueError("token map requires unique rows from one closed enum")
