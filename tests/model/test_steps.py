@@ -39,7 +39,7 @@ def test_every_entity_mention_precedes_complete_entity_consumption():
              step('mention', mentions=('interface',)),
              step('consumer', consumes=('entities:interface',)))
     result = tuple(s.id for s in order_steps(steps))
-    assert result.index('example.consumer'.replace('.', '/')) > result.index('example/owner')
+    assert result.index('example/consumer') > result.index('example/owner')
     assert result.index('example/consumer') > result.index('example/mention')
 
 
@@ -48,3 +48,9 @@ def test_duplicate_declarations_and_parse_reads_on_derive_are_refused():
         step('a', consumes=('example.fact', 'example.fact'))
     with pytest.raises(ValueError):
         replace(step('a'), reads_operations=('example.read',))
+
+
+def test_device_step_cannot_read_estate_outputs():
+    producer = replace(step('estate', produces=('example.fact',)), scope='estate')
+    with pytest.raises(ValueError, match='device_reads_estate'):
+        order_steps((producer, step('device', consumes=('example.fact',))))
