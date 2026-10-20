@@ -21,6 +21,15 @@ _PARENT = None
 _START = 0
 
 
+def write_node(path, value):
+    # Serialize directly into the unpublished file. Avoid keeping the full
+    # JSON string and encoded bytes beside the device's complete fact rows.
+    with path.open("w", encoding="ascii", newline="\n") as stream:
+        json.dump(value, stream, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        stream.write("\n")
+    return path.stat().st_size
+
+
 def environment():
     return {"flags": list(sys.flags), "path": sys.path, "cwd": os.getcwd(),
             "env": {k: os.environ.get(k) for k in ("TZ", "LANG", "LC_ALL", "PYTHONHASHSEED")},
@@ -134,12 +143,11 @@ def task(payload):
             route_summary["evidence"] = [[item["sha256"], 0, len(body), 1], payload["route_intent_ref"]]
         total_rows += len(parsed["rows"])
     result = {"schema": 1, "node": name, "captures": refs, "facts": facts, "accounting": accounts}
-    raw = canonical(result)
-    (Path(payload["pending"]) / f"{name}.json").write_bytes(raw)
+    written = write_node(Path(payload["pending"]) / f"{name}.json", result)
     return {"name": name, "profile": payload["profile"], "estate_rows": estate, "route_summary": route_summary,
             "stp_expected_root": payload["stp_expected_root"], "stp_intent_ref": payload["stp_intent_ref"],
             "stp_expected_vlan": payload["stp_expected_vlan"],
-            "facts": total_rows, "bytes": len(raw), "pid": os.getpid(), "violations": safety.VIOLATIONS,
+            "facts": total_rows, "bytes": written, "pid": os.getpid(), "violations": safety.VIOLATIONS,
             "environment": environment(), "wall_ns": time.perf_counter_ns() - start, "cpu_ns": time.process_time_ns() - cpu,
             "process_cpu_ns": time.process_time_ns(), "initializer_to_task_ns": start - _START,
             "imports": sorted(safety.IMPORTS),
