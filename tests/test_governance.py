@@ -96,3 +96,20 @@ def test_digest_changes_with_handwritten_diff(repo):
     write(repo, "tools/example.py", "# second\n")
     commit(repo)
     assert diff_digest(repo, base, "HEAD") != digest
+
+
+def test_review_cli_replays_complete_corpus_and_refuses_missing_item(repo, monkeypatch):
+    from tools.review_record import main
+    base = git(repo, "rev-parse", "HEAD")
+    summary = {"base_sha": base, "head_sha": base, "diff_sha256": diff_digest(repo, base, base)}
+    authors = [{"model_id": "synthetic-author", "session_id": "author", "model_family": "family-a"}]
+    record = {**summary, "authors": authors, "verdict": "approve", "reviewer": {
+        "model_id": "synthetic-reviewer", "session_id": "reviewer", "model_family": "family-b"}}
+    cases = [{**summary, "item": i, "record": record, "authors": authors} for i in range(1, 12)]
+    write(repo, "evidence.json", json.dumps(cases))
+    write(repo, "policy.json", json.dumps({"same_family_pairs": []}))
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr("sys.argv", ["review_record", "--evidence", "evidence.json", "--policy", "policy.json", "--retroactive"])
+    assert main() == 0
+    write(repo, "evidence.json", json.dumps(cases[:-1]))
+    assert main() == 1

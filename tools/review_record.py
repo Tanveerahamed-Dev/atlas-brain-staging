@@ -2,6 +2,7 @@
 import argparse
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from tools.governance import diff_digest
@@ -59,7 +60,7 @@ def main():
             verify(case["record"], summary, case["authors"], pairs)
         print(f"AD-06: {len(cases)} supplied records bind to their diffs; signatures not verified")
         return 0
-    except (KeyError, ValueError, TypeError, OSError):
+    except (KeyError, ValueError, TypeError, OSError, subprocess.CalledProcessError):
         print("AD-06: review evidence refused")
         return 1
 

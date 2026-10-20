@@ -14,9 +14,16 @@ def git(repo: Path, *args: str) -> bytes:
 
 
 def blob(repo: Path, revision: str, path: str) -> bytes | None:
-    if not git(repo, "ls-tree", "-z", revision, "--", path):
-        return None
-    return git(repo, "show", f"{revision}:{path}")
+    for row in git(repo, "ls-tree", "-r", "-z", revision).split(b"\0"):
+        if row:
+            metadata, name = row.split(b"\t", 1)
+            if name.decode("utf-8") == path:
+                return git(repo, "cat-file", "blob", metadata.split()[2].decode("ascii"))
+    return None
+
+
+def resolve(repo: Path, revision: str) -> str:
+    return git(repo, "rev-parse", "--verify", "--end-of-options", f"{revision}^{{commit}}").decode().strip()
 
 
 def generated(repo: Path, base: str, head: str) -> tuple[str, ...]:
@@ -43,6 +50,7 @@ def changes(repo: Path, base: str, head: str) -> list[tuple[bytes, bytes, str]]:
 
 def diff_digest(repo: Path, base: str, head: str) -> str:
     # Explicit formatting; never execute external diff drivers or text conversion helpers.
+    base, head = resolve(repo, base), resolve(repo, head)
     outputs = generated(repo, base, head)
     paths = [p for _, _, p in changes(repo, base, head) if p not in outputs]
     patch = git(repo, "-c", "core.quotePath=true", "diff", "--binary", "--full-index",
@@ -54,8 +62,7 @@ def diff_digest(repo: Path, base: str, head: str) -> str:
 
 
 def audit(repo: Path, base: str, head: str) -> dict[str, int | str]:
-    base = git(repo, "rev-parse", "--verify", f"{base}^{{commit}}").decode().strip()
-    head = git(repo, "rev-parse", "--verify", f"{head}^{{commit}}").decode().strip()
+    base, head = resolve(repo, base), resolve(repo, head)
     outputs, count, classes = generated(repo, base, head), 0, set()
     for added, deleted, path in changes(repo, base, head):
         if not excluded(path, outputs):
