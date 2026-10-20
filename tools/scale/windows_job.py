@@ -19,6 +19,10 @@ class Extended(c.Structure):
                 ("JobMemoryLimit", c.c_size_t), ("PeakProcessMemoryUsed", c.c_size_t), ("PeakJobMemoryUsed", c.c_size_t)]
 
 
+class Accounting(c.Structure):
+    _fields_ = [(name, c.c_longlong) for name in ("TotalUserTime", "TotalKernelTime", "ThisPeriodTotalUserTime", "ThisPeriodTotalKernelTime")] + [(name, w.DWORD) for name in ("TotalPageFaultCount", "TotalProcesses", "ActiveProcesses", "TotalTerminatedProcesses")]
+
+
 class Job:
     def __init__(self, cap):
         self.api = c.WinDLL("kernel32", use_last_error=True)
@@ -55,6 +59,12 @@ class Job:
         if not self.api.QueryInformationJobObject(self.handle, 9, c.byref(info), c.sizeof(info), None):
             raise c.WinError(c.get_last_error())
         return info.PeakJobMemoryUsed
+
+    def active(self):
+        info = Accounting()
+        if not self.api.QueryInformationJobObject(self.handle, 1, c.byref(info), c.sizeof(info), None):
+            raise c.WinError(c.get_last_error())
+        return info.ActiveProcesses
 
     def close(self):
         if self.handle:

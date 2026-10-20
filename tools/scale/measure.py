@@ -231,7 +231,8 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             except psutil.NoSuchProcess:
                 pass
         metadata["orphans_after_5s"] = sorted(orphans)
-        if orphans:
+        metadata["job_active_after_5s"] = job.active() if job else None
+        if orphans or metadata["job_active_after_5s"]:
             metadata["status"] = "orphan"
             kill_tree(known)
         if container_id:
