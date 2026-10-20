@@ -2,8 +2,8 @@
 import re
 
 # These expressions inspect pattern syntax, never capture data.
-_QUANTIFIER = re.compile(r"\{(?:\d+(?:,\d*)?|,\d*)\}", re.ASCII)
-_NAME = re.compile(r"\(\?P<[A-Za-z_][A-Za-z_0-9]*>", re.ASCII)
+_QUANTIFIER = re.compile(r"\{(?:[0-9]++,[0-9]*+|[0-9]++|,[0-9]*+)\}", re.ASCII)
+_NAME = re.compile(r"\(\?P<[A-Za-z_][A-Za-z_0-9]*+>", re.ASCII)
 
 
 def compile_pattern(pattern: str) -> re.Pattern[bytes]:
@@ -13,6 +13,8 @@ def compile_pattern(pattern: str) -> re.Pattern[bytes]:
     is refused. Patterns use ASCII syntax and match bytes, preserving offsets.
     Inline flags, lookarounds, conditional groups and backreferences are outside
     this rule-table grammar. Escapes and character classes remain opaque atoms.
+    Every repeat must be possessive: no input-dependent split is reconsidered.
+    Rules are refused rather than rewritten; authors must state that semantics.
     """
     try:
         compiled = re.compile(pattern.encode("ascii"), re.ASCII)
@@ -68,8 +70,9 @@ def compile_pattern(pattern: str) -> re.Pattern[bytes]:
                     raise ValueError("nested repeat or repeated alternation")
                 frames[-1] = (True, frames[-1][1])
                 index = quantifier.end() if quantifier is not None else index + 1
-                if index < len(pattern) and pattern[index] in "?+":
-                    index += 1  # lazy / possessive modifier, not another atom
+                if index >= len(pattern) or pattern[index] != "+":
+                    raise ValueError("every repeat must be explicitly possessive")
+                index += 1
                 atom = (True, False)
                 continue
             atom = (False, False)
