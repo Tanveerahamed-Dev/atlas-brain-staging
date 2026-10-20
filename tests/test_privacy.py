@@ -10,9 +10,9 @@ from tools.privacy import scan
 
 @pytest.mark.parametrize("data", [
     b"C:" + bytes([92]) + b"Users" + bytes([92]) + b"example/file",
-    b"/" + b"home/example/file", b"/" + b"Users/example/file",
+    bytes([47]) + b"home/example/file", bytes([47]) + b"Users/example/file",
     b".".join([b"10", b"1", b"2", b"3"]), bytes([102, 99, 48, 48, 58, 58, 49]),
-    b"FOC" + b"1234ABCD", b"foc" + b"1234abcd",
+    bytes([70, 79, 67]) + b"1234ABCD", bytes([102, 111, 99]) + b"1234abcd",
 ])
 def test_planted_structural_shapes(data):
     assert scan(data, "a" * 40, [])
@@ -21,6 +21,20 @@ def test_planted_structural_shapes(data):
 @pytest.mark.parametrize("data", [b"192.0.2.1", b"198.51.100.5", b"203.0.113.8", b"2001:db8::1"])
 def test_documentation_addresses_pass(data):
     assert not scan(data, "b" * 40, [])
+
+
+@pytest.mark.parametrize("gate", [False, True])
+@pytest.mark.parametrize("value", [
+    bytes([67, 58, 92]) + b"Users" + bytes([92]) + b"example",
+    bytes([47]) + b"home/example", bytes([47]) + b"Users/example",
+    ".".join(map(str, (10, 1, 2, 3))).encode(),
+    bytes([70, 79, 67]) + b"1234ABCD",
+])
+def test_split_structural_shapes_preserve_offsets(value, gate):
+    cut = 3
+    source = b"v = " + json.dumps(value[:cut].decode()).encode() + b" + " + json.dumps(value[cut:].decode()).encode()
+    hits = scan(source, "d" * 40, [os.environ["ATLAS_TEST_MARKER"].encode()] if gate else [])
+    assert hits == [{"blob": "d" * 40, "offset": 5}]
 
 
 def test_gate_marker_and_split_receipts():
@@ -46,7 +60,7 @@ def test_cli_refuses_planted_blob(tmp_path, gate, changed, removed):
               "-c", "user.email=synthetic@example.invalid", "commit", "-qm", "synthetic"]
     subprocess.run([*commit, "--allow-empty"], check=True)
     base = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"]).decode().strip()
-    data = marker if gate else "/" + "home/example/file"
+    data = marker if gate else chr(47) + "home/example/file"
     (repo / "sample.txt").write_text(data, encoding="utf-8")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
     blob = subprocess.check_output(["git", "-C", str(repo), "rev-parse", ":sample.txt"]).decode().strip()
