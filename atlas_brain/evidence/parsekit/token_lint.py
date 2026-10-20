@@ -93,9 +93,9 @@ def _scalar_expression(value: ast.expr | None, proof: dict[str, set[str]]) -> bo
             if value.func.id == "Captured":
                 return any(_scalar_expression(part, proof) for part in value.args[2:3]) or any(
                     key.arg == "value" and _scalar_expression(key.value, proof) for key in value.keywords)
-        if isinstance(value.func, ast.Attribute) and isinstance(value.func.value, ast.Name) and value.args and (
+        if isinstance(value.func, ast.Attribute) and isinstance(value.func.value, ast.Name) and value.args and not _scalar_expression(value.args[0], proof) and (
             value.func.attr == "resolve" and value.func.value.id in proof["maps"] or
-            value.func.attr in ("fullmatch", "match", "search") and value.func.value.id in proof["patterns"]
+            value.func.attr in ("fullmatch", "match", "search") and value.func.value.id in proof["patterns"] and (isinstance(value.args[0], ast.Name) and value.args[0].id in proof["data"] or isinstance(value.args[0], ast.Subscript) and isinstance(value.args[0].value, ast.Name) and value.args[0].value.id in proof["data"])
         ):
             return False
         parts = [*value.args, *(key.value for key in value.keywords)]
@@ -115,7 +115,7 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
         isinstance(value, ast.Attribute) and value.attr == "raw" for value in values)}
     raw_names.update(n.arg for n in parameters if n.arg == "token" or
                      isinstance(n.annotation, ast.Name) and n.annotation.id == "str")
-    buffers = {n.arg for n in parameters if n.arg != "token" and isinstance(n.annotation, ast.Name) and n.annotation.id == "bytes"}
+    buffers = {n.arg for n in parameters if n.arg != "token" and n.arg not in assignments and isinstance(n.annotation, ast.Name) and n.annotation.id == "bytes"}
     proof: dict[str, set[str]] = {"fallbacks": set(), "observed": set(assignments) | {n.arg for n in parameters}, "buffers": buffers,
              "data": set(buffers), "raw": raw_names, "maps": set(), "patterns": set(), "mapped": set(), "tables": tables, "unknowns": unknowns}
 
@@ -132,9 +132,9 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
                     isinstance(value.func.value, ast.Name) and value.func.value.id == factory) for value in values):
                     proof[key].add(name)
             for key, origins, methods in (("mapped", "maps", ("resolve",)), ("data", "patterns", ("fullmatch", "match", "search"))):
-                if all(isinstance(value, ast.Name) and value.id in proof[key] or isinstance(value, ast.Call) and value.args and
+                if all(isinstance(value, ast.Name) and value.id in proof[key] or isinstance(value, ast.Call) and value.args and not scalar(value.args[0]) and
                     isinstance(value.func, ast.Attribute) and value.func.attr in methods and
-                    isinstance(value.func.value, ast.Name) and value.func.value.id in proof[origins] for value in values):
+                    isinstance(value.func.value, ast.Name) and value.func.value.id in proof[origins] and (origins == "maps" or isinstance(value.args[0], ast.Name) and value.args[0].id in proof["data"] or isinstance(value.args[0], ast.Subscript) and isinstance(value.args[0].value, ast.Name) and value.args[0].value.id in proof["data"]) for value in values):
                     proof[key].add(name)
             if all(isinstance(value, ast.Name) and value.id in buffers or isinstance(value, ast.Subscript) and
                    isinstance(value.value, ast.Name) and value.value.id in buffers for value in values):
