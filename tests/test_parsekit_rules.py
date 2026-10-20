@@ -54,7 +54,7 @@ def test_ordered_states_and_cited_ignore():
 
 def test_first_rule_wins_and_lone_cr_is_not_a_line_break():
     rules = (Rule("first", "start", r"(?P<value>[\s\S]*+)", "record", "start", "", ("value",)),
-             Rule("second", "start", r".*+", "record", "start", "", ()))
+             Rule("second", "start", r"(?P<value>.*+)", "record", "start", "", ("value",)))
     result = run_rules(b"a\rb\r\n", CaptureId("cap-a"), rules, ())
     assert len(result.lines) == 1
     assert result.records[0].rule_id == "first"
@@ -122,3 +122,24 @@ def test_closed_map_snapshots_the_source_dictionary():
     rows["full"] = Duplex.HALF
     result = run_rules(b"duplex full\n", CaptureId("cap-a"), table(), (("duplex", mapping),))
     assert result.records[0].fields[0][1].value is Duplex.FULL
+
+
+@pytest.mark.parametrize("kind", ["enter_state", "leave_state", "record"])
+def test_planted_no_value_catchall_cannot_consume_unknown_evidence(kind):
+    rule = Rule("swallow", "start", ".*+", kind, "start", "", ())
+    with pytest.raises(ValueError):
+        run_rules(b"unknown evidence\n", CaptureId("cap-a"), (rule,), ())
+
+
+@pytest.mark.parametrize("pattern", ["", ".", r"[A-Z]++", r"\w++"])
+def test_no_value_rules_require_nonempty_fixed_literal_markers(pattern):
+    rule = Rule("swallow", "start", pattern, "record", "start", "", ())
+    with pytest.raises(ValueError):
+        run_rules(b"unknown evidence\n", CaptureId("cap-a"), (rule,), ())
+
+
+def test_literal_state_marker_does_not_hide_a_following_unknown_line():
+    rule = Rule("marker", "start", r"BEGIN\(body\)", "enter_state", "start", "", ())
+    result = run_rules(b"BEGIN(body)\nnew evidence\n", CaptureId("cap-a"), (rule,), ())
+    assert result.quality == "partial"
+    assert [line.status for line in result.lines] == ["consumed", "unrecognised"]

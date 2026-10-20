@@ -113,6 +113,20 @@ def _cited_blank(rule: Rule) -> bool:
         and (len(lines) == 1 or int(lines[0]) <= int(lines[1]))
     )
 
+def _literal_marker(pattern: str) -> bool:
+    """A rule without values can recognise only a nonempty literal marker."""
+    escaped = False
+    for char in pattern:
+        if escaped:
+            if char not in r".^$*+?{}[]\|()# -":
+                return False
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char in ".^$*+?{}[]|()":
+            return False
+    return bool(pattern) and not escaped
+
 def run_rules(raw: bytes, capture: CaptureId, rules: tuple[Rule, ...],
               token_maps: tuple[tuple[str, TokenMap], ...]) -> ParseResult:
     """LF-only physical lines; first full matching rule in the current state wins."""
@@ -127,6 +141,7 @@ def run_rules(raw: bytes, capture: CaptureId, rules: tuple[Rule, ...],
         if (not rule.rule_id or not rule.state or rule.target not in states
                 or rule.kind not in ("record", "ignore", "enter_state", "leave_state")
                 or (rule.kind == "ignore" and not _cited_blank(rule))
+                or (rule.kind != "ignore" and not rule.fields and not _literal_marker(rule.pattern))
                 or (rule.kind in ("record", "ignore") and rule.target != rule.state)
                 or set(rule.fields) != set(pattern.groupindex)
                 or len(rule.fields) != pattern.groups):
