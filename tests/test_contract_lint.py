@@ -78,6 +78,14 @@ def test_workflow_concurrency_separates_main_pr_and_merge_group_heads():
     'from builtins import vars as reflect',
     'import inspect',
     'value._internal_operation(right)',
+    'import _operator as ops\nresult = ops.add(left, right)',
+    'from atlas_brain.kernel.states import callback\nresult = callback(left, right)',
+    'result = value.bit_count()',
+    'def project(str):\n    return str(left, right)',
+    'str = callback\nresult = str(left, right)',
+    'import json\njson.dumps = callback\nresult = json.dumps(value)',
+    'from hashlib import sha256 as safe\nfrom atlas_brain.kernel.states import callback as safe\nresult = safe(left, right)',
+    'from json import *\nresult = dumps(value)',
 ])
 def test_reflected_arithmetic_fails_real_lint_entrypoint(tmp_path, plant):
     import subprocess
@@ -108,3 +116,20 @@ def test_missing_contract_tree_fails_closed(tmp_path):
         capture_output=True, text=True, check=False)
     assert result.returncode == 2
     assert "contract sources missing" in result.stdout
+
+
+@pytest.mark.parametrize("source", [
+    'import json as encoder\nresult = encoder.dumps(value)',
+    'from hashlib import sha256 as digest\nresult = digest(value).hexdigest()',
+    'import re\nNAME = re.compile("name")\nresult = NAME.fullmatch(value)',
+    'from typing import cast\nresult = cast("str", value).encode("utf-8")',
+    'from atlas_brain.contract.canonical import canonical as encode\nresult = encode(value)',
+    'from dataclasses import asdict, dataclass\n@dataclass(frozen=True, slots=True)\nclass Row:\n    value: str\nresult = asdict(Row("evidence"))',
+])
+def test_structural_capabilities_pass_real_lint_entrypoint(tmp_path, source):
+    import subprocess
+    import sys
+    path = tmp_path / "projection.py"
+    path.write_text(source, encoding="utf-8")
+    assert subprocess.run([sys.executable, "tools/contract_lint.py", str(path)],
+        capture_output=True, check=False).returncode == 0
