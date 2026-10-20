@@ -1,4 +1,4 @@
-name: Privacy and gate-data regressions
+name: Repository guard regressions
 on:
   pull_request:
   merge_group:
@@ -30,5 +30,6 @@ jobs:
           version: '0.13.1'
           enable-cache: false
       - run: uv sync --locked
-      - run: uv run --no-sync pytest -q tests/test_fence.py tests/test_privacy.py
+      - run: uv run --no-sync pytest -q tests/test_fence.py tests/test_privacy.py tests/test_output_witness.py
       - run: uv run --no-sync python tools/fence.py
+      - run: uv run --no-sync python -m tools.output_witness --root .ci-evidence/contract-output

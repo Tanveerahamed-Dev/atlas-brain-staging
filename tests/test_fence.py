@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.fence import allowed
+from tools.fence import allowed, dependencies_allowed, source_allowed
 
 
 @pytest.mark.parametrize("path", [
@@ -13,7 +13,8 @@ from tools.fence import allowed
     "tools/agent-notes.md", "tests/AGENTS.md", "tools/CLAUDE.md",
     "tools/.claude/x", "tools/.codex/x", "tools/.agents/x", "tools/.mcp.json",
     "tools/.specify/x", "tools/specs/x", "tools/plans/x", "docs/other.md",
-    "governance/STATUS.md", "governance/STATUS.json", "governance/notes.txt", "governance/probe.json",
+    "governance/STATUS.md", "governance/STATUS.json", "governance/probe.json",
+    "governance/notes.txt", "governance/nested/readme.md",
 ])
 def test_planted_paths_fail(path):
     assert not allowed(path)
@@ -37,22 +38,67 @@ def test_current_tree_passes():
     subprocess.run([sys.executable, "tools/fence.py"], check=True)
 
 
-@pytest.mark.parametrize("plant", ["none", "status_json", "wrong_gate_shape", "invalid_json", "scalar_json"])
-def test_governance_gate_data_command(tmp_path, plant):
-    files = {"governance/generators.json": json.dumps({"uv.lock": {
-        "command": "uv lock", "tool": "uv==0.13.1", "inputs": ["pyproject.toml"]}})}
+@pytest.mark.parametrize("source", [
+    "import webbrowser", "import tkinter.ttk", "from http import server",
+    "from http.server import HTTPServer", "import curses", "import wsgiref",
+    "import socketserver", "__import__('webbrowser')",
+    "from importlib import import_module as load; load('http.server')",
+    "__import__(module_name)", "import unapproved_third_party",
+    "exec('import webbrowser')", "eval(\"__import__('webbrowser')\")",
+    "compile('import webbrowser', 'synthetic', 'exec')",
+    "from builtins import exec as run; run('import webbrowser')",
+    "import builtins as b; b.exec('import webbrowser')",
+    "run = exec; run('import webbrowser')", "__builtins__['exec']('import webbrowser')",
+    "import builtins; getattr(builtins, 'exec')('import webbrowser')",
+    "import importlib; load = importlib.import_module; load('webbrowser')",
+    "import importlib; getattr(importlib, 'import_module')('webbrowser')",
+    "load = __import__; load('webbrowser')",
+    "from builtins import __import__ as load; load('webbrowser')",
+])
+def test_denied_engine_imports(source):
+    assert not source_allowed(source)
+
+
+@pytest.mark.parametrize("source", ["import json", "from typing import Literal", "from atlas_brain.kernel import states", "import re; re.compile('x')", "__import__('json')"])
+def test_allowed_engine_imports(source):
+    assert source_allowed(source)
+
+
+@pytest.mark.parametrize("config", [
+    {"project": {"dependencies": ["unapproved==1.0"]}},
+    {"project": {"dependencies": [], "optional-dependencies": {"extra": ["unapproved"]}}},
+])
+def test_runtime_dependency_allowlist(config):
+    assert not dependencies_allowed(config)
+
+
+def test_empty_runtime_dependencies_pass():
+    assert dependencies_allowed({"project": {"dependencies": []}})
+
+
+@pytest.mark.parametrize("plant", ["none", "import", "exec", "dependency", "prose", "status_json", "invalid_json", "scalar_json", "wrong_gate_shape"])
+def test_required_fence_command_refuses_real_tracked_plants(tmp_path, plant):
+    source = "import webbrowser" if plant == "import" else "import json"
+    if plant == "exec":
+        source = "exec('import webbrowser')"
+    deps = '["unapproved==1.0"]' if plant == "dependency" else "[]"
+    files = {"pyproject.toml": f"[project]\ndependencies = {deps}\n",
+             "atlas_brain/probe.py": source, "governance/generators.json": json.dumps({
+                 "uv.lock": {"command": "uv lock", "tool": "uv==0.13.1", "inputs": ["pyproject.toml"]}})}
+    if plant == "prose":
+        files["governance/STATUS.md"] = "Synthetic process document."
     if plant == "status_json":
         files["governance/STATUS.json"] = '{"status": "Synthetic process document"}'
-    if plant != "none" and plant != "status_json":
-        files["governance/generators.json"] = {
-            "wrong_gate_shape": '{"status": "Synthetic process document"}',
-            "invalid_json": "invalid", "scalar_json": '"prose"'}[plant]
+    if plant == "wrong_gate_shape":
+        files["governance/generators.json"] = '{"status": "Synthetic process document"}'
+    if plant in {"invalid_json", "scalar_json"}:
+        files["governance/generators.json"] = "invalid" if plant == "invalid_json" else '"prose"'
     for name, text in files.items():
-        file = tmp_path / name
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(text, encoding="utf-8")
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
-    result = subprocess.run([sys.executable, str(Path("tools/fence.py").resolve())],
-                            cwd=tmp_path, capture_output=True, check=False)
+    tool = str(Path("tools/fence.py").resolve())
+    result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, check=False)
     assert result.returncode == int(plant != "none"), result.stderr
