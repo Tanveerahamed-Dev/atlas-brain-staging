@@ -87,6 +87,8 @@ def test_explicit_unknown_fallthrough_and_exact_lookup_are_admitted():
 @pytest.mark.parametrize("source", [
     "def map(token):\n lookup = rows.get\n return lookup(token, 'full')",
     "def map(token): return token[:4] == 'half'",
+    "def map(token): return token[0] == 'h'",
+    "MAPPER = lambda token: 'full'",
     "def map(token):\n fragment = token[:4]\n return fragment == 'half'",
 ])
 def test_aliased_lookup_and_partial_token_comparisons_are_refused(source):
