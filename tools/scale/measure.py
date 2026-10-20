@@ -156,7 +156,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             cg = cgroup_files(pid)
         else:
             launch_flags = ["-P", "-s", "-B"] + FLAGS[1:] if manual else FLAGS
-            arguments = [str(runtime.resolve())] + launch_flags + [str(ROOT / "spike" / "bootstrap.py"), "--root", str(input_root.absolute()), "--out", str(result.resolve()), "--receipt", str(engine_receipt.resolve()), "--control", str(control.resolve()), "--workers", str(workers), "--fault", fault]
+            arguments = [str(runtime.absolute())] + launch_flags + [str(ROOT / "spike" / "bootstrap.py"), "--root", str(input_root.absolute()), "--out", str(result.resolve()), "--receipt", str(engine_receipt.resolve()), "--control", str(control.resolve()), "--workers", str(workers), "--fault", fault]
             if manual:
                 arguments += ["--manual-isolation", "--expected-seed", manual["seed"], "--expected-hash", str(manual["expected_hash"])]
             if recycle:

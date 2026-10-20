@@ -48,7 +48,7 @@ def main():
     parser.add_argument("--runtime", required=True, type=Path)
     parser.add_argument("--raw", required=True, type=Path)
     args = parser.parse_args()
-    args.runtime = args.runtime.resolve()
+    args.runtime = args.runtime.absolute()
     args.raw.mkdir(parents=True)
     sites = json.loads(subprocess.check_output([str(args.runtime), "-I", "-S", "-c",
                        "import json,site;print(json.dumps(site.getsitepackages()))"], encoding="utf-8"))

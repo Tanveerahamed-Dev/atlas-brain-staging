@@ -31,7 +31,7 @@ def probe(runtime, source, raw, recycle):
     control.mkdir()
     output = raw / "device-results"
     console = (raw / "console.log").open("wb")
-    process = subprocess.Popen([str(runtime.resolve())] + FLAGS + [str(ROOT / "spike" / "growth_entry.py"),
+    process = subprocess.Popen([str(runtime.absolute())] + FLAGS + [str(ROOT / "spike" / "growth_entry.py"),
                                str(source), str(output), str(control), recycle], stdout=console, stderr=subprocess.STDOUT)
     parent = psutil.Process(process.pid)
     known, rows, samples, plateau = {}, {}, [], {}

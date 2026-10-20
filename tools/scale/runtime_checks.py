@@ -23,7 +23,7 @@ def manual_probe(runtime, seed):
                 clean_env[key] = os.environ[key]
     flags = ["-P", "-s", "-B", "-X", "utf8=1", "-X", "warn_default_encoding", "-W", "error::EncodingWarning"]
     code = "import json,os,sys;print(json.dumps({'flags':list(sys.flags),'no_user_site':sys.flags.no_user_site,'safe_path':sys.flags.safe_path,'hash_randomization':sys.flags.hash_randomization,'seed':os.environ.get('PYTHONHASHSEED'),'hash':hash('atlas-brain-fixed-seed'),'environment_keys':sorted(os.environ)}))"
-    witness = json.loads(subprocess.check_output([str(runtime.resolve())] + flags + ["-c", code], env=clean_env, encoding="utf-8"))
+    witness = json.loads(subprocess.check_output([str(runtime.absolute())] + flags + ["-c", code], env=clean_env, encoding="utf-8"))
     if witness["no_user_site"] != 1 or not witness["safe_path"] or witness["seed"] != seed or witness["hash_randomization"] != (0 if seed == "0" else 1):
         raise ValueError("manual_seed_reference_failed")
     return {"seed": seed, "expected_hash": witness["hash"], "environment": clean_env}, witness
