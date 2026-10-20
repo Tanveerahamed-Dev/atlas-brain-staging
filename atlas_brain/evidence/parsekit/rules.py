@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
-from typing import Literal
+from typing import Literal, final
 
 from atlas_brain.kernel.states import (
     ByteSpan,
@@ -28,15 +28,21 @@ def _is_enum(value: object) -> bool:
     return isinstance(value, StrEnum)
 
 
+@final
 @dataclass(frozen=True, slots=True)
 class TokenMap:
     entries: tuple[tuple[str, StrEnum], ...]
 
     def __post_init__(self) -> None:
-        if (not self.entries or len(dict(self.entries)) != len(self.entries)
+        if (type(self.entries) is not tuple or not self.entries
+                or any(type(k) is not str for k, _ in self.entries)
+                or len(dict(self.entries)) != len(self.entries)
                 or any(not _is_enum(v) for _, v in self.entries)
                 or len({type(v) for _, v in self.entries}) != 1):
             raise ValueError("token map requires unique rows from one closed enum")
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        raise TypeError("closed_token_map")
 
     @classmethod
     def closed(cls, entries: Mapping[str, StrEnum]) -> TokenMap:
