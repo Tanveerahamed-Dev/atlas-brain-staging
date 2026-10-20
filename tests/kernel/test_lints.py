@@ -31,6 +31,8 @@ def test_every_lint_fires_on_its_plant(rule, source):
     ('@dataclasses.dataclass()\nclass R:\n value: int = field(default_factory=int)', 2),
     ('def map_token(token):\n if token == "up":\n  return 1\n else:\n  return 2', 3),
     ('value = tokens.setdefault(token, "up")', 3),
+    ('value = tokens.pop(token, "up")', 3),
+    ('from collections import defaultdict as DD\nvalues = DD(lambda: "up")', 3),
     ('value = tokens.get(token) or "up"', 3),
     ('def map_token(token):\n match token:\n  case object(): return "up"', 3),
     ('def map_token(token):\n match token:\n  case "up": return 1\n  case _: return 1', 3),
