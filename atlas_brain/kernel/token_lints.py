@@ -20,8 +20,13 @@ def _lookup_value(node: ast.AST) -> bool:
         for part in ast.walk(node))
 
 
+def bound_names(node: ast.AST) -> frozenset[str]:
+    return frozenset(part.name for part in ast.walk(node) if isinstance(part, (ast.MatchAs, ast.MatchStar)) and part.name) | frozenset(
+        part.rest for part in ast.walk(node) if isinstance(part, ast.MatchMapping) and part.rest)
+
+
 def _terminal_assertion(pattern: ast.pattern, body: list[ast.stmt], assertions: frozenset[ast.Call]) -> bool:
-    bound = {part.name for part in ast.walk(pattern) if isinstance(part, ast.MatchAs) and part.name}
+    bound = bound_names(pattern)
     if len(body) != 1 or not isinstance(body[0], ast.Expr):
         return False
     call = body[0].value
