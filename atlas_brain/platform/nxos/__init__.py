@@ -32,9 +32,11 @@ _INTERFACE_PATTERNS = tuple(compile_pattern(pattern) for pattern in (
     r"Vlan[1-9][0-9]*", r"port-channel[1-9][0-9]*", r"mgmt0", r"nve[1-9][0-9]*",
 ))
 _DETECTION_RULES = (
-    Rule("nx-banner", "start", r"Cisco Nexus Operating System \(NX-OS\) Software",
+    Rule("nx-banner", "start", r"Cisco Nexus Operating System \(NX-OS\) Software[ \t]*",
          "record", "start", "", ()),
     Rule("nx-version", "start", r"[ \t]*NXOS: version (?P<version>(?:9|10)\.[0-9]+\([0-9A-Za-z.]+\)[A-Za-z0-9]*)[ \t]*",
+         "record", "start", "", ("version",)),
+    Rule("nx-version-annotated", "start", r"[ \t]*NXOS: version (?P<version>(?:9|10)\.[0-9]+\([0-9A-Za-z.]+\)[A-Za-z0-9]*) \[(?:Feature Release|Maintenance Release|build [^\]\r\n]+)\][ \t]*",
          "record", "start", "", ("version",)),
     Rule("nx-version-outside-subset", "start", r"[ \t]*NXOS: version[^\r\n]*",
          "record", "start", "", ()),
@@ -89,7 +91,7 @@ def detect(raw: bytes, capture: CaptureId) -> Known[str] | Unknown:
     """
     parsed = run_rules(raw, capture, _DETECTION_RULES, ())
     banners = tuple(row for row in parsed.records if row.rule_id == "nx-banner")
-    versions = tuple(row for row in parsed.records if row.rule_id == "nx-version")
+    versions = tuple(row for row in parsed.records if row.rule_id in ("nx-version", "nx-version-annotated"))
     conflicts = tuple(row for row in parsed.records if row.rule_id in ("other-family", "nx-version-outside-subset"))
     state = classify(raw)
     if banners and versions and not conflicts and state not in (

@@ -101,3 +101,9 @@ def test_unattested_period_variant_stays_unknown_and_no_failure_claims_family():
     assert classify(b"% Incomplete command.\n") is IntegrityState.UNKNOWN_FORMAT
     for suffix in (b"% Incomplete command\n", b"--More--"):
         assert isinstance(detect(BANNER + b"NXOS: version 10.3(2)\n" + suffix, CAP), Unknown)
+
+@pytest.mark.parametrize("version", [b"9.3(3) [build 9.3(3)IDI9(0.569)]",
+                                      b"10.3(2) [Feature Release]"])
+def test_documented_build_and_release_annotations_are_detected(version):
+    result = detect(BANNER.rstrip(b"\n") + b" \n  NXOS: version " + version + b" \n", CAP)
+    assert isinstance(result, Known) and result.value == "nxos"
