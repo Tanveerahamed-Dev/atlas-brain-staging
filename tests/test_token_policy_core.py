@@ -14,6 +14,7 @@ from atlas_brain.evidence.parsekit.token_lint import lint_token_handler
     "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes, evidence):\n original = raw\n if raw != b'full': raw = b'full'\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return Known(value=text, basis=Basis.OBSERVED, evidence=evidence, raw=original.decode('ascii'))\n",
     "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes):\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return text.startswith('half')\n",
     "def decode(token: bytes): return token[:4]\n",
+    "def reject(value) -> Unknown: return Known(value=bool(value), basis=Basis.OBSERVED, raw=value)\ndef decode(field): return reject(field.raw)\n",
     "def reject(reason, detail) -> Unknown: return Known(value=True)\ndef decode(field):\n text = field.raw\n if any(ord(char) < 32 for char in text): return reject(None, text)\n return Known(value=text, basis=Basis.OBSERVED, raw=text)\n",
     "def truth(x):\n return bool(x)\ndef decode(field, evidence): return Known(value=truth(field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
     "def truth(x):\n return bool(x)\nconvert = truth\ndef decode(field, evidence): return Known(value=convert(field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
