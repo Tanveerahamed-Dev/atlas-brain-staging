@@ -8,6 +8,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from tools.mutations import OPERATORS, Capture, apply_span, mutate
+from tools.provenance import validate_tree
 
 CASES = (
     ("ospf-state", b"FULL", b"EXSTART"),
@@ -32,6 +33,20 @@ def capture(raw, **changes):
 
 
 class MutationTests(unittest.TestCase):
+    def test_entire_fixture_tree_passes_shared_provenance_gate(self):
+        self.assertEqual(validate_tree(Path("fixtures")), [])
+
+    def test_planted_self_declared_sources_never_assign_tier_m(self):
+        for tier in ("H", "L", "P"):
+            with self.subTest(tier=tier):
+                parent = capture(b"FULL", tier=tier, provenance="fixtures/missing-parent/provenance.yaml")
+                witness = capture(b"EXSTART", tier=tier, provenance="fixtures/missing-witness/provenance.yaml")
+                output, receipt = mutate(parent, "ospf-state", 0, 4, b"EXSTART", witness, 0, 7)
+                self.assertEqual(output, b"EXSTART")
+                self.assertNotIn("tier", receipt)
+                self.assertEqual(receipt["qualification"], "unqualified")
+                self.assertEqual(receipt["source"]["kind"], "unqualified_text_edit")
+
     def test_all_operators_have_exact_deterministic_edits_and_controls(self):
         self.assertEqual({c[0] for c in CASES}, set(OPERATORS))
         for operator, before, after in CASES:
@@ -49,7 +64,8 @@ class MutationTests(unittest.TestCase):
                 output, receipt = mutate(*args)
                 self.assertEqual((output, receipt), mutate(*args))
                 self.assertEqual(output, expected)
-                self.assertEqual(receipt["tier"], "M")
+                self.assertNotIn("tier", receipt)
+                self.assertEqual(receipt["qualification"], "unqualified")
                 self.assertEqual(receipt["source"]["parent_fixture"], "synthetic-double")
                 self.assertEqual(receipt["sha256"], sha256(output).hexdigest())
                 self.assertEqual(receipt["edit"], {"start": start, "end": end,
