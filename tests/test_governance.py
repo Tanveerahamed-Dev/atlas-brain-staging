@@ -161,5 +161,7 @@ def test_review_cli_replays_complete_corpus_and_refuses_missing_item(repo, monke
     monkeypatch.chdir(repo)
     monkeypatch.setattr("sys.argv", ["review_record", "--evidence", "evidence.json", "--policy", "policy.json", "--retroactive"])
     assert main() == 0
-    write(repo, "evidence.json", json.dumps(cases[:-1]))
-    assert main() == 1
+    for invalid in (cases[:-1], cases + [cases[0]],
+                    [{**case, "item": True} if case["item"] == 1 else case for case in cases]):
+        write(repo, "evidence.json", json.dumps(invalid))
+        assert main() == 1
