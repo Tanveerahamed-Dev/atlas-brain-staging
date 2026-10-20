@@ -26,7 +26,7 @@ def violations(source: str) -> list[int]:
         arithmetic = isinstance(node, (ast.BinOp, ast.AugAssign))
         # Literal signed integers are declarations, not computed facts.
         unary = isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd, ast.Invert))
-        literal = unary and isinstance(node.operand, ast.Constant) and type(node.operand.value) is int
+        literal = unary and isinstance(node.op, (ast.USub, ast.UAdd)) and isinstance(node.operand, ast.Constant) and type(node.operand.value) is int
         compare = isinstance(node, ast.Compare) and any(
             isinstance(op, (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)) for op in node.ops)
         name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else ""
