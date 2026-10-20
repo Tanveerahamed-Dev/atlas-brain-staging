@@ -25,6 +25,31 @@ def bound_names(node: ast.AST) -> frozenset[str]:
         part.rest for part in ast.walk(node) if isinstance(part, ast.MatchMapping) and part.rest)
 
 
+def binding_proof(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> tuple[frozenset[ast.Call], frozenset[ast.MatchClass]]:
+    """Verify names against the import/rebinding environment supplied by the scanner."""
+    def symbol(identifier: str) -> str:
+        if identifier in aliases:
+            return aliases[identifier]
+        return identifier
+
+    def qualified(node: ast.AST) -> str:
+        if isinstance(node, ast.Name):
+            return symbol(node.id)
+        if isinstance(node, ast.Attribute):
+            return qualified(node.value) + '.' + node.attr
+        return ''
+
+    shadowed = rebound | {symbol(k) for k in sorted(bound_names(tree))}
+
+    def stable(name: str) -> bool:
+        return not any(name == key or name.startswith(key + '.') or key.startswith(name + '.') for key in sorted(shadowed))
+
+    calls = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.Call) and qualified(n.func) == 'typing.assert_never' and stable(qualified(n.func)))
+    closed = tuple('atlas_brain.kernel.states.' + state for state in ('Known', 'Absent', 'Unknown', 'NotApplicable'))
+    facts = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.MatchClass) and qualified(n.cls) in closed and stable(qualified(n.cls)))
+    return calls, facts
+
+
 def _terminal_assertion(pattern: ast.pattern, body: list[ast.stmt], assertions: frozenset[ast.Call]) -> bool:
     bound = bound_names(pattern)
     if len(body) != 1 or not isinstance(body[0], ast.Expr):
@@ -35,10 +60,11 @@ def _terminal_assertion(pattern: ast.pattern, body: list[ast.stmt], assertions: 
             isinstance(call.args[0], ast.Name) and call.args[0].id in bound)
 
 
-def _literal_pattern(pattern: ast.pattern) -> bool:
+def _literal_pattern(pattern: ast.pattern, facts: frozenset[ast.MatchClass] = frozenset()) -> bool:
     if isinstance(pattern, (ast.MatchValue, ast.MatchSingleton)):
         return True
-    return isinstance(pattern, ast.MatchOr) and all(_literal_pattern(p) for p in pattern.patterns)
+    return (isinstance(pattern, ast.MatchClass) and pattern in facts) or (
+        isinstance(pattern, ast.MatchOr) and all(_literal_pattern(p, facts) for p in pattern.patterns))
 
 
 def _enum_comparison(node: ast.AST) -> bool:
@@ -58,7 +84,7 @@ def _returned_default(body: list[ast.stmt]) -> bool:
     return bool(body) and isinstance(body[-1], ast.Return)
 
 
-def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset()) -> bool:
+def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset()) -> bool:
     """Refuse defaults; assertion call witnesses require whole-module binding proof."""
     if isinstance(node, ast.Call):
         short = (called or _tail(node.func)).rsplit('.', 1)[-1]
@@ -68,19 +94,12 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
         return (_lookup_value(node.body) or _lookup_value(node.orelse) or
                 _enum_comparison(node.test))
     if isinstance(node, ast.If) and node.orelse:
-        return (_enum_comparison(node.test) and (_returned_default(node.orelse) or
+        return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
                 (_value_branch(node.body) and _value_branch(node.orelse)))) or any(_lookup_value(part.value)
                    for statement in node.body + node.orelse for part in ast.walk(statement)
                    if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
     if isinstance(node, ast.Match):
-        patterns = [case.pattern for case in node.cases]
-        # An object class pattern is universal, including without a literal arm.
-        if any(isinstance(p, ast.MatchClass) and _tail(p.cls) == 'object'
-               for pattern in patterns for p in ast.walk(pattern)):
-            return True
-        return any(not _literal_pattern(case.pattern) and
-                   not (isinstance(case.pattern, ast.MatchClass) and
-                        _tail(case.pattern.cls) in ('Known', 'Absent', 'Unknown', 'NotApplicable')) and
+        return any(not _literal_pattern(case.pattern, facts) and
                    not _terminal_assertion(case.pattern, case.body, assertions)
                    for case in node.cases)
     return False

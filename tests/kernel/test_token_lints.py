@@ -2,7 +2,7 @@ import ast
 
 import pytest
 
-from atlas_brain.kernel.token_lints import bound_names, fallback_node
+from atlas_brain.kernel.token_lints import binding_proof, bound_names, fallback_node
 
 
 @pytest.mark.parametrize('source', [
@@ -23,6 +23,8 @@ from atlas_brain.kernel.token_lints import bound_names, fallback_node
     'value = 1 if raw == "up" else 2',
     'def mapped(raw):\n if raw == "up": return "up"\n else: return "up" + ""',
     'def mapped(raw):\n if raw == "up": raise ValueError("refused")\n else: return "up" + ""',
+    'def map_state(raw):\n if raw == "up": return "up"\n else: pass\n return "up"',
+    'class Known(str): pass\nmatch raw:\n case Known(): value = "up"',
     'if raw == "up": value = "up"\nelse: value = "up" + ""',
     'value = "up" if raw == "up" else "up" + ""',
     'def assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"',
@@ -68,7 +70,8 @@ def test_explicit_mapping_and_fact_dispatch_remain_valid(source):
     # the public lint entry point separately proves actual source bindings.
     assertions = frozenset(node for node in ast.walk(tree) if isinstance(node, ast.Call)
                            and isinstance(node.func, ast.Name) and node.func.id == 'assert_never')
-    assert not any(fallback_node(node, assertions=assertions) for node in ast.walk(tree))
+    facts = frozenset(node for node in ast.walk(tree) if isinstance(node, ast.MatchClass))
+    assert not any(fallback_node(node, assertions=assertions, facts=facts) for node in ast.walk(tree))
 
 
 def test_import_resolved_factory_alias_is_refused():
@@ -79,3 +82,14 @@ def test_import_resolved_factory_alias_is_refused():
 def test_pattern_binding_inventory_covers_all_capture_forms():
     tree = ast.parse('match value:\n case {"key": local, **rest}: pass\n case [*tail]: pass')
     assert bound_names(tree) == frozenset({'local', 'rest', 'tail'})
+
+
+def test_canonical_binding_proof_rejects_import_and_capture_shadows():
+    tree = ast.parse('match fact:\n case K(): pass\n case _ as missing: terminal(missing)')
+    aliases = {'K': 'atlas_brain.kernel.states.Known', 'terminal': 'typing.assert_never'}
+    calls, facts = binding_proof(tree, aliases, set())
+    assert len(calls) == len(facts) == 1
+    assert binding_proof(tree, aliases, {'typing'})[0] == frozenset()
+    assert binding_proof(tree, aliases, {'atlas_brain.kernel.states'})[1] == frozenset()
+    shadowed = ast.parse('match fact:\n case K(value=terminal): pass\n case _ as missing: terminal(missing)')
+    assert binding_proof(shadowed, aliases, set())[0] == frozenset()
