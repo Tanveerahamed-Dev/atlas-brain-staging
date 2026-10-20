@@ -14,6 +14,8 @@ from atlas_brain.evidence.parsekit.token_lint import lint_token_handler
     "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes, evidence):\n original = raw\n if raw != b'full': raw = b'full'\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return Known(value=text, basis=Basis.OBSERVED, evidence=evidence, raw=original.decode('ascii'))\n",
     "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes):\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return text.startswith('half')\n",
     "def decode(token: bytes): return token[:4]\n",
+    "def decode(field, evidence): return Known(value=bool(field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
+    "convert = bool\ndef decode(field, evidence):\n token = field.raw\n alias = convert\n return Known(value=alias(token), basis=Basis.OBSERVED, evidence=evidence, raw=token)\n",
     "def decode(field, evidence): return Known(value=bool(), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
     "def decode(field, evidence): return Known(value=str(), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
     "def decode(field, evidence): return Known(value=int(), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",

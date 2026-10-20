@@ -48,9 +48,7 @@ def _scopes(tree: ast.AST) -> list[tuple[list[ast.AST], dict[str, list[ast.expr]
                 if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
                     for target in node.targets if isinstance(node, ast.Assign) else (node.target,):
                         if isinstance(target, ast.Name):
-                            if target.id not in local:
-                                local[target.id] = []
-                            local[target.id].append(node.value)
+                            local[target.id] = [*local[target.id], node.value] if target.id in local else [node.value]
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     unknowns.discard(node.name)
                     if isinstance(node.returns, ast.Name) and node.returns.id == "Unknown":
@@ -117,13 +115,15 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
                      isinstance(n.annotation, ast.Name) and n.annotation.id == "str")
     buffers = {n.arg for n in parameters if n.arg != "token" and n.arg not in assignments and isinstance(n.annotation, ast.Name) and n.annotation.id == "bytes"}
     proof: dict[str, set[str]] = {"fallbacks": set(), "observed": set(assignments) | {n.arg for n in parameters}, "buffers": buffers,
-             "data": set(buffers), "raw": raw_names, "maps": set(), "patterns": set(), "mapped": set(), "tables": tables, "unknowns": unknowns}
+             "data": set(buffers), "raw": raw_names, "maps": set(), "patterns": set(), "mapped": set(), "tables": tables, "unknowns": unknowns, "conversions": {"bool", "int", "str", "float", "complex", "bytes", "bytearray"}}
 
     def scalar(value: ast.expr | None) -> bool:
         return _scalar_expression(value, proof)
 
     for _ in range(len(assignments) + 1):
         for name, values in assignments.items():
+            if any(isinstance(value, ast.Name) and value.id in proof["conversions"] for value in values):
+                proof["conversions"].add(name)
             for key, factory, method in (("maps", "TokenMap", "closed"), ("patterns", "compile_pattern", "")):
                 if factory not in assignments and factory not in {n.arg for n in parameters} and all(
                     isinstance(value, ast.Name) and value.id in proof[key] or isinstance(value, ast.Call) and (
@@ -146,7 +146,6 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
                 raw_names.add(name)
             if any(scalar(value) for value in values):
                 proof["fallbacks"].add(name)
-    fallback_names = proof["fallbacks"]
     span_slices: set[ast.AST] = set()
     if structural:
         for func in nodes:
@@ -161,10 +160,9 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
             node.args.defaults or any(value is not None for value in node.args.kw_defaults)
         ):
             failures.add((node.lineno, "token_parameter_default"))
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not structural and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for index, statement in enumerate(node.body):
                 if isinstance(statement, ast.Return) and not _unknown(statement.value) and (
-                    scalar(statement.value) if structural else
                     isinstance(statement.value, (ast.Constant, ast.Attribute))
                     or any(isinstance(child, ast.Return) for prior in node.body[:index] for child in ast.walk(prior))
                 ):
@@ -182,14 +180,14 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
             raw_input = any((isinstance(child, ast.Attribute) and child.attr == "raw")
                             or (isinstance(child, ast.Name) and child.id in raw_names)
                             for value in arguments for child in ast.walk(value))
-            if raw_input and any(scalar(value) or (isinstance(value, ast.Name) and value.id in fallback_names)
-                                 for value in arguments):
+            if raw_input and (any(scalar(value) for value in arguments) or
+                              isinstance(node.func, ast.Name) and node.func.id in proof["conversions"]):
                 failures.add((node.lineno, "token_fallback_argument"))
         if isinstance(node, ast.Name) and node.id in ("getattr", "vars", "__getattribute__", "eval", "exec"):
             failures.add((node.lineno, "token_unproved_lookup"))
         if isinstance(node, ast.Return) and (
             ((structural or isinstance(node.value, ast.Call)) and scalar(node.value))
-            or (isinstance(node.value, ast.Name) and node.value.id in fallback_names)
+            or (isinstance(node.value, ast.Name) and node.value.id in proof["fallbacks"])
         ):
             failures.add((node.lineno, "token_catchall"))
         if isinstance(node, ast.Lambda) and scalar(node.body):
