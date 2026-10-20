@@ -1,0 +1,72 @@
+"""The supervisor-approved AST grant is exact and confined to its using paths."""
+import ast
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from tools.fence import SCOPED_API, STDLIB_API, source_allowed
+
+TOKEN = "atlas_brain/kernel/token_lints.py"
+LINTS = "atlas_brain/kernel/lints.py"
+GRANTS = [(path, api) for path, apis in SCOPED_API.items() for api in sorted(apis)]
+
+
+@pytest.mark.parametrize("path,api", GRANTS)
+def test_exact_api_at_using_path_passes(path, api):
+    assert source_allowed(f"import ast; {api}", path=path)
+    assert source_allowed(f"from ast import {api[4:]} as node; node", path=path)
+
+
+@pytest.mark.parametrize("path", [TOKEN, LINTS])
+def test_actual_unlisted_ast_exports_stay_closed(path):
+    for name in sorted(vars(ast)):
+        if name.isidentifier() and f"ast.{name}" not in SCOPED_API[path]:
+            assert not source_allowed(f"from ast import {name}", path=path), name
+    assert not source_allowed("import ast; ast.literal_eval('0')", path=path)
+    assert not source_allowed("from ast import *", path=path)
+    assert not source_allowed("value = type(0).__name__", path=path)
+
+
+@pytest.mark.parametrize("api", sorted(set().union(*SCOPED_API.values())))
+@pytest.mark.parametrize("path", ["atlas_brain/kernel/runtime.py", "atlas_brain/runner/worker.py",
+                                 "atlas_brain/kernel/lints.py/extra.py", "tools/lints.py"])
+def test_listed_api_outside_exact_path_refused(api, path):
+    assert not source_allowed(f"import ast; {api}", path=path)
+
+
+def test_scoped_api_cannot_escape_through_internal_reexport():
+    sources = {LINTS: "import ast", TOKEN: "import ast"}
+    source = "from atlas_brain.kernel import lints; lints.ast.parse('')"
+    assert source_allowed(source, sources, LINTS)
+    assert not source_allowed(source, sources, "atlas_brain/model/runtime.py")
+    assert not source_allowed(source, sources, TOKEN)
+
+
+def test_amendment_matches_exact_grant_and_bounds():
+    assert set(SCOPED_API) == {TOKEN, LINTS}
+    endpoints = set().union(*SCOPED_API.values())
+    assert len(endpoints) == 40
+    assert not any(api.startswith("ast.") for api in STDLIB_API)
+    text = Path("docs/adr/0003-adr0002-ast-amendment.md").read_text(encoding="utf-8")
+    assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == endpoints
+    assert len(text.splitlines()) <= 60 and len(text) <= 4000
+
+
+@pytest.mark.parametrize("path,source,expected", [
+    (TOKEN, "import ast; ast.Name", 0), (LINTS, "import ast; ast.parse('')", 0),
+    (LINTS, "import ast; ast.literal_eval('0')", 1),
+    ("atlas_brain/kernel/runtime.py", "import ast; ast.Name", 1),
+])
+def test_tracked_cli_enforces_ast_scope(tmp_path, path, source, expected):
+    file = tmp_path / path
+    file.parent.mkdir(parents=True)
+    file.write_text(source, encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    result = subprocess.run([sys.executable, str(Path("tools/fence.py").resolve())],
+                            cwd=tmp_path, capture_output=True, check=False)
+    assert result.returncode == expected, result.stderr
