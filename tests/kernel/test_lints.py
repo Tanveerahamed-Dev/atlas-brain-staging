@@ -30,6 +30,9 @@ def test_every_lint_fires_on_its_plant(rule, source):
     ('from typing import Optional as O\nclass R:\n value: O[int]', 1),
     ('@dataclasses.dataclass()\nclass R:\n value: int = field(default_factory=int)', 2),
     ('def map_token(token):\n if token == "up":\n  return 1\n else:\n  return 2', 3),
+    ('value = tokens.setdefault(token, "up")', 3),
+    ('def map_token(token):\n match token:\n  case "up": return 1\n  case _: return 1', 3),
+    ('def map_token(token):\n match token:\n  case "up": return 1\n  case other: return 1', 3),
     ('from atlas_brain.kernel.verdict import CheckResult as R\nr = R()', 4),
     ('try:\n pass\nexcept BaseException as e:\n pass', 5),
     ('from math import sqrt', 7),
@@ -57,6 +60,8 @@ def test_alias_and_alternate_plants(source, rule):
 @pytest.mark.parametrize('source', [
     '@dataclass(frozen=True)\nclass Record:\n value: int',
     'value = tokens[token]',
+    'match token:\n case "up": value = 1\n case "down": value = 0',
+    'match fact:\n case Known(): pass\n case _ as impossible: assert_never(impossible)',
     'x = 1 # pyright: ignore[reportAssignmentType] reviewer: REV',
     'with open("x", encoding="utf-8") as f:\n text = f.read()',
     'with open("x", "rb") as f:\n raw = f.read()',
@@ -80,30 +85,20 @@ def test_result_constructor_exception_is_only_inside_verdict_function():
     assert not lint('def verdict():\n def result():\n  return CheckResult()', path)
 
 
+@pytest.mark.parametrize('path', ['atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py'])
 @pytest.mark.parametrize('source', [
     'try:\n pass\nexcept BaseException:\n pass\n',
     'try:\n pass\nexcept BaseException:\n raise SystemExit(1)\n',
     'try:\n pass\nexcept BaseException:\n raise SystemExit(1)\n' * 2,
     'def unrelated():\n try:\n  pass\n except BaseException:\n  pass',
     'def SystemExit(code):\n pass\ntry:\n pass\nexcept BaseException:\n raise SystemExit(1)',
-])
-def test_all_runner_broad_handlers_are_refused_without_ct_extension(source):
-    assert 5 in {r for r, _ in lint(source, 'atlas_brain/runner/__main__.py')}
-
-
-@pytest.mark.parametrize('body', ['pass', 'return 0', 'raise', 'raise SystemExit(0)',
-                                  'raise SystemExit(256)', 'raise SystemExit(1) from sys.exit(0)',
-                                  'if False:\n   raise SystemExit(1)'])
-def test_runner_swallowing_or_zero_exit_handler_is_refused(body):
-    source = 'def main():\n try:\n  pass\n except BaseException:\n  ' + body
-    assert 5 in {r for r, _ in lint(source, 'atlas_brain/runner/__main__.py')}
-
-
-@pytest.mark.parametrize('exception', ['RuntimeError("synthetic")', 'BaseException()', 'SystemExit(0)'])
-def test_fail_closed_handler_still_requires_ct_extension(exception):
-    source = 'try:\n raise ' + exception + '\nexcept BaseException:\n raise SystemExit(1)'
-    for path in ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py'):
-        assert 5 in {r for r, _ in lint(source, path)}
+] + ['def main():\n try:\n  pass\n except BaseException:\n  ' + body
+     for body in ['pass', 'return 0', 'raise', 'raise SystemExit(0)', 'raise SystemExit(256)',
+                  'raise SystemExit(1) from sys.exit(0)', 'if False:\n   raise SystemExit(1)']]
+  + ['try:\n raise ' + exception + '\nexcept BaseException:\n raise SystemExit(1)'
+     for exception in ['RuntimeError("synthetic")', 'BaseException()', 'SystemExit(0)']])
+def test_all_runner_broad_handlers_are_refused_without_ct_extension(path, source):
+    assert 5 in {r for r, _ in lint(source, path)}
 
 
 @pytest.mark.parametrize('source', [
