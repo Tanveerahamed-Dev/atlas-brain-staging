@@ -19,6 +19,7 @@ BANNED = ("tkinter", "curses", "webbrowser", "http.server", "wsgiref", "socketse
 GOVERNANCE = {"governance/generators.json", "governance/review.schema.json", "governance/review-policy.json"}
 DYNAMIC = {"exec", "eval", "compile", "__import__", "__builtins__", "globals", "locals", "vars",
            "getattr", "setattr", "delattr", "hasattr", "dir",
+           "help", "breakpoint", "__loader__", "__spec__",
            "builtins.exec", "builtins.eval", "builtins.compile", "builtins.__import__", "sys.modules", "sys._getframe"}
 CODE_ATTRIBUTES = {"__globals__", "__builtins__", "__code__", "__closure__", "__dict__", "__subclasses__",
                    "f_builtins", "f_globals", "f_locals", "gi_frame", "cr_frame", "ag_frame", "tb_frame"}

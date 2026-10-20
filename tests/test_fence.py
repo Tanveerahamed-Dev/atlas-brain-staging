@@ -76,6 +76,8 @@ def test_current_tree_passes():
     "import re; re.sys.modules['builtins']",
     "from json import codecs", "from json import *",
     "from .capture import *", "object().__getattribute__('synthetic')",
+    "help('webbrowser')", "alias = help; alias('webbrowser')", "breakpoint()",
+    "__loader__.load_module('webbrowser')", "__spec__.loader.load_module('webbrowser')",
 ])
 def test_denied_engine_imports(source):
     assert not source_allowed(source)
