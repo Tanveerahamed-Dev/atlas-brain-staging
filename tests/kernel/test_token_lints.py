@@ -2,7 +2,7 @@ import ast
 
 import pytest
 
-from atlas_brain.kernel.token_lints import fallback_node
+from atlas_brain.kernel.token_lints import bound_names, fallback_node
 
 
 @pytest.mark.parametrize('source', [
@@ -74,3 +74,8 @@ def test_explicit_mapping_and_fact_dispatch_remain_valid(source):
 def test_import_resolved_factory_alias_is_refused():
     node = ast.parse('DD(lambda: "up")').body[0].value
     assert fallback_node(node, 'collections.defaultdict')
+
+
+def test_pattern_binding_inventory_covers_all_capture_forms():
+    tree = ast.parse('match value:\n case {"key": local, **rest}: pass\n case [*tail]: pass')
+    assert bound_names(tree) == frozenset({'local', 'rest', 'tail'})
