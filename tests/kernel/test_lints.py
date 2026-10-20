@@ -92,7 +92,8 @@ def test_runner_has_only_one_top_level_broad_handler():
 
 
 @pytest.mark.parametrize('body', ['pass', 'return 0', 'raise', 'raise SystemExit(0)',
-                                  'raise SystemExit(256)', 'if False:\n   raise SystemExit(1)'])
+                                  'raise SystemExit(256)', 'raise SystemExit(1) from sys.exit(0)',
+                                  'if False:\n   raise SystemExit(1)'])
 def test_runner_swallowing_or_zero_exit_handler_is_refused(body):
     source = 'def main():\n try:\n  pass\n except BaseException:\n  ' + body
     assert 5 in {r for r, _ in lint(source, 'atlas_brain/runner/__main__.py')}
@@ -104,6 +105,11 @@ def test_allowed_fail_closed_handler_exits_nonzero(exception):
     assert not lint(source, 'atlas_brain/runner/__main__.py')
     result = subprocess.run([sys.executable, '-c', source], capture_output=True, check=False)
     assert result.returncode == 1
+
+
+def test_shadowed_abort_constructor_is_refused():
+    source = 'def SystemExit(code):\n pass\ntry:\n pass\nexcept BaseException:\n raise SystemExit(1)'
+    assert 5 in {r for r, _ in lint(source, 'atlas_brain/runner/__main__.py')}
 
 
 @pytest.mark.parametrize('source', [

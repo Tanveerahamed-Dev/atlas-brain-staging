@@ -84,7 +84,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     for binding in ast.walk(tree):
         identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)) else ''
         if identifier:
-            rebound.add(name(ast.Name(id=identifier)))
+            rebound.add(name(ast.Name(id=identifier, ctx=ast.Load())))
 
     def ascii_flag(node: ast.AST) -> bool:
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
@@ -105,7 +105,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
     def aborts(handler: ast.ExceptHandler) -> bool:
         # Deliberately narrow: re-raising SystemExit(0) would still exit zero.
-        if len(handler.body) != 1 or not isinstance(handler.body[0], ast.Raise):
+        if len(handler.body) != 1 or not isinstance(handler.body[0], ast.Raise) or handler.body[0].cause is not None:
             return False
         exception = handler.body[0].exc
         if not isinstance(exception, ast.Call) or name(exception.func) not in ('SystemExit', 'builtins.SystemExit'):
