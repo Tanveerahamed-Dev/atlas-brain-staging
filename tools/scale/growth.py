@@ -39,7 +39,10 @@ def probe(runtime, source, raw, recycle):
     try:
         while process.poll() is None:
             stamp = time.monotonic()
-            known.update({p.pid: p for p in parent.children(recursive=True)})
+            try:
+                known.update({p.pid: p for p in parent.children(recursive=True)})
+            except psutil.NoSuchProcess:
+                continue  # The next poll records the actual exit status.
             tick = {}
             for pid, child in list(known.items()):
                 try:
@@ -84,8 +87,12 @@ def probe(runtime, source, raw, recycle):
         if process.returncode:
             raise ValueError("growth_child_failed")
         time.sleep(5)
-        if any(p.is_running() and p.status() != psutil.STATUS_ZOMBIE for p in known.values()):
-            raise ValueError("growth_orphan")
+        for member in known.values():
+            try:
+                if member.is_running() and member.status() != psutil.STATUS_ZOMBIE:
+                    raise ValueError("growth_orphan")
+            except psutil.NoSuchProcess:
+                pass
         summary = json.loads((control / "completed.json").read_bytes())
         expected_workers, expected_tasks = (4, 75) if recycle == "none" else (100, 3)
         verdict = decide(list(rows.values()), expected_workers, expected_tasks)

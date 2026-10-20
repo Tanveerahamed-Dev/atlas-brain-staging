@@ -379,6 +379,7 @@ jobs:
         if: always()
         with:
           name: startup-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          include-hidden-files: true
           path: |
             .s0/startup/
             .s0/startup-*.json

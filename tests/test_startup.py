@@ -5,6 +5,17 @@ import unittest
 
 
 class StartupTests(unittest.TestCase):
+    def test_swallowed_import_denial_still_counts(self):
+        from spike import admission, safety
+        before = safety.VIOLATIONS
+        try:
+            with self.assertRaises(admission.ImportDenied):
+                admission.deny_import("planted_unlisted")
+            self.assertEqual(safety.VIOLATIONS, before + 1)
+            self.assertFalse(issubclass(admission.ImportDenied, Exception))
+        finally:
+            safety.VIOLATIONS = before
+
     def test_unexpected_startup_module_is_refused(self):
         from spike.admission import compare_startup
         with self.assertRaisesRegex(ValueError, "startup_module_baseline"):
@@ -45,6 +56,16 @@ class StartupTests(unittest.TestCase):
                     path.write_bytes(b"import os\n")
                 with self.assertRaisesRegex(ValueError, "startup_code_unadmitted"):
                     census([Path(root)])
+
+    def test_findable_zip_startup_code_is_refused(self):
+        from spike.safety import census
+        import zipfile
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "startup.zip"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("sitecustomize/__init__.py", "import os\n")
+            with self.assertRaisesRegex(ValueError, "startup_code_unadmitted"):
+                census([path])
 
 
 if __name__ == "__main__":

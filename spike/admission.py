@@ -12,6 +12,16 @@ INSTALLED = False
 RECEIPT = {}
 
 
+class ImportDenied(BaseException):
+    pass
+
+
+def deny_import(name):
+    from spike import safety
+    safety.VIOLATIONS += 1
+    raise ImportDenied("import_unadmitted:" + name)
+
+
 def compare_startup(actual, expected):
     if set(actual) != set(expected):
         raise ValueError("startup_module_baseline:" + json.dumps({"extra": sorted(set(actual) - set(expected)),
@@ -95,8 +105,11 @@ def install(snapshot, role):
                     # Portable stdlib code probes platform-specific modules using
                     # try/import/except ImportError (for example fcntl on Windows).
                     return None
-                raise ValueError("import_unadmitted:" + fullname)
-            validate(fullname, spec.origin)
+                deny_import(fullname)
+            try:
+                validate(fullname, spec.origin)
+            except ValueError:
+                deny_import(fullname)
             return spec
     sys.meta_path.insert(0, Fence())
     RECEIPT = {"startup_baseline_enforced": True, "role": role,

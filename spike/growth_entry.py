@@ -54,7 +54,7 @@ def main():
     census, catalogue = safety.census(), safety.check_runtime_catalogue()
     pools = [ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"),
                                 max_tasks_per_child=recycle, initializer=initialize,
-                                initargs=(environment(), census, catalogue)) for _ in range(4)]
+                                initargs=(environment(), census, catalogue, str(control))) for _ in range(4)]
     results = []
     try:
         for first in range(0, 300, 4):

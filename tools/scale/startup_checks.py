@@ -13,17 +13,18 @@ sys.path.insert(0, str(ROOT))
 from tools.scale.measure import FLAGS, shape
 from tools.scale.workload import canonical, digest, generate
 
+OS_ONLY = "import os; fd = os.open(os.environ['S0_STARTUP_EXECUTED'], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 384); os.write(fd, b'os_only'); os.close(fd)\n"
 WITNESSES = {
     "pth-connect": {"planted.pth": "import startup_planted; startup_planted.connect()\n"},
-    "pth-loaded-os": {"planted.pth": "import os; os.environ['S0_ALREADY_LOADED_OS'] = 'executed'\n"},
+    "pth-loaded-os": {"planted.pth": OS_ONLY},
     "start-connect": {"planted.start": "startup_planted:connect\n"},
     "sitecustomize": {"sitecustomize.py": "from startup_planted import connect\nconnect()\n"},
-    "start-pth-pair": {"planted.start": "startup_planted:connect\n", "planted.pth": "import os; os.environ['S0_ALREADY_LOADED_OS'] = 'executed'\n"},
+    "start-pth-pair": {"planted.start": "startup_planted:connect\n", "planted.pth": OS_ONLY},
 }
 HELPER = """
 def connect():
     import os, pathlib, socket
-    pathlib.Path(os.environ['S0_STARTUP_EXECUTED']).write_text('executed', encoding='ascii')
+    pathlib.Path(os.environ['S0_STARTUP_EXECUTED']).write_text('connect', encoding='ascii')
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as connection:
             connection.settimeout(0.05)
@@ -33,10 +34,11 @@ def connect():
 """
 
 
-def await_marker(process, marker):
+def await_marker(process, marker, log):
     until = time.monotonic() + 120
     while not marker.exists():
         if process.poll() is not None:
+            print(log.read_text(encoding="utf-8"), file=sys.stderr)
             raise ValueError("parent_refused_before_planting")
         if time.monotonic() > until:
             raise TimeoutError("startup_plant_watchdog")
@@ -72,7 +74,7 @@ def main():
                 try:
                     if phase == "worker":
                         process = subprocess.Popen(command + ["--pause-before-workers"], env=env, stdout=console, stderr=subprocess.STDOUT)
-                        await_marker(process, control / "before-workers.ready")
+                        await_marker(process, control / "before-workers.ready", case / "console.log")
                     for filename, body in dict(files, **{"startup_planted.py": HELPER}).items():
                         path = site / filename
                         if path.exists():
@@ -102,11 +104,14 @@ def main():
                 raise ValueError("startup_hook_not_refused:" + name + ":" + phase)
             if phase == "prestart" and marker.exists():
                 raise ValueError("prestart_census_executed_hook")
-            expected_execution = name in ("pth-connect", "sitecustomize") or sys.version_info[:2] >= (3, 15) and name in ("start-connect", "start-pth-pair")
+            expected_execution = name != "start-connect" or sys.version_info[:2] >= (3, 15)
             if phase != "prestart" and expected_execution and not marker.exists():
                 raise ValueError("startup_executable_positive_control_missing:" + name)
+            observed = marker.read_text(encoding="ascii") if marker.exists() else None
+            if phase != "prestart" and name == "start-pth-pair" and observed != ("connect" if sys.version_info[:2] >= (3, 15) else "os_only"):
+                raise ValueError("paired_startup_precedence_witness")
             records.append({"witness": name, "phase": phase, "exit": code, "refused": refusal,
-                            "hook_ran_before_refusal": marker.exists(), "no_result": True})
+                            "hook_ran_before_refusal": marker.exists(), "executed_hook": observed, "no_result": True})
     case = args.raw / "unlisted-import"
     case.mkdir()
     unlisted = site / "startup_unlisted_probe.py"
@@ -115,15 +120,19 @@ def main():
         raise ValueError("refuse_existing_unlisted_probe")
     try:
         unlisted.write_text("from pathlib import Path\nPath(" + repr(str(sentinel.resolve())) + ").write_text('ran', encoding='ascii')\n", encoding="utf-8")
-        command = [str(args.runtime)] + FLAGS + [str(ROOT / "spike" / "bootstrap.py"),
-                   "--root", str(source), "--out", str(case / "result"), "--receipt", str(case / "engine.json"),
-                   "--control", str(case / "control"), "--fault", "admission-probe"]
-        with (case / "console.log").open("wb") as log:
-            result = subprocess.run(command, timeout=120, stdout=log, stderr=subprocess.STDOUT)
-        if result.returncode == 0 or sentinel.exists() or (case / "result").exists() or "import_unadmitted:startup_unlisted_probe" not in (case / "console.log").read_text(encoding="utf-8"):
-            raise ValueError("unlisted_import_not_refused_before_execution")
-        records.append({"witness": "unlisted-import", "phase": "worker", "exit": result.returncode,
-                        "refused": True, "module_body_ran": False, "no_result": True})
+        for fault in ("admission-probe", "admission-swallow"):
+            trial = case / fault
+            trial.mkdir()
+            command = [str(args.runtime)] + FLAGS + [str(ROOT / "spike" / "bootstrap.py"),
+                       "--root", str(source), "--out", str(trial / "result"), "--receipt", str(trial / "engine.json"),
+                       "--control", str(trial / "control"), "--fault", fault]
+            with (trial / "console.log").open("wb") as log:
+                result = subprocess.run(command, timeout=120, stdout=log, stderr=subprocess.STDOUT)
+            expected = "egress_violation" if fault == "admission-swallow" else "import_unadmitted:startup_unlisted_probe"
+            if result.returncode == 0 or sentinel.exists() or (trial / "result").exists() or expected not in (trial / "console.log").read_text(encoding="utf-8"):
+                raise ValueError("unlisted_import_not_refused_before_execution")
+            records.append({"witness": fault, "phase": "worker", "exit": result.returncode,
+                            "refused": True, "module_body_ran": False, "no_result": True})
     finally:
         unlisted.unlink()
     # Clean opt-in -S option: same runtime input, no site processing at all.
