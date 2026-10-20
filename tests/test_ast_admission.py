@@ -62,6 +62,18 @@ def test_lint_to_lint_function_dependency_passes():
     assert source_allowed("from .token_lints import fallback_node; fallback_node(None)", sources, LINTS)
 
 
+@pytest.mark.parametrize("source", [
+    "from atlas_brain.kernel.lints import sha256; digest = sha256(raw)",
+    "from atlas_brain.kernel import lints; digest = lints.sha256(raw)",
+    "from atlas_brain.bridge import sha256; digest = sha256(raw)",
+])
+def test_global_reexport_cannot_hide_protected_import_hop(source):
+    sources = {LINTS: "from hashlib import sha256",
+               "atlas_brain/bridge.py": "from .kernel.lints import sha256"}
+    assert not source_allowed(source, sources, "atlas_brain/model/runtime.py")
+    assert source_allowed("from hashlib import sha256; digest = sha256(raw)", path="atlas_brain/model/runtime.py")
+
+
 def test_amendment_matches_exact_grant_and_bounds():
     assert set(SCOPED_API) == {TOKEN, LINTS}
     endpoints = set().union(*SCOPED_API.values())
