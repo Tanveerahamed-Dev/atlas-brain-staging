@@ -86,6 +86,7 @@ class LineAccounting:
 class ParseResult:
     records: tuple[Record, ...]
     lines: tuple[LineAccounting, ...]
+    tokens: tuple[tuple[str, Captured], ...]
     quality: Literal["complete", "partial"]
 
 
@@ -129,6 +130,7 @@ def run_rules(raw: bytes, capture: CaptureId, rules: tuple[Rule, ...],
                 or len(rule.fields) != pattern.groups):
             raise ValueError("invalid rule shape, target, ignore citation or fields")
     records: list[Record] = []
+    tokens: list[tuple[str, Captured]] = []
     accounting: list[LineAccounting] = []
     state, offset, partial = "start", 0, False
     while offset < len(raw):
@@ -157,6 +159,7 @@ def run_rules(raw: bytes, capture: CaptureId, rules: tuple[Rule, ...],
                 field = Captured(text, span, text)
                 if name in maps:
                     field = maps[name].resolve(field, capture)
+                    tokens.append((name, field))
                     partial = partial or isinstance(field.value, Unknown)
                 fields.append((name, field))
             if fields or rule.kind == "record":
@@ -169,4 +172,4 @@ def run_rules(raw: bytes, capture: CaptureId, rules: tuple[Rule, ...],
             accounting.append(LineAccounting(line_span, "unrecognised", "", ""))
             partial = True
         offset = end
-    return ParseResult(tuple(records), tuple(accounting), "partial" if partial else "complete")
+    return ParseResult(tuple(records), tuple(accounting), tuple(tokens), "partial" if partial else "complete")
