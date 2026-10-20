@@ -16,7 +16,7 @@ def decide(integrity, scope, view, registered=True):
                          banner_registered=registered, cache_age_evidenced=True)
 
 
-@pytest.mark.parametrize('integrity,scope,view', product(IntegrityState, ReadScope, ViewConsistency))
+@pytest.mark.parametrize('integrity,scope,view', tuple(product(IntegrityState, ReadScope, ViewConsistency)))
 def test_every_cli_admissibility_row(integrity, scope, view):
     result = decide(integrity, scope, view)
     population = integrity in (IntegrityState.COMPLETE, IntegrityState.EMPTY, IntegrityState.ABSENCE_BANNER)
