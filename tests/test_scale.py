@@ -106,6 +106,12 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(chain["hops"][1]["reason"], "PEER_NOT_COLLECTED")
         self.assertFalse(chain["complete"])
 
+    def test_unparsed_nx_stp_is_unknown(self):
+        from spike.estate import device_checks
+        result = device_checks({"name": "sw-00018", "profile": "core_nx", "estate_rows": []})
+        self.assertEqual(result[0][0], "l2.stp.root_placement")
+        self.assertEqual(result[0][3], "unknown")
+
 
 class ThresholdTests(unittest.TestCase):
     def test_determinism_covering_design(self):

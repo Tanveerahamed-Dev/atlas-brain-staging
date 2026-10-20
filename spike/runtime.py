@@ -32,6 +32,7 @@ def initialize(expected, expected_census, expected_catalogue):
     _START = time.perf_counter_ns()
     _PARENT = expected
     if environment() != expected:
+        print(json.dumps({"worker_environment_mismatch": {"expected": expected, "actual": environment()}}, sort_keys=True), file=sys.stderr, flush=True)
         raise ValueError("worker_environment_mismatch")
     if safety.census() != expected_census or safety.check_runtime_catalogue() != expected_catalogue:
         raise ValueError("worker_admission_mismatch")
@@ -102,7 +103,8 @@ def task(payload):
     return {"name": name, "profile": payload["profile"], "estate_rows": estate, "route_summary": route_summary,
             "facts": total_rows, "bytes": len(raw), "pid": os.getpid(), "violations": safety.VIOLATIONS,
             "environment": environment(), "wall_ns": time.perf_counter_ns() - start, "cpu_ns": time.process_time_ns() - cpu,
-            "startup_ns": start - _START, "gc": gc.get_stats()}
+            "process_cpu_ns": time.process_time_ns(), "initializer_to_task_ns": start - _START,
+            "ready_latency_ns": start - payload["queued_ns"], "gc": gc.get_stats()}
 
 
 def pool_run(payloads, workers, recycle, expected, census, catalogue, progress, pause_at_half=False):
@@ -111,7 +113,10 @@ def pool_run(payloads, workers, recycle, expected, census, catalogue, progress, 
                                max_tasks_per_child=recycle, initializer=initialize, initargs=(expected, census, catalogue))
     broken = False
     try:
-        futures = {pool.submit(task, item): item for item in payloads}
+        futures = {}
+        for item in payloads:
+            item["queued_ns"] = time.perf_counter_ns()
+            futures[pool.submit(task, item)] = item
         for future in as_completed(futures):
             payload = futures[future]
             try:
@@ -180,6 +185,12 @@ def execute(args, startup_modules):
                 results.extend(second)
             return sorted(results, key=lambda item: item["name"])
         nodes = measured("device", devices)
+        worker_cpu = {}
+        for node in nodes:
+            worker_cpu[node["pid"]] = max(worker_cpu.get(node["pid"], 0), node.get("process_cpu_ns", 0))
+        stages["device"]["coordinator_cpu_ns"] = stages["device"]["cpu_ns"]
+        stages["device"]["worker_cpu_ns_through_last_task"] = sum(worker_cpu.values())
+        stages["device"]["cpu_ns"] += sum(worker_cpu.values())
         if any(node["violations"] for node in nodes) or safety.VIOLATIONS:
             raise RuntimeError("egress_violation")
         estate = measured("estate", lambda: estate_stages(nodes))
@@ -201,6 +212,9 @@ def execute(args, startup_modules):
                    "serialization_probe_ns": serialize_ns, "pickling_share": None,
                    "pickling_note": "serialization probe only; executor serialization share not instrumented",
                    "result_payload_bytes": sum(len(pickle.dumps(n)) for n in nodes),
+                   "facts_per_device": [[n["name"], n["facts"]] for n in nodes],
+                   "bytes_per_fact": sum(n.get("bytes", 0) for n in nodes) / max(1, sum(n["facts"] for n in nodes)),
+                   "worker_startup": {"metric": "first-task ready latency includes task submission and admission", "ready_ns_by_pid": [[pid, min(n.get("ready_latency_ns", 0) for n in nodes if n["pid"] == pid)] for pid in sorted(worker_cpu)]},
                    "manifest_sha256": digest((args.out / "MANIFEST.sha256").read_bytes()),
                    "runtime": {"version": sys.version, "environment": environment(), "workers": worker_count,
                                "requested_hash_seed": os.environ.get("PYTHONHASHSEED"), "hash_seed_effective": "random (-I ignores PYTHONHASHSEED)",

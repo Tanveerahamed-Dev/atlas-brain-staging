@@ -36,6 +36,8 @@ def device_checks(node):
         port, admin, oper = row[1]
         checks.append([CHECKS[0], node["name"], port, "problem" if admin == "up" and oper == "down" else "ok", [row[2]], "collect peer interface state"])
     roots, bridges = by_kind(rows, "root_priority"), by_kind(rows, "bridge_priority")
+    if not roots or not bridges:
+        checks.append([CHECKS[4], node["name"], "node", "unknown", [], "collect spanning-tree and root intent"])
     for root, bridge in zip(roots, bridges):
         expected_root = node["profile"].startswith("core")
         is_root = root[1][1] == bridge[1][1]
@@ -50,7 +52,8 @@ def estate_stages(nodes):
     checks, domains, correlations = [], {}, []
     for node in nodes:
         name, rows = node["name"], node["estate_rows"]
-        checks.extend(device_checks(node))
+        if not node.get("analysis_failed"):
+            checks.extend(device_checks(node))
         global_mtu = by_kind(rows, "system_mtu")
         configured = {r[1][0]: r for r in by_kind(rows, "interface_mtu")}
         for row in by_kind(rows, "interface_attributes"):

@@ -47,6 +47,8 @@ jobs:
           exit $LASTEXITCODE
       - name: End-to-end 100-device smoke (uncapped, not acceptance)
         run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 100 --repetitions 1 --host --raw .s0/smoke/raw
+      - name: Validate all six checks and both correlation variants
+        run: python tools/scale/check_smoke.py .s0/smoke/raw/wl1-100-1
       - name: Egress probes in coordinator, worker, retry and import
         run: |
           & $env:S0_RUNTIME -I -X warn_default_encoding -W error::EncodingWarning spike/probe_entry.py .s0/smoke/raw/egress.json
