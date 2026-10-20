@@ -205,7 +205,7 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
             lines = text_lines(raw, codec)
         except (ValueError, LookupError) as error:
             raise AdmissionRefused("unsupported_capture_codec") from error
-        captures.append(Capture(CaptureId("cap:" + sha256(members["manifest.json"] + b"\0" + path.encode()).hexdigest()), EntityKey("node:" + source),
+        captures.append(Capture(CaptureId("cap:" + sha256(json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode() + b"\0" + raw).hexdigest()), EntityKey("node:" + source),
                                 operation, rendered, codec, raw, classify_cli(raw, attempt.succeeded, row["prompt_verified"]),
                                 lines, ReadScope.UNKNOWN, ViewConsistency.UNKNOWN))
     member_names(paths)
