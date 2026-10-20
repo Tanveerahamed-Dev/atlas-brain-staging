@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import cast
 
 from atlas_brain.kernel import states as k
+from atlas_brain.kernel.states import CaptureId
 
 from .capture import Capture, Channel, Scope, classify_cli, unrecorded_time
 from .text import text_lines
@@ -108,6 +109,8 @@ class Attempt:
     transport_defect: str
 
     def __post_init__(self) -> None:
+        if any(type(value) is not str or not value.strip() for value in (self.source, self.operation)):
+            raise AdmissionRefused("invalid_operation_identity")
         if self.attempted not in ("yes", "no", "unknown") or self.succeeded not in ("yes", "no", "unknown"):
             raise AdmissionRefused("invalid_attempt")
         if self.succeeded != "unknown" and self.attempted != "yes":
@@ -191,6 +194,8 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
         row = record(value, ("path", "source", "operation", "rendered", "codec", "sha256", "prompt_verified"))
         path, source, operation, rendered, codec, digest = (string(row, f) for f in ("path", "source", "operation", "rendered", "codec", "sha256"))
         member_names([path])
+        if PurePosixPath(path).parts[:-1] != ("devices", source, "captures"):
+            raise AdmissionRefused("capture_source_path_mismatch")
         paths.append(path)
         if path not in members or sha256(members[path]).hexdigest() != digest or path == "manifest.json":
             raise AdmissionRefused("capture_hash_mismatch")
@@ -205,7 +210,7 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
             lines = text_lines(raw, codec)
         except (ValueError, LookupError) as error:
             raise AdmissionRefused("unsupported_capture_codec") from error
-        capture_id = k.CaptureId("cap:" + sha256(json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode() + b"\0" + raw).hexdigest())
+        capture_id = capture_identity(row, attempt, raw)
         source_id = k.EntityKey("node:" + source)
         witness = k.EvidenceRef(capture=capture_id, locator=k.WholeCapture(), role=k.EvidenceRole.SUBJECT,
                                 excerpt_sha256=sha256(raw).hexdigest())
@@ -218,3 +223,9 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
     member_names(paths)
     return Bundle(string(manifest, "bundle_id"), string(manifest, "importer"), sha256(members["manifest.json"]).hexdigest(),
                   budgets.sha256, tuple(attempts), tuple(captures))
+
+
+def capture_identity(row: dict[str, object], attempt: Attempt, raw: bytes) -> CaptureId:
+    metadata = {"capture": row, "attempt": asdict(attempt)}
+    canonical = json.dumps(metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return CaptureId("cap:" + sha256(canonical + b"\0" + raw).hexdigest())
