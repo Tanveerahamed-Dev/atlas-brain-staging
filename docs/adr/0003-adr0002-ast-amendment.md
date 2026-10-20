@@ -54,7 +54,7 @@ Types inspect parsed syntax; parse builds ASTs, walk/iter_child_nodes traverse t
 
 No wildcard, compilation, execution, reflection or process grant is added.
 Caller-path checks also apply to internal re-exports. The pinned request inventory
-is checked in hosted CI; it does not certify K whole-source or lint acceptance.
+and source-policy acceptance run in CI; K lint/type acceptance stays separate.
 Future API or path-grant changes require an amendment, REV MERGE-READY and explicit
 supervisor approval. Implementation acceptance requires a green published exact
 head on Linux and Windows and independent REV review. This is source policy only.
