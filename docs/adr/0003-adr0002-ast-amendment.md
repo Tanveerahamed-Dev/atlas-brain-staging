@@ -1,6 +1,6 @@
 # ADR-0003: ADR-0002 amendment for AST lint admission
 
-Status: accepted
+Status: superseded
 
 Supervisor approval under owner delegation, 2026-10-20:
 https://github.com/Tanveerahamed-Dev/atlas-brain-staging/pull/65#issuecomment-6296630147
