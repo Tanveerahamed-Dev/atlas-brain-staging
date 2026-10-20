@@ -182,7 +182,9 @@ def interface_name(raw: bytes) -> str | None:
         path = pieces[0].split(b"/")
         if not 1 <= len(path) <= 4:
             return None
-        numbers = path + pieces[1:]
+        numbers = path.copy()
+        if len(pieces) == 2:
+            numbers.append(pieces[1])
         if any(not part.isdigit() or (len(part) > 1 and part.startswith(b"0")) for part in numbers):
             return None
         return canonical + raw.removeprefix(prefix).decode("ascii")
