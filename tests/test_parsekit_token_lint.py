@@ -51,3 +51,51 @@ def test_explicit_raise_is_admitted_and_diagnostics_are_stable():
     assert lint_token_handler("def map(token): return rows.get(token, 0)") == (
         (1, "token_convenience_lookup"),
     )
+
+
+def test_mutable_inner_row_cannot_change_a_closed_map():
+    from enum import StrEnum
+    from typing import cast
+
+    class State(StrEnum):
+        FULL = "full"
+        HALF = "half"
+
+    mutable_row = ["full", State.FULL]
+    rows = cast(tuple[tuple[str, StrEnum], ...], (mutable_row,))
+    with pytest.raises(ValueError):
+        TokenMap(rows)
+
+
+def test_source_dictionary_is_snapshotted_by_closed_map():
+    from enum import StrEnum
+
+    from atlas_brain.evidence.parsekit.rules import Rule, run_rules
+    from atlas_brain.kernel.states import CaptureId
+
+    class State(StrEnum):
+        FULL = "full"
+        HALF = "half"
+
+    rows = {"full": State.FULL}
+    mapping = TokenMap.closed(rows)
+    rows["full"] = State.HALF
+    rule = Rule("value", "start", r"duplex (?P<duplex>\S++)", "record", "start", "", ("duplex",))
+    result = run_rules(b"duplex full\n", CaptureId("cap-a"), (rule,), (("duplex", mapping),))
+    assert result.records[0].fields[0][1].value is State.FULL
+
+
+def test_rule_engine_rejects_a_foreign_fallback_resolver_before_calling_it():
+    from typing import cast
+
+    from atlas_brain.evidence.parsekit.rules import Rule, run_rules
+    from atlas_brain.kernel.states import CaptureId
+
+    class FallbackMap:
+        def resolve(self, field, capture):
+            raise AssertionError("foreign resolver was executed")
+
+    rule = Rule("value", "start", r"duplex (?P<duplex>\S++)", "record", "start", "", ("duplex",))
+    with pytest.raises(ValueError):
+        run_rules(b"duplex a-half\n", CaptureId("cap-a"), (rule,),
+                  (("duplex", cast(TokenMap, FallbackMap())),))
