@@ -122,7 +122,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             if os.name == "nt":
                 from tools.scale.windows_job import Job
                 job = Job(cap)
-                options["creationflags"] = subprocess.CREATE_SUSPENDED | subprocess.CREATE_NEW_PROCESS_GROUP
+                options["creationflags"] = 0x00000004 | subprocess.CREATE_NEW_PROCESS_GROUP  # CREATE_SUSPENDED
             elif cap:
                 raise RuntimeError("linux_cap_requires_container")
             started = time.monotonic()

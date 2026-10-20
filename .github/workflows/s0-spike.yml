@@ -47,6 +47,10 @@ jobs:
           exit $LASTEXITCODE
       - name: End-to-end 100-device smoke (uncapped, not acceptance)
         run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 100 --repetitions 1 --host --raw .s0/smoke/raw
+      - name: Egress probes in coordinator, worker, retry and import
+        run: |
+          & $env:S0_RUNTIME -I -X warn_default_encoding -W error::EncodingWarning spike/probe_entry.py .s0/smoke/raw/egress.json
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -84,6 +88,9 @@ jobs:
           exit $LASTEXITCODE
       - name: Five cold-first runs at each pilot size, hard 2 GiB cap
         run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 100 300 --repetitions 5 --raw .s0/pilot/raw
+      - name: Reachable positive control and confined OS witness
+        if: runner.os == 'Linux'
+        run: python tools/scale/os_witness.py .s0/pilot/os-witness.json
       - name: Summarize without extrapolating the runner
         if: always()
         run: python tools/scale/thresholds.py .s0/pilot/raw .s0/pilot/thresholds.json
