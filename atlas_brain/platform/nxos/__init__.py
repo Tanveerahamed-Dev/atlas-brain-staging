@@ -26,23 +26,27 @@ PAGER_SIGNATURES = (b"--More--",)
 _PROMPT_EXEC = compile_pattern(r"[A-Za-z0-9_][A-Za-z0-9_.-]*+#[ \t]*+")
 _PROMPT_CONFIG = compile_pattern(r"[A-Za-z0-9_][A-Za-z0-9_.-]*+\(config[^()\r\n]*+\)#[ \t]*+")
 _INTERFACE_PATTERNS = tuple(compile_pattern(pattern) for pattern in (
-    r"(?:Eth|Ethernet)[1-9][0-9]*+/[1-9][0-9]*+",
-    r"(?:Eth|Ethernet)[1-9][0-9]*+/[1-9][0-9]*+/[1-9][0-9]*+",
-    r"(?:Eth|Ethernet)[1-9][0-9]*+/[1-9][0-9]*+\.[1-9][0-9]*+",
+    *(prefix + suffix for prefix in ("Eth", "Ethernet") for suffix in (
+        r"[1-9][0-9]*+/[1-9][0-9]*+",
+        r"[1-9][0-9]*+/[1-9][0-9]*+/[1-9][0-9]*+",
+        r"[1-9][0-9]*+/[1-9][0-9]*+\.[1-9][0-9]*+",
+    )),
     r"Vlan[1-9][0-9]*+", r"port-channel[1-9][0-9]*+", r"mgmt0", r"nve[1-9][0-9]*+",
 ))
+_VERSION_SUFFIXES = ("", r" \[Feature Release\]", r" \[Maintenance Release\]",
+                     r" \[build [^\]\r\n]++\]")
 _DETECTION_RULES = (
     Rule("nx-banner", "start", r"Cisco Nexus Operating System \(NX-OS\) Software[ \t]*+",
          "record", "start", "", ()),
-    Rule("nx-version", "start", r"[ \t]*+NXOS: version (?P<version>(?:9|10)\.[0-9]++\([0-9A-Za-z.]++\)[A-Za-z0-9]*+)[ \t]*+",
-         "record", "start", "", ("version",)),
-    Rule("nx-version-annotated", "start", r"[ \t]*+NXOS: version (?P<version>(?:9|10)\.[0-9]++\([0-9A-Za-z.]++\)[A-Za-z0-9]*+) \[(?:Feature Release|Maintenance Release|build [^\]\r\n]++)\][ \t]*+",
-         "record", "start", "", ("version",)),
+    *(Rule(f"nx-version-valid-{major}-{index}", "start",
+           r"[ \t]*+NXOS: version (?P<version>" + major
+           + r"\.[0-9]++\([0-9A-Za-z.]++\)[A-Za-z0-9]*+)" + suffix + r"[ \t]*+",
+           "record", "start", "", ("version",))
+      for major in ("9", "10") for index, suffix in enumerate(_VERSION_SUFFIXES)),
     Rule("nx-version-outside-subset", "start", r"[ \t]*+NXOS: version[^\r\n]*+",
          "record", "start", "", ()),
     Rule("other-family", "start", r"[ \t]*+Cisco IOS[^\r\n]*+", "record", "start", "", ()),
 )
-
 
 def prompt_mode(line: bytes) -> Literal["exec", "config", "loader", "tcl"] | None:
     """A prompt alone; command echoes and unrecognised modes remain unverified."""
@@ -91,7 +95,7 @@ def detect(raw: bytes, capture: CaptureId) -> Known[str] | Unknown:
     """
     parsed = run_rules(raw, capture, _DETECTION_RULES, ())
     banners = tuple(row for row in parsed.records if row.rule_id == "nx-banner")
-    versions = tuple(row for row in parsed.records if row.rule_id in ("nx-version", "nx-version-annotated"))
+    versions = tuple(row for row in parsed.records if row.rule_id.startswith("nx-version-valid-"))
     conflicts = tuple(row for row in parsed.records if row.rule_id in ("other-family", "nx-version-outside-subset"))
     state = classify(raw)
     if banners and versions and not conflicts and state not in (
