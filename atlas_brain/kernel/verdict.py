@@ -133,9 +133,13 @@ def verdict(*, spec: CheckSpec, subject: EntityKey, expected: ExpectedSet,
     def supported(refs: tuple[Evidence, ...], claim: str) -> bool:
         if not refs:
             return False
+        positive = False
         for ref in refs:
             if type(ref) is not EvidenceRef or ref.capture not in admitted:
                 return False
+            if ref.role in (EvidenceRole.WITNESS, EvidenceRole.COUNTER_EVIDENCE):
+                continue
+            positive = True
             admission = admitted[ref.capture]
             if claim == 'ok' and not admission.ok:
                 return False
@@ -144,9 +148,9 @@ def verdict(*, spec: CheckSpec, subject: EntityKey, expected: ExpectedSet,
             if claim == 'problem' and (not admission.problem or
                     (not admission.ok and (type(ref.locator) is not ByteSpan or ref.locator.start == ref.locator.end))):
                 return False
-        return True
+        return positive
 
-    resolved: dict[str, Fact[object]] = {}
+    resolved: dict[str, Known[object] | Absent] = {}
     blockers: list[UnknownReason] = []
     gate: NotApplicable | Unknown | None = None
     for item in spec.inputs:
@@ -191,14 +195,18 @@ def verdict(*, spec: CheckSpec, subject: EntityKey, expected: ExpectedSet,
         return result(CheckState.UNKNOWN, blockers[0] if blockers else UnknownReason.ANALYSIS_GAP)
     deciding = tuple(resolved[p] for p in decision.proofs)
     if decision.state is CheckState.PROBLEM:
-        if (not blockers or decision.reason in spec.problem_from_subset) and all(supported(f.evidence, 'problem') for f in deciding):
+        if (not blockers or decision.reason in spec.problem_from_subset) and all(f.basis not in (Basis.DECLARED, Basis.INFERRED, Basis.REGISTRY) and supported(f.evidence, 'problem') for f in deciding):
             return result(CheckState.PROBLEM, decision.reason, decision.params)
         return result(CheckState.UNKNOWN, blockers[0] if blockers else UnknownReason.ANALYSIS_GAP)
     if blockers:
         return result(CheckState.UNKNOWN, blockers[0])
     if not expected.closed or expected.unresolved:
         return result(CheckState.UNKNOWN, UnknownReason.DENOMINATOR_OPEN)
-    if set(decision.proofs) != set(resolved) or not all(type(f) in (Known, Absent) and f.basis in spec.ok_bases and supported(f.evidence, 'ok') for f in deciding):
+    membership = dict(expected.member_evidence)[subject]
+    if not supported(expected.closure_evidence, 'population') or not supported(membership, 'population'):
+        return result(CheckState.UNKNOWN, UnknownReason.DENOMINATOR_OPEN)
+    evidence.extend(expected.closure_evidence + membership)
+    if set(decision.proofs) != set(resolved) or not all(f.basis in spec.ok_bases and supported(f.evidence, 'ok') for f in deciding):
         return result(CheckState.UNKNOWN, UnknownReason.ANALYSIS_GAP)
     census = dict(aggregates)
     for klass in spec.aggregates:
