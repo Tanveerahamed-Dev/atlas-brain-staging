@@ -1,4 +1,4 @@
-"""Reject computations in contract source; identity/membership validate wire shape."""
+"""Reject computations; permit only three exact wire-validation predicates."""
 import ast
 import sys
 from pathlib import Path
@@ -7,6 +7,14 @@ DENIED = {"sum", "min", "max", "len", "abs", "round", "pow", "divmod",
           "math", "operator", "statistics", "functools", "Counter", "count",
           "eval", "exec", "__import__", "getattr", "__add__", "__sub__", "__mul__",
           "__truediv__", "__floordiv__", "__pow__", "__mod__"}
+
+
+# These predicates validate JSON shape/bounds, not network or fact values.
+STRUCTURAL = {ast.dump(ast.parse(text, mode="eval").body) for text in (
+    "type(value) not in (type(None), bool, int, str, list, tuple, dict)",
+    "value not in range(-9007199254740991, 9007199254740992)",
+    '"result.json" not in files',
+)}
 
 
 def violations(source: str) -> list[int]:
@@ -27,8 +35,7 @@ def violations(source: str) -> list[int]:
         # Literal signed integers are declarations, not computed facts.
         unary = isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd, ast.Invert))
         literal = unary and isinstance(node.op, (ast.USub, ast.UAdd)) and isinstance(node.operand, ast.Constant) and type(node.operand.value) is int
-        compare = isinstance(node, ast.Compare) and any(
-            isinstance(op, (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)) for op in node.ops)
+        compare = isinstance(node, ast.Compare) and ast.dump(node) not in STRUCTURAL
         name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else ""
         imported = isinstance(node, ast.Import) and any(a.name.split(".")[0] in DENIED for a in node.names)
         imported_from = isinstance(node, ast.ImportFrom) and (
