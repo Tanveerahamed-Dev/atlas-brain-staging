@@ -21,7 +21,7 @@ RAW = (b'sw-a uptime is 1 day, 2 hours, 3 minutes\r\n'
 
 
 def test_missing_fields_and_boot_epoch_never_become_defaults():
-    result = extract_fields(b"", CAPTURE)
+    result = extract_fields(b"", CAPTURE, integrity=IntegrityState.COMPLETE)
     for fact in (result.uptime, result.image, result.reload_reason):
         assert isinstance(fact, Unknown)
         assert fact.reason is UnknownReason.EMPTY_UNREGISTERED
@@ -31,7 +31,7 @@ def test_missing_fields_and_boot_epoch_never_become_defaults():
 
 
 def test_positive_observed_fields_round_trip_to_original_bytes():
-    result = extract_fields(RAW, CAPTURE)
+    result = extract_fields(RAW, CAPTURE, integrity=IntegrityState.COMPLETE)
     assert result.parse.quality == "complete"
     assert isinstance(result.uptime, Known)
     assert result.uptime.value == ((1, Unit.DAY), (2, Unit.HOUR), (3, Unit.MINUTE))
@@ -51,7 +51,7 @@ def test_positive_observed_fields_round_trip_to_original_bytes():
 
 
 def test_unmapped_unit_keeps_raw_and_is_partial():
-    result = extract_fields(b"sw-a uptime is 2 fortnights\n", CAPTURE)
+    result = extract_fields(b"sw-a uptime is 2 fortnights\n", CAPTURE, integrity=IntegrityState.COMPLETE)
     assert isinstance(result.uptime, Unknown)
     assert result.uptime.reason is UnknownReason.PARSE_PARTIAL
     assert result.parse.quality == "partial"
@@ -60,13 +60,13 @@ def test_unmapped_unit_keeps_raw_and_is_partial():
 
 def test_duplicate_and_reversed_units_are_refused():
     for value in (b"1 day, 2 days", b"1 minute, 2 hours", b"one day", b"9007199254740992 seconds", b"9" * 5000 + b" seconds"):
-        result = extract_fields(b"sw-a uptime is " + value + b"\n", CAPTURE)
+        result = extract_fields(b"sw-a uptime is " + value + b"\n", CAPTURE, integrity=IntegrityState.COMPLETE)
         assert isinstance(result.uptime, Unknown)
         assert result.parse.quality == "partial"
 
 
 def test_duplicate_fields_are_conflicting_even_if_values_match():
-    result = extract_fields(RAW + RAW, CAPTURE)
+    result = extract_fields(RAW + RAW, CAPTURE, integrity=IntegrityState.COMPLETE)
     for fact in (result.uptime, result.image, result.reload_reason):
         assert isinstance(fact, Unknown)
         assert fact.reason is UnknownReason.CONFLICTING_EVIDENCE
@@ -75,7 +75,7 @@ def test_duplicate_fields_are_conflicting_even_if_values_match():
 
 def test_unrecognised_line_stays_visible_and_lf_offsets_are_stable():
     for raw in (RAW + b"new firmware line\n", RAW.replace(b"\r\n", b"\n") + b"new firmware line"):
-        result = extract_fields(raw, CAPTURE)
+        result = extract_fields(raw, CAPTURE, integrity=IntegrityState.COMPLETE)
         assert result.parse.quality == "partial"
         assert result.parse.lines[-1].status == "unrecognised"
         span = result.parse.lines[-1].span
@@ -84,13 +84,13 @@ def test_unrecognised_line_stays_visible_and_lf_offsets_are_stable():
 
 
 def test_invalid_text_is_not_promoted_to_a_known_image():
-    result = extract_fields(b'System image file is "\xff"\n', CAPTURE)
+    result = extract_fields(b'System image file is "\xff"\n', CAPTURE, integrity=IntegrityState.COMPLETE)
     assert isinstance(result.image, Unknown)
     assert result.image.reason is UnknownReason.PARSE_PARTIAL
 
 
 def test_wholly_unrecognised_response_is_not_a_recognised_record():
-    result = extract_fields(b"unrecognised firmware response\n", CAPTURE)
+    result = extract_fields(b"unrecognised firmware response\n", CAPTURE, integrity=IntegrityState.COMPLETE)
     assert result.parse.quality == "partial"
     for fact in (result.uptime, result.image, result.reload_reason):
         assert isinstance(fact, Unknown)
@@ -108,7 +108,7 @@ def test_failed_capture_cannot_promote_even_matching_fields():
 
 def test_missing_field_is_bound_to_positive_record_bytes():
     raw = b'System image file is "bootflash:packages.conf"\n'
-    result = extract_fields(raw, CAPTURE)
+    result = extract_fields(raw, CAPTURE, integrity=IntegrityState.COMPLETE)
     assert isinstance(result.image, Known)
     for fact in (result.uptime, result.reload_reason):
         assert isinstance(fact, Unknown)
@@ -118,7 +118,7 @@ def test_missing_field_is_bound_to_positive_record_bytes():
 
 
 def test_malformed_only_record_cannot_witness_an_omitted_field():
-    result = extract_fields(b"sw-a uptime is not a duration\n", CAPTURE)
+    result = extract_fields(b"sw-a uptime is not a duration\n", CAPTURE, integrity=IntegrityState.COMPLETE)
     assert result.parse.quality == "partial"
     for fact in (result.image, result.reload_reason):
         assert isinstance(fact, Unknown)
