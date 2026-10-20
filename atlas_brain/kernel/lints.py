@@ -101,8 +101,8 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 return True
         return False
 
-    # PK needs dynamic byte-pattern compilation after its conservative grammar is
-    # checked. Only this reviewed source/function may bypass literal-only rule 12;
+    # PK compiles dynamic byte patterns, then checks its conservative grammar
+    # before returning them. Only this reviewed source/function bypasses literals;
     # altered admission logic invalidates the receipt. ASCII checking still runs.
     pk_compiler_source = (path == 'atlas_brain/evidence/parsekit/patterns.py' and
                           sha256(source.encode('utf-8')).hexdigest() ==
