@@ -1,13 +1,20 @@
 """Header publication and real Git-baseline version plants (hosted acceptance)."""
 import json
+import os
 import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import get_type_hints
 
 import pytest
 
-from atlas_brain.contract.header import AnalysisAsOf, EffectiveSemantics, ResultHeader, encode_header
+from atlas_brain.contract.header import (
+    AnalysisAsOf,
+    EffectiveSemantics,
+    ResultHeader,
+    encode_header,
+)
 from atlas_brain.kernel.states import CaptureId
 from tools.contract_schema import schema_for
 from tools.publish_contract_schema import generated_header, verify_base
@@ -101,3 +108,18 @@ def test_schema_generator_refuses_invalid_semver(version):
 @pytest.mark.parametrize("version", ["0.1.0", "1.0.0-alpha.1", "1.0.0+build.01"])
 def test_schema_generator_accepts_semver(version):
     assert schema_for(ResultHeader, version)["x-schema-version"] == version
+
+
+def test_real_schema_entrypoint_refuses_stale_committed_bytes(tmp_path):
+    environment = {**os.environ, "PYTHONPATH": str(Path.cwd())}
+    command = [sys.executable, "-m", "tools.publish_contract_schema"]
+    written = subprocess.run([*command, "--write"], cwd=tmp_path,
+        env=environment, capture_output=True, check=False)
+    assert written.returncode == 0
+    assert subprocess.run(command, cwd=tmp_path, env=environment,
+        capture_output=True, check=False).returncode == 0
+    (tmp_path / "docs/contract/header.schema.json").write_bytes(b"{}")
+    refused = subprocess.run(command, cwd=tmp_path, env=environment,
+        capture_output=True, check=False)
+    assert refused.returncode == 1
+    assert b"publication refused" in refused.stdout
