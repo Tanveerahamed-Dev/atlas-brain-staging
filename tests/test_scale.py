@@ -1,0 +1,110 @@
+"""Planted violations precede implementation; acceptance runs only in hosted CI."""
+import dataclasses
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+from tools.scale import workload
+from tools.scale.thresholds import judge
+from spike.parsers import parse_capture, PARSERS
+from spike.estate import ospf_verdict, correlate
+
+
+class FrozenWorkloadTests(unittest.TestCase):
+    def test_manifest_totals_are_independent_constants(self):
+        spec = workload.load_spec()
+        self.assertEqual(spec["totals"], {
+            "devices": 1000, "interfaces": 58200, "mac": 620000,
+            "arp": 314000, "routes": 379000, "neighbors": 11100,
+            "ospf_neighbors": 1400, "ospf_interfaces": 4000,
+            "syslog": 1000000, "artifacts": 20000,
+            "bytes": 1127211350})
+
+    def test_manifest_tamper_is_refused(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "manifest.json"
+            path.write_bytes(workload.SPEC.read_bytes().replace(b'58200', b'58201'))
+            with self.assertRaisesRegex(ValueError, "manifest_digest"):
+                workload.load_spec(path)
+
+    def test_wrong_mix_or_size_is_refused_before_generation(self):
+        with self.assertRaisesRegex(ValueError, "size"):
+            workload.expected(101, False)
+        profiles = workload.profiles(100)
+        profiles[0] = "wan"
+        with self.assertRaisesRegex(ValueError, "mix"):
+            workload.validate_mix(profiles, 100)
+
+    def test_generator_refuses_existing_or_tampered_estate(self):
+        with tempfile.TemporaryDirectory() as root:
+            estate = Path(root) / "input"
+            workload.generate(estate, 100, False)
+            workload.verify(estate)
+            with self.assertRaises(FileExistsError):
+                workload.generate(estate, 100, False)
+            capture = next(estate.glob("sw-*/*.txt"))
+            capture.write_bytes(capture.read_bytes() + b"planted violation\n")
+            with self.assertRaisesRegex(ValueError, "capture"):
+                workload.verify(estate)
+
+
+class ParserTests(unittest.TestCase):
+    def test_exactly_sixteen_variants(self):
+        self.assertEqual(len(PARSERS), 16)
+        self.assertEqual(sum(f == "iosxe" for f, _ in PARSERS), 12)
+
+    def test_all_lines_accounted_and_spans_resolve(self):
+        for family, form in PARSERS:
+            body = workload.render(form, "core_nx" if family == "nxos" else "core_xe", 18, 100, False)
+            result = parse_capture(family, form, body)
+            self.assertEqual(result["unrecognized"], [], (family, form))
+            self.assertEqual(sum(result["accounting"].values()), len(body.splitlines()))
+            for row in result["rows"]:
+                self.assertTrue(body[row.start:row.end].strip())
+                self.assertGreaterEqual(row.line, 1)
+
+    def test_unrecognized_line_cannot_disappear(self):
+        result = parse_capture("iosxe", "interfaces", b"planted unknown token\n")
+        self.assertEqual(result["unrecognized"], [1])
+
+    def test_oversize_and_pathological_line_refused(self):
+        with self.assertRaisesRegex(ValueError, "line_budget"):
+            parse_capture("iosxe", "interfaces", b"a" * 65537 + b"!\n")
+
+    def test_blank_and_unmapped_are_unknown(self):
+        result = parse_capture("iosxe", "interfaces", b"GigabitEthernet1/0/1 is up, line protocol is down\n  MTU 1500 bytes, UNKNOWN-duplex\n")
+        self.assertEqual(result["rows"][1].values[-1], "unknown")
+
+    def test_ospf_two_way_semantics(self):
+        self.assertEqual(ospf_verdict("2WAY", "BROADCAST", "DROTHER", "DROTHER"), "ok")
+        self.assertEqual(ospf_verdict("2WAY", "POINT_TO_POINT", "DROTHER", "DROTHER"), "problem")
+        self.assertEqual(ospf_verdict("2WAY", "BROADCAST", "DR", "DROTHER"), "problem")
+        self.assertEqual(ospf_verdict("2WAY", "unknown", "unknown", "unknown"), "unknown")
+        self.assertEqual(ospf_verdict("EXSTART", "BROADCAST", "DR", "DROTHER"), "problem")
+
+    def test_unknown_middle_hop_stops_correlation(self):
+        chain = correlate("problem", "unknown", "problem")
+        self.assertEqual(chain["stopped_at"], 1)
+        self.assertEqual(chain["hops"][1]["reason"], "PEER_NOT_COLLECTED")
+        self.assertFalse(chain["complete"])
+
+
+class ThresholdTests(unittest.TestCase):
+    def test_private_runner_never_gets_reference_pass(self):
+        rows = [{"status": "ok", "size": 1000, "dense": False,
+                 "wall_s": 100, "cap_bytes": 2**31,
+                 "runner": {"cpu_count": 2, "memory_bytes": 8 * 2**30},
+                 "os": "Linux", "stages": {}}] * 5
+        verdict = judge(rows)
+        self.assertEqual(verdict["reference_verdict"], "not_verified")
+        self.assertTrue(verdict["missing"])
+
+    def test_failure_and_missing_stages_never_pass(self):
+        verdict = judge([{"status": "watchdog", "size": 300, "os": "Linux"}])
+        self.assertEqual(verdict["observed_status"], "failed")
+        self.assertEqual(verdict["reference_verdict"], "not_verified")
+
+
+if __name__ == "__main__":
+    unittest.main()

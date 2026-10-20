@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "generated_tier": "S",
+  "public_material": [
+    {
+      "id": "P-interface-header",
+      "url": "https://www.cisco.com/en/US/docs/switches/datacenter/sw/4_2/nx-os/unicast/command/reference/l3_cmds_show.html",
+      "source": "Cisco NX-OS command reference, show ip ospf interface example",
+      "excerpt": "Ethernet1/2 is up, line protocol is up\n",
+      "use": "One public example header in every NX-OS interface capture; all other records synthetic",
+      "licence": "Cisco copyrighted documentation; short attributed excerpt only, no licence grant inferred",
+      "tier": "P",
+      "qualification": "format guidance only; not a real-device format-floor fixture"
+    },
+    {
+      "id": "P-trunk-header",
+      "url": "https://www.cisco.com/en/US/docs/ios/12_4/lan_switch/configuration/guide/cfg_hesw.html",
+      "source": "Cisco EtherSwitch configuration guide, show interfaces trunk example",
+      "excerpt": "Port  Mode  Encapsulation  Status  Native vlan\n",
+      "use": "Public table header; rows and all identifiers synthetic",
+      "licence": "Cisco copyrighted documentation; short attributed excerpt only, no licence grant inferred",
+      "tier": "P",
+      "qualification": "format guidance only; not a real-device format-floor fixture"
+    }
+  ],
+  "synthetic_rules": ["No imported device captures", "IPv4 only from documentation networks", "Generic sw-NNNN names", "Locally administered synthetic MAC addresses", "No serial numbers", "No wall-clock values", "No private truth or lab data"],
+  "limitations": ["Spike-grade grammar, not parser qualification", "Admitted unclaimed forms include explicitly marked synthetic filler to freeze exact input volume", "Unknown-middle-hop correlation variant is explicit synthetic evidence"]
+}

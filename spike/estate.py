@@ -1,0 +1,112 @@
+"""Device and estate checks; evidence references accompany every conclusion."""
+CHECKS = ("l1.interface.admin_up_oper_down", "l1.link.duplex", "l2.mtu.link_mtu_mismatch",
+          "l2.vlan_trunk.link_native_vlan", "l2.stp.root_placement", "l3.ospf.adjacency_expected")
+
+
+def ospf_verdict(state, network, local_role, peer_role):
+    if state == "FULL":
+        return "ok"
+    if state == "EXSTART":
+        return "problem"
+    if state == "2WAY":
+        if network == "unknown" or local_role == "unknown" or peer_role == "unknown":
+            return "unknown"
+        if network == "BROADCAST" and local_role == "DROTHER" and peer_role == "DROTHER":
+            return "ok"
+        return "problem"
+    return "unknown"
+
+
+def correlate(mtu, adjacency, missing_route):
+    hops = [{"state": mtu, "reason": "observed_mtu"},
+            {"state": adjacency, "reason": "PEER_NOT_COLLECTED" if adjacency == "unknown" else "observed_adjacency"},
+            {"state": missing_route, "reason": "expected_route_missing"}]
+    stop = next((i for i, hop in enumerate(hops) if hop["state"] == "unknown"), None)
+    return {"hops": hops, "stopped_at": stop, "complete": stop is None,
+            "label": "root_cause_candidate", "next_evidence": "collect peer OSPF state" if stop is not None else "validate MTU intent"}
+
+
+def by_kind(rows, kind):
+    return [r for r in rows if r[0] == kind]
+
+
+def device_checks(node):
+    rows, checks = node["estate_rows"], []
+    for row in by_kind(rows, "interface"):
+        port, admin, oper = row[1]
+        checks.append([CHECKS[0], node["name"], port, "problem" if admin == "up" and oper == "down" else "ok", [row[2]], "collect peer interface state"])
+    roots, bridges = by_kind(rows, "root_priority"), by_kind(rows, "bridge_priority")
+    for root, bridge in zip(roots, bridges):
+        expected_root = node["profile"].startswith("core")
+        is_root = root[1][1] == bridge[1][1]
+        checks.append([CHECKS[4], node["name"], root[1][0], "ok" if is_root == expected_root else "problem", [root[2], bridge[2]], "collect STP root intent"])
+    return checks
+
+
+def estate_stages(nodes):
+    # Identity resolution is exact on synthetic stable node ids. No inferred aliases.
+    indexed = {node["name"]: node for node in nodes}
+    ports, neighbors, trunks, ospf, route_evidence = {}, {}, {}, {}, {}
+    checks, domains, correlations = [], {}, []
+    for node in nodes:
+        name, rows = node["name"], node["estate_rows"]
+        checks.extend(device_checks(node))
+        global_mtu = by_kind(rows, "system_mtu")
+        configured = {r[1][0]: r for r in by_kind(rows, "interface_mtu")}
+        for row in by_kind(rows, "interface_attributes"):
+            port, printed_mtu, duplex = row[1]
+            # IOS-XE uses the global system MTU evidence; NX-OS uses printed per-port MTU.
+            mtu_row = row if node["profile"] == "core_nx" else global_mtu[0] if global_mtu else None
+            mtu = printed_mtu if node["profile"] == "core_nx" else global_mtu[0][1][0] if global_mtu else "unknown"
+            ports[(name, port)] = (mtu, duplex, row[2], mtu_row[2] if mtu_row else row[2])
+        # Resolve port-channel inheritance before native-VLAN consumption.
+        natives = {r[1][0]: r for r in by_kind(rows, "native")}
+        for row in by_kind(rows, "channel"):
+            port, channel, _ = row[1]
+            inherited = natives.get(f"Port-channel{channel}")
+            if inherited:
+                natives[port] = inherited
+        for row in by_kind(rows, "trunk"):
+            port, vlan = row[1]
+            configured_native = natives.get(port)
+            trunks[(name, port)] = (vlan, row[2], configured_native[2] if configured_native else row[2])
+            domains.setdefault(vlan, []).append([name, port, row[2]])
+        for row in by_kind(rows, "neighbor"):
+            peer, port, remote_port = row[1]
+            neighbors[(name, port)] = (peer, remote_port, row[2])
+        networks = {r[1][0]: r for r in by_kind(rows, "ospf_network")}
+        for row in by_kind(rows, "ospf_neighbor"):
+            _, _, state, peer_role, _, _, port = row[1]
+            network = networks.get(port)
+            verdict = ospf_verdict(state, network[1][1] if network else "unknown", network[1][2] if network else "unknown", peer_role)
+            refs = [row[2]] + ([network[2]] if network else [])
+            ospf[(name, port)] = (verdict, refs)
+            checks.append([CHECKS[5], name, port, verdict, refs, "collect both OSPF interface and neighbor state"])
+        route_evidence[name] = node["route_summary"]
+    for (name, port), (peer, remote_port, neighbor_ref) in sorted(neighbors.items()):
+        reverse = neighbors.get((peer, remote_port))
+        left, right = ports.get((name, port)), ports.get((peer, remote_port))
+        two_ended = reverse is not None and reverse[:2] == (name, port)
+        if not two_ended or left is None or right is None:
+            for check in CHECKS[1:4]:
+                checks.append([check, name, port, "unknown", [neighbor_ref], "collect peer interface and neighbor state"])
+            continue
+        refs = [neighbor_ref, reverse[2], left[2], right[2]]
+        duplex = "unknown" if "unknown" in (left[1], right[1]) else "ok" if left[1] == right[1] == "full" else "problem"
+        mtu = "unknown" if "unknown" in (left[0], right[0]) else "ok" if left[0] == right[0] else "problem"
+        checks += [[CHECKS[1], name, port, duplex, refs, "collect explicit duplex"],
+                   [CHECKS[2], name, port, mtu, refs + [left[3], right[3]], "collect link MTU intent"]]
+        lt, rt = trunks.get((name, port)), trunks.get((peer, remote_port))
+        native = "unknown" if lt is None or rt is None else "ok" if lt[0] == rt[0] else "problem"
+        checks.append([CHECKS[3], name, port, native, refs + ([lt[1], rt[1]] if lt and rt else []), "collect trunk and native VLAN state"])
+        adj, adjrefs = ospf.get((name, port), ("unknown", [neighbor_ref]))
+        route = route_evidence[name]
+        if mtu == "problem":
+            for middle, variant in ((adj, "observed"), ("unknown", "unknown-middle")):
+                chain = correlate(mtu, middle, "problem" if route["complete"] and not route["expected_present"] else "unknown")
+                chain.update({"node": name, "port": port, "variant": variant,
+                              "evidence": [refs + [left[3], right[3]], adjrefs if middle != "unknown" else [neighbor_ref], route["evidence"]]})
+                correlations.append(chain)
+    return {"schema": 1, "spike_only": True, "identities": sorted(indexed),
+            "l2_domains": [[vlan, sorted(items)] for vlan, items in sorted(domains.items())],
+            "checks": sorted(checks), "correlations": sorted(correlations, key=lambda c: (c["node"], c["port"], c["variant"]))}

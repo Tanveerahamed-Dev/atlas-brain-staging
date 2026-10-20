@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "WL-1",
+  "seed": 0,
+  "sizes": [100, 300, 1000],
+  "forms": ["interfaces", "running", "cdp", "lldp", "trunk", "stp", "mac", "arp", "routes", "ospf_neighbors", "ospf_interfaces", "logging", "version", "inventory", "environment", "vlan", "etherchannel", "ip_interfaces", "clock", "license"],
+  "profiles": {
+    "access": {"count": 800, "family": "iosxe", "interfaces": 56, "mac": 400, "arp": 5, "routes": 5, "neighbors": 6, "ospf_neighbors": 0, "ospf_interfaces": 0, "syslog": 1000, "vrfs": 1, "bytes": 838860},
+    "core_xe": {"count": 100, "family": "iosxe", "interfaces": 84, "mac": 2000, "arp": 2000, "routes": 1500, "neighbors": 40, "ospf_neighbors": 8, "ospf_interfaces": 24, "syslog": 1000, "vrfs": 3, "bytes": 2621440},
+    "core_nx": {"count": 50, "family": "nxos", "interfaces": 84, "mac": 2000, "arp": 2000, "routes": 1500, "neighbors": 40, "ospf_neighbors": 8, "ospf_interfaces": 24, "syslog": 1000, "vrfs": 3, "bytes": 2621440},
+    "wan": {"count": 50, "family": "iosxe", "interfaces": 16, "mac": 0, "arp": 200, "routes": 3000, "neighbors": 6, "ospf_neighbors": 4, "ospf_interfaces": 8, "syslog": 1000, "vrfs": 2, "bytes": 1258291}
+  },
+  "totals": {"devices": 1000, "interfaces": 58200, "mac": 620000, "arp": 314000, "routes": 379000, "neighbors": 11100, "ospf_neighbors": 1400, "ospf_interfaces": 4000, "syslog": 1000000, "artifacts": 20000, "bytes": 1127211350},
+  "dense": {"double": ["mac", "arp", "syslog"], "row_bytes": {"mac": 80, "arp": 96, "syslog": 480}, "bytes": 1686955350},
+  "admission": {"line_bytes": 65536, "task_bytes": 65536},
+  "provenance": "provenance.json"
+}
