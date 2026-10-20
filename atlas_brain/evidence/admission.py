@@ -7,7 +7,7 @@ from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import cast
 
-from atlas_brain.kernel.states import CaptureId, EntityKey
+from atlas_brain.kernel.states import CaptureId, EntityKey, ReadScope, ViewConsistency
 
 from .capture import Capture, classify_cli, unrecorded_time
 from .text import text_lines
@@ -205,7 +205,7 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
             raise AdmissionRefused("unsupported_capture_codec") from error
         captures.append(Capture(CaptureId("cap:" + sha256(path.encode()).hexdigest()), EntityKey("node:" + source),
                                 operation, rendered, codec, raw, classify_cli(raw, attempt.succeeded, row["prompt_verified"]),
-                                lines, "unknown", unrecorded_time()))
+                                lines, ReadScope.UNKNOWN, ViewConsistency.UNKNOWN, unrecorded_time()))
     member_names(paths)
     return Bundle(string(manifest, "bundle_id"), string(manifest, "importer"), sha256(members["manifest.json"]).hexdigest(),
                   budgets.sha256, tuple(attempts), tuple(captures))
