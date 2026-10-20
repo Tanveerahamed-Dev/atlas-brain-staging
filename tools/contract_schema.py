@@ -7,7 +7,6 @@ from typing import Literal, NewType, Union, get_args, get_origin, get_type_hints
 
 from atlas_brain.contract.canonical import canonical
 
-
 NUMBER = r"(?:0|[1-9][0-9]*)"
 PRE = r"(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
 SEMVER = re.compile(rf"{NUMBER}\.{NUMBER}\.{NUMBER}(?:-{PRE}(?:\.{PRE})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", re.ASCII)
