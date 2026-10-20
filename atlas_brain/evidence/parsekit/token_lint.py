@@ -95,7 +95,7 @@ def _scalar_expression(value: ast.expr | None, proof: dict[str, set[str]]) -> bo
                     key.arg == "value" and _scalar_expression(key.value, proof) for key in value.keywords)
         if isinstance(value.func, ast.Attribute) and isinstance(value.func.value, ast.Name) and value.args and not _scalar_expression(value.args[0], proof) and (
             value.func.attr == "resolve" and value.func.value.id in proof["maps"] or
-            value.func.attr in ("fullmatch", "match", "search") and value.func.value.id in proof["patterns"]
+            value.func.attr in ("fullmatch", "match", "search") and value.func.value.id in proof["patterns"] and (isinstance(value.args[0], ast.Name) and value.args[0].id in proof["data"] or isinstance(value.args[0], ast.Subscript) and isinstance(value.args[0].value, ast.Name) and value.args[0].value.id in proof["data"])
         ):
             return False
         parts = [*value.args, *(key.value for key in value.keywords)]
@@ -134,7 +134,7 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
             for key, origins, methods in (("mapped", "maps", ("resolve",)), ("data", "patterns", ("fullmatch", "match", "search"))):
                 if all(isinstance(value, ast.Name) and value.id in proof[key] or isinstance(value, ast.Call) and value.args and not scalar(value.args[0]) and
                     isinstance(value.func, ast.Attribute) and value.func.attr in methods and
-                    isinstance(value.func.value, ast.Name) and value.func.value.id in proof[origins] for value in values):
+                    isinstance(value.func.value, ast.Name) and value.func.value.id in proof[origins] and (origins == "maps" or isinstance(value.args[0], ast.Name) and value.args[0].id in proof["data"] or isinstance(value.args[0], ast.Subscript) and isinstance(value.args[0].value, ast.Name) and value.args[0].value.id in proof["data"]) for value in values):
                     proof[key].add(name)
             if all(isinstance(value, ast.Name) and value.id in buffers or isinstance(value, ast.Subscript) and
                    isinstance(value.value, ast.Name) and value.value.id in buffers for value in values):
