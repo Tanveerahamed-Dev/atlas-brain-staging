@@ -51,7 +51,8 @@ def test_manifest_refuses_unsafe_or_noncontract_names(name):
     "x = min(rows)", "x = statistics.mean(rows)", "from operator import add",
     "import math", "f = sum", "from builtins import sum as fold",
     "x: a + b", "x: tuple[sum(rows)]", "type X = a + b", "x = ~a",
-    "x = value.__add__(other)", "x = eval(source)", "x = ~1"])
+    "x = value.__add__(other)", "x = eval(source)", "x = ~1",
+    "x = a in b", "x = a is b", "x = a not in b"])
 def test_contract_lint_fires_on_each_planted_computation(plant):
     assert violations(plant)
 
@@ -103,3 +104,17 @@ def test_planted_arithmetic_fails_real_lint_entrypoint(tmp_path):
         capture_output=True, text=True, check=False)
     assert result.returncode == 1
     assert "computation refused" in result.stdout
+
+
+def test_canonical_recursive_roundtrip_property():
+    import json
+    from hypothesis import given, strategies as st
+    strings = st.text(st.characters(exclude_categories=("Cs",)))
+    leaves = st.none() | st.booleans() | st.integers(-9007199254740991, 9007199254740991) | strings
+    values = st.recursive(leaves, lambda v: st.lists(v) | st.dictionaries(strings, v), max_leaves=30)
+
+    @given(values)
+    def roundtrip(value):
+        encoded = canonical(value)
+        assert canonical(json.loads(encoded)) == encoded
+    roundtrip()
