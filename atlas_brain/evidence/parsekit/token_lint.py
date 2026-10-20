@@ -19,7 +19,7 @@ def _scalar(value: ast.expr | None) -> bool:
     if isinstance(value, ast.Constant):
         return value.value is not None
     if isinstance(value, ast.Attribute):
-        return not (isinstance(value.value, ast.Name) and value.value.id == "IntegrityState"
+        return value.attr.isupper() and not (isinstance(value.value, ast.Name) and value.value.id == "IntegrityState"
                     and value.attr in ("ERROR", "EMPTY", "UNKNOWN_FORMAT", "UNVERIFIED_PROMPT", "PAGING_ARTIFACTS"))
     if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "Known":
         return any(key.arg == "value" and _scalar(key.value) for key in value.keywords)
@@ -29,8 +29,8 @@ def _scalar(value: ast.expr | None) -> bool:
 def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[int, str], ...]:
     """Audit source as data. Structural mode keeps byte-grammar operations.
 
-    Every owned parser/adapter unit gets escape checks; the sealed mapper gets
-    the strict branch policy. Only EvidenceRef helpers may slice raw span bytes.
+    Source units get escape checks; the sealed mapper gets strict branches.
+    Only EvidenceRef helpers may slice raw span bytes.
     """
     tree = ast.parse(source)
     assignments: dict[str, list[ast.expr]] = {}
@@ -46,6 +46,8 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
     raw_names = {name for name, values in assignments.items() if any(
         isinstance(value, ast.Attribute) and value.attr == "raw" for value in values
     )}
+    raw_names.update(n.arg for n in ast.walk(tree) if isinstance(n, ast.arg)
+                     and (n.arg == "token" or (isinstance(n.annotation, ast.Name) and n.annotation.id == "str")))
     span_slices: set[ast.AST] = set()
     if structural:
         for func in ast.walk(tree):
@@ -56,7 +58,7 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
                                    and n.slice.upper.attr == "end" and ast.dump(n.slice.lower.value) == ast.dump(n.slice.upper.value))
     failures: set[tuple[int, str]] = set()
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and (
             node.args.defaults or any(value is not None for value in node.args.kw_defaults)
         ):
             failures.add((node.lineno, "token_parameter_default"))
@@ -74,9 +76,14 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
                  or (isinstance(node.value, ast.Name) and node.value.id in raw_names)))
         ):
             failures.add((node.lineno, "token_convenience_lookup"))
-        if isinstance(node, ast.Name) and node.id in ("getattr", "vars", "__getattribute__"):
+        if isinstance(node, ast.Name) and node.id in ("getattr", "vars", "__getattribute__", "eval", "exec"):
             failures.add((node.lineno, "token_unproved_lookup"))
-        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice) and node not in span_slices:
+        if isinstance(node, ast.Lambda) and _scalar(node.body):
+            failures.add((node.lineno, "token_catchall"))
+        if isinstance(node, ast.Subscript) and node not in span_slices and (
+            isinstance(node.slice, ast.Slice) or (isinstance(node.value, ast.Name) and node.value.id in raw_names)
+            or (isinstance(node.value, ast.Attribute) and node.value.attr == "raw")
+        ):
             failures.add((node.lineno, "token_substring_test"))
         if isinstance(node, ast.Compare):
             for operator, right in zip(node.ops, node.comparators, strict=True):
