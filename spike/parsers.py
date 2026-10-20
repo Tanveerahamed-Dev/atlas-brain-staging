@@ -29,10 +29,12 @@ RULES = {
                    ("interface_attributes", rx(r"  MTU (\d+) bytes, (\S+)-duplex"))],
     "running": [("system_mtu", rx(r"system mtu (\d+)")), ("vlan", rx(r"vlan (\d+)")),
                 ("ospf_process", rx(r"router ospf (\d+)")), ("config_interface", rx(r"interface (\S+)")),
+                ("router_id", rx(r" router-id (\S+)")),
                 ("admin", rx(r" (no shutdown|shutdown)")), ("native", rx(r" switchport trunk native vlan (\d+)")),
                 ("channel", rx(r" channel-group (\d+) mode (active|passive|on)")), ("interface_mtu", rx(r" mtu (\d+)"))],
     "cdp": [("peer", rx(r"Device ID: (\S+)")), ("neighbor", rx(r"Interface: (\S+), Port ID \(outgoing port\): (\S+)"))],
-    "lldp": [("peer", rx(r"Device ID: (\S+)")), ("neighbor", rx(r"Interface: (\S+), Port ID \(outgoing port\): (\S+)"))],
+    "lldp": [("lldp_interface", rx(r"Local Intf: (\S+)")), ("lldp_chassis", rx(r"Chassis id: (\S+)")),
+             ("lldp_port", rx(r"Port id: (\S+)")), ("lldp_system", rx(r"System Name: (\S+)"))],
     "trunk": [("trunk", rx(r"(\S+) on 802\.1q trunking (\d+)"))],
     "stp": [("stp_vlan", rx(r"VLAN(\d+)")), ("root_priority", rx(r"  Root ID Priority (\d+)")), ("bridge_priority", rx(r"  Bridge ID Priority (\d+)")), ("stp_address", rx(r"             Address +(\S+)"))],
     "mac": [("mac", rx(r"(\d+) (\S+) (DYNAMIC|STATIC) (\S+) *"))],
@@ -51,6 +53,7 @@ def parse_capture(family, form, body):
     counts = {"consumed": 0, "ignored": 0, "unrecognized": 0, "unclaimed": 0}
     rows, unknown = [], []
     offset, context, stp_area = 0, "unknown", None
+    context_start, context_line, lldp_remote = 0, 1, None
     parsed = (family, form) in PARSERS
     for number, raw in enumerate(body.splitlines(keepends=True), 1):
         end = offset + len(raw)
@@ -67,20 +70,35 @@ def parse_capture(family, form, body):
                 if match is None:
                     continue
                 values = match.groups()
+                bound = False
                 if kind in ("root_priority", "bridge_priority"):
                     stp_area = kind.split("_")[0]
                 if kind == "stp_address":
                     if stp_area is None:
                         continue
                     kind = stp_area + "_address"
-                if kind in ("interface", "config_interface", "ospf_interface", "peer", "vrf", "stp_vlan"):
+                if kind in ("interface", "config_interface", "ospf_interface", "peer", "vrf", "stp_vlan", "lldp_interface"):
                     context = values[0]
+                    context_start, context_line = offset, number
+                    if kind == "lldp_interface":
+                        lldp_remote = None
+                elif kind in ("lldp_port", "lldp_chassis", "lldp_system"):
+                    if kind == "lldp_port":
+                        lldp_remote = values[0]
+                    if kind == "lldp_system":
+                        if lldp_remote is None:
+                            continue
+                        kind, values = "neighbor", (values[0], context, lldp_remote)
+                    else:
+                        values = (context,) + values
+                    bound = True
                 elif kind in ("interface_attributes", "admin", "native", "channel", "interface_mtu", "neighbor", "route", "ospf_network", "root_priority", "bridge_priority", "root_address", "bridge_address"):
                     if kind == "interface_attributes":
                         mtu, token = values
                         values = (mtu, {"Full": "full", "Half": "half"}.get(token, "unknown"))
                     values = (context,) + values
-                rows.append(Row(kind, values, offset, end, number))
+                    bound = True
+                rows.append(Row(kind, values, context_start if bound else offset, end, context_line if bound else number))
                 counts["consumed"] += 1
                 break
             else:

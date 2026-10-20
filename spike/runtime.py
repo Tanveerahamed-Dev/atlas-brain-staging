@@ -23,7 +23,20 @@ _START = 0
 
 def environment():
     return {"flags": list(sys.flags), "path": sys.path, "cwd": os.getcwd(),
-            "env": {k: os.environ.get(k) for k in ("TZ", "LANG", "LC_ALL")}}
+            "env": {k: os.environ.get(k) for k in ("TZ", "LANG", "LC_ALL", "PYTHONHASHSEED")},
+            "hash_witness": hash("atlas-brain-fixed-seed") if not sys.flags.ignore_environment else None}
+
+
+def verify_manual_isolation(args):
+    expected_randomization = 0 if args.expected_seed == "0" else 1
+    if not (sys.flags.isolated == 0 and sys.flags.ignore_environment == 0 and sys.flags.no_user_site == 1
+            and sys.flags.safe_path and sys.flags.dont_write_bytecode == 1
+            and sys.flags.hash_randomization == expected_randomization
+            and os.environ.get("PYTHONHASHSEED") == args.expected_seed
+            and hash("atlas-brain-fixed-seed") == args.expected_hash):
+        raise ValueError("manual_isolation_or_seed_mismatch")
+    if "PYTHONPATH" in os.environ or "PYTHONHOME" in os.environ or "" in sys.path:
+        raise ValueError("manual_isolation_path_leak")
 
 
 def initialize(expected, expected_census, expected_catalogue, control=None):
@@ -78,7 +91,7 @@ def task(payload):
     facts, refs, estate, accounts = [], [], [], []
     route_summary = {"complete": False, "expected_present": False, "evidence": []}
     total_rows = 0
-    keep = {"interface", "interface_attributes", "system_mtu", "native", "channel", "interface_mtu", "neighbor", "trunk", "root_priority", "bridge_priority", "root_address", "bridge_address", "ospf_neighbor", "ospf_network"}
+    keep = {"interface", "interface_attributes", "system_mtu", "native", "channel", "interface_mtu", "neighbor", "trunk", "root_priority", "bridge_priority", "root_address", "bridge_address", "router_id", "ospf_neighbor", "ospf_network"}
     for index, item in enumerate(payload["captures"]):
         body = (Path(payload["root"]) / item["path"]).read_bytes()
         if digest(body) != item["sha256"] or len(body) != item["bytes"]:
@@ -94,11 +107,11 @@ def task(payload):
             reference = [item["sha256"], row.start, row.end, row.line]
             if row.kind in keep:
                 estate.append([row.kind, row.values, reference])
-            if row.kind == "route" and row.values[2] == "203.0.113.0/32":
+            if row.kind == "route" and row.values[0] == payload["expected_route"]["vrf"] and row.values[2] == payload["expected_route"]["prefix"]:
                 route_summary["expected_present"] = True
         if item["form"] == "routes" and parsed["accounting"]["unclaimed"] == 0:
-            route_summary["complete"] = True
-            route_summary["evidence"] = [[item["sha256"], 0, len(body), 1]]
+            route_summary["complete"] = any(r.kind == "vrf" and r.values[0] == payload["expected_route"]["vrf"] for r in parsed["rows"])
+            route_summary["evidence"] = [[item["sha256"], 0, len(body), 1], payload["route_intent_ref"]]
         total_rows += len(parsed["rows"])
     result = {"schema": 1, "node": name, "captures": refs, "facts": facts, "accounting": accounts}
     raw = canonical(result)
@@ -153,7 +166,9 @@ def execute(args, startup_modules):
     from spike.estate import estate_stages, CHECKS
     if sys.version_info[:3] not in ((3, 14, 8), (3, 15, 0)):
         raise ValueError("interpreter_pin")
-    if not sys.flags.isolated:
+    if args.manual_isolation:
+        verify_manual_isolation(args)
+    elif not sys.flags.isolated:
         raise ValueError("isolation_required")
     if args.out.exists():
         raise FileExistsError("result_exists")
@@ -179,6 +194,7 @@ def execute(args, startup_modules):
                      "stp_expected_root": doc["intent"]["stp_root_mac"][str(i)],
                      "stp_expected_vlan": doc["intent"]["stp_vlan"],
                      "stp_intent_ref": [estate_hash, f"/intent/stp_root_mac/{i}"],
+                     "expected_route": doc["intent"]["expected_route"], "route_intent_ref": [estate_hash, "/intent/expected_route"],
                      "pending": str(pending.resolve()), "captures": items, "control": str(args.control.resolve()), "fault": args.fault} for i, items in enumerate(grouped)]
         transfer_wall = time.perf_counter_ns()
         task_bytes = sum(len(pickle.dumps(item)) for item in payloads)
@@ -232,7 +248,8 @@ def execute(args, startup_modules):
                    "worker_startup": {"metric": "first-task ready latency includes task submission and admission", "ready_ns_by_pid": [[pid, min(n.get("ready_latency_ns", 0) for n in nodes if n["pid"] == pid)] for pid in sorted(worker_cpu)]},
                    "manifest_sha256": digest((args.out / "MANIFEST.sha256").read_bytes()),
                    "runtime": {"version": sys.version, "environment": environment(), "workers": worker_count,
-                               "requested_hash_seed": os.environ.get("PYTHONHASHSEED"), "hash_seed_effective": "random (-I ignores PYTHONHASHSEED)",
+                               "profile": "fixed-seed probes under equivalent manual isolation, not -I" if args.manual_isolation else "-I acceptance",
+                               "requested_hash_seed": os.environ.get("PYTHONHASHSEED"), "hash_seed_effective": args.expected_seed if args.manual_isolation else "random (-I ignores PYTHONHASHSEED)",
                                "startup_modules": startup_modules, "startup_census": census,
                                "catalogue": catalogue, "imports": sorted(safety.IMPORTS), "creations": safety.CREATIONS,
                                "startup_baseline_enforced": False},
@@ -256,8 +273,13 @@ def main(startup_modules):
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--recycle", type=int)
     parser.add_argument("--pause-at-half", action="store_true")
+    parser.add_argument("--manual-isolation", action="store_true")
+    parser.add_argument("--expected-seed", choices=("0", "4242"))
+    parser.add_argument("--expected-hash", type=int)
     parser.add_argument("--fault", default="none", choices=("none", "kill-once", "kill-twice", "memory", "pack"))
     args = parser.parse_args()
+    if args.manual_isolation and (args.expected_seed is None or args.expected_hash is None):
+        parser.error("manual probes require an independently measured seed witness")
     if args.workers < 1 or (args.recycle is not None and args.recycle < 1):
         parser.error("positive worker and recycle counts required")
     def cancel(signum, frame):

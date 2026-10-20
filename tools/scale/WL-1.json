@@ -1,8 +1,9 @@
 {
   "schema": 1,
-  "generator_sha256": "fbe296affda69e4cd89c14272b2b9a8d42df3bb943a041a700dc42357eb1e1fd",
+  "generator_sha256": "e5aef652e3a417d1b10bd89f3157aeeae360cfce26dbecff59672ad57225fac7",
   "id": "WL-1",
   "seed": 0,
+  "expected_route": {"vrf": "vrf-0", "prefix": "203.0.113.0/32"},
   "stp_intent": {"vlan": "0100", "block_devices": 20, "wan_in_next_block": true, "root_indices": [16, 36, 56, 76, 96, 116, 136, 156, 176, 196, 216, 236, 256, 276, 296, 316, 336, 356, 376, 396, 416, 436, 456, 476, 496, 516, 536, 556, 576, 596, 616, 636, 656, 676, 696, 716, 736, 756, 776, 796, 816, 836, 856, 876, 896, 916, 936, 956, 976, 996]},
   "sizes": [100, 300, 1000],
   "forms": ["interfaces", "running", "cdp", "lldp", "trunk", "stp", "mac", "arp", "routes", "ospf_neighbors", "ospf_interfaces", "logging", "version", "inventory", "environment", "vlan", "etherchannel", "ip_interfaces", "clock", "license"],

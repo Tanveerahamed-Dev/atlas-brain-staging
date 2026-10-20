@@ -157,6 +157,28 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(workload.stp_root(19, 100), 36)
         self.assertEqual(workload.stp_root(99, 100), 16)
 
+    def test_context_values_are_inside_their_evidence_span(self):
+        body = b"Device ID: sw-00001\nInterface: GigabitEthernet1/0/1, Port ID (outgoing port): GigabitEthernet1/0/2\n"
+        row = next(r for r in parse_capture("iosxe", "cdp", body)["rows"] if r.kind == "neighbor")
+        self.assertIn(b"sw-00001", body[row.start:row.end])
+        body = b"Routing Table: vrf-0\nO 203.0.113.1/32 via 198.51.100.1, GigabitEthernet1/0/1\n"
+        row = next(r for r in parse_capture("iosxe", "routes", body)["rows"] if r.kind == "route")
+        self.assertIn(b"vrf-0", body[row.start:row.end])
+
+    def test_ospf_join_requires_a_collected_reciprocal_peer(self):
+        from spike.estate import estate_stages, CHECKS
+        def node(name, local, peer):
+            return {"name": name, "profile": "core_xe", "route_summary": {"complete": False, "expected_present": False, "evidence": []}, "estate_rows": [
+                ["router_id", [local], ["capture", 0, 10, 1]],
+                ["ospf_neighbor", [peer, "1", "2WAY", "DROTHER", "00:00:30", "198.51.100.1", "GigabitEthernet1/0/1"], ["capture", 10, 20, 2]],
+                ["ospf_network", ["GigabitEthernet1/0/1", "BROADCAST", "DROTHER"], ["capture", 20, 30, 3]] ]}
+        a = node("sw-00016", "192.0.2.1", "192.0.2.2")
+        checks = [c for c in estate_stages([a])["checks"] if c[0] == CHECKS[5]]
+        self.assertEqual(checks[0][3], "unknown")
+        b = node("sw-00017", "192.0.2.2", "192.0.2.1")
+        checks = [c for c in estate_stages([a, b])["checks"] if c[0] == CHECKS[5]]
+        self.assertTrue(all(c[3] == "ok" and len(c[4]) >= 4 for c in checks))
+
 
 class ThresholdTests(unittest.TestCase):
     def test_determinism_covering_design(self):

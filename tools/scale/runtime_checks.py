@@ -15,6 +15,20 @@ from tools.scale.measure import measure
 from tools.scale.workload import canonical, digest, generate, verify
 
 
+def manual_probe(runtime, seed):
+    clean_env = {"PYTHONHASHSEED": seed}
+    if os.name == "nt":
+        for key in ("SystemRoot", "WINDIR", "TEMP", "TMP"):
+            if key in os.environ:
+                clean_env[key] = os.environ[key]
+    flags = ["-P", "-s", "-B", "-X", "utf8=1", "-X", "warn_default_encoding", "-W", "error::EncodingWarning"]
+    code = "import json,os,sys;print(json.dumps({'flags':list(sys.flags),'no_user_site':sys.flags.no_user_site,'safe_path':sys.flags.safe_path,'hash_randomization':sys.flags.hash_randomization,'seed':os.environ.get('PYTHONHASHSEED'),'hash':hash('atlas-brain-fixed-seed'),'environment_keys':sorted(os.environ)}))"
+    witness = json.loads(subprocess.check_output([str(runtime.resolve())] + flags + ["-c", code], env=clean_env, encoding="utf-8"))
+    if witness["no_user_site"] != 1 or not witness["safe_path"] or witness["seed"] != seed or witness["hash_randomization"] != (0 if seed == "0" else 1):
+        raise ValueError("manual_seed_reference_failed")
+    return {"seed": seed, "expected_hash": witness["hash"], "environment": clean_env}, witness
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=("determinism", "stability", "faults"))
@@ -30,7 +44,7 @@ def main():
     else:
         verify(input_root)
     args.raw.mkdir(parents=True, exist_ok=False)
-    rows, expected_digest = [], None
+    rows, manual_rows, witnesses, manual_negative = [], [], [], None
     if args.mode == "determinism":
         design = json.loads(Path(__file__).with_name("determinism-design.json").read_bytes())
         for case in design:
@@ -56,6 +70,17 @@ def main():
                 if aliased:
                     subprocess.run(["subst.exe", "Z:", "/D"], check=True)
                 shutil.rmtree(alternate)
+        for seed in ("0", "4242"):
+            profile, witness = manual_probe(args.runtime, seed)
+            witnesses.append(witness)
+            (args.raw / f"manual-reference-{seed}.json").write_bytes(canonical(witness))
+            row = measure(input_root, args.raw / f"manual-seed-{seed}", args.runtime, 300,
+                          container=False, cap=2**31 if os.name == "nt" else 0, manual=profile)
+            manual_rows.append(row)
+            if seed == "0":
+                planted = dict(profile, expected_hash=profile["expected_hash"] + 1)
+                manual_negative = measure(input_root, args.raw / "manual-wrong-hash", args.runtime, 300,
+                                          container=False, cap=2**31 if os.name == "nt" else 0, manual=planted)
     elif args.mode == "stability":
         recycle = None if args.recycle == "none" else 3
         for index in range(args.count):
@@ -74,8 +99,13 @@ def main():
                   "identical_successful_manifests": bool(digests) and len(set(digests)) == 1,
                   "status": "not_verified", "missing": []}
     if args.mode == "determinism":
-        assessment["missing"] = ["PYTHONHASHSEED is ignored under required -I; fixed-seed axis unresolved", "other-interpreter/OS artifacts must be compared by supervisor"]
-        assessment["observed"] = "pass" if all_ok and len(set(digests)) == 1 else "failed"
+        manual_digests = [r.get("manifest_sha256") for r in manual_rows]
+        refused = manual_negative is not None and manual_negative["status"] == "failed" and not manual_negative.get("result_exists") and manual_negative.get("prior_intact")
+        manual_pass = len(manual_rows) == 2 and all(r["status"] == "ok" for r in manual_rows) and len(set(digests + manual_digests)) == 1 and len({w["hash"] for w in witnesses}) == 2 and refused
+        assessment["manual_fixed_seed"] = {"label": "fixed-seed probes under equivalent manual isolation, not -I", "rows": manual_rows, "witnesses": witnesses, "wrong_hash_witness": manual_negative, "status": "pass" if manual_pass else "failed"}
+        assessment["plan_correction"] = "-I ignores PYTHONHASHSEED. Owner-directed separate -P -s -B probes exercise 0 and 4242 with a scrubbed environment; all isolated acceptance rows retained."
+        assessment["missing"] = ["other-interpreter/OS artifacts must be compared by supervisor"]
+        assessment["observed"] = "pass" if all_ok and len(set(digests)) == 1 and manual_pass else "failed"
     elif args.mode == "stability":
         times = [r["wall_s"] for r in rows]
         cv = statistics.pstdev(times) / statistics.mean(times)

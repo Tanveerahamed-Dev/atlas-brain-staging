@@ -83,7 +83,7 @@ def sample_memory(process):
 
 
 def measure(input_root, output_root, runtime, size, dense=False, workers=4, recycle=None,
-            container=False, cap=2**31, fault="none", cancel_half=False, environment=None, interpreter="3.14.8"):
+            container=False, cap=2**31, fault="none", cancel_half=False, environment=None, interpreter="3.14.8", manual=None):
     output_root.mkdir(parents=True, exist_ok=False)
     control = output_root / "control"
     control.mkdir()
@@ -96,6 +96,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
     metadata = {"schema": 1, "runner": shape(), "size": size, "dense": dense,
                 "os": platform.system(), "cap_bytes": cap, "container": container,
                 "fault": fault, "workers_requested": workers, "recycle": recycle,
+                "manual_isolation": manual is not None,
                 "status": "starting", "cancel_half": cancel_half, "sample_hz": 20}
     samples, known, errors, io_errors, exit_races = [], {}, [], [], []
     job, container_id, cg = None, None, None
@@ -134,12 +135,15 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             root_process = psutil.Process(pid)
             cg = cgroup_files(pid)
         else:
-            arguments = [str(runtime)] + FLAGS + [str(ROOT / "spike" / "bootstrap.py"), "--root", str(input_root.absolute()), "--out", str(result.resolve()), "--receipt", str(engine_receipt.resolve()), "--control", str(control.resolve()), "--workers", str(workers), "--fault", fault]
+            launch_flags = ["-P", "-s", "-B"] + FLAGS[1:] if manual else FLAGS
+            arguments = [str(runtime.resolve())] + launch_flags + [str(ROOT / "spike" / "bootstrap.py"), "--root", str(input_root.absolute()), "--out", str(result.resolve()), "--receipt", str(engine_receipt.resolve()), "--control", str(control.resolve()), "--workers", str(workers), "--fault", fault]
+            if manual:
+                arguments += ["--manual-isolation", "--expected-seed", manual["seed"], "--expected-hash", str(manual["expected_hash"])]
             if recycle:
                 arguments += ["--recycle", str(recycle)]
             if cancel_half:
                 arguments += ["--pause-at-half"]
-            options = {"env": dict(os.environ, **(environment or {})), "stdout": logfile, "stderr": subprocess.STDOUT}
+            options = {"env": manual["environment"] if manual else dict(os.environ, **(environment or {})), "stdout": logfile, "stderr": subprocess.STDOUT}
             if os.name == "nt":
                 from tools.scale.windows_job import Job
                 job = Job(cap)

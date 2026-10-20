@@ -17,9 +17,9 @@ def ospf_verdict(state, network, local_role, peer_role):
     return "unknown"
 
 
-def correlate(mtu, adjacency, missing_route):
+def correlate(mtu, adjacency, missing_route, middle_reason="PEER_NOT_COLLECTED"):
     hops = [{"state": mtu, "reason": "observed_mtu"},
-            {"state": adjacency, "reason": "PEER_NOT_COLLECTED" if adjacency == "unknown" else "observed_adjacency"},
+            {"state": adjacency, "reason": middle_reason if adjacency == "unknown" else "observed_adjacency"},
             {"state": missing_route, "reason": "expected_route_missing"}]
     stop = next((i for i, hop in enumerate(hops) if hop["state"] == "unknown"), None)
     return {"hops": hops, "stopped_at": stop, "complete": stop is None and all(h["state"] == "problem" for h in hops),
@@ -52,6 +52,12 @@ def estate_stages(nodes):
     # Identity resolution is exact on synthetic stable node ids. No inferred aliases.
     indexed = {node["name"]: node for node in nodes}
     ports, neighbors, trunks, ospf, route_evidence = {}, {}, {}, {}, {}
+    router_owners, local_ids, adjacency_rows, by_pair = {}, {}, {}, {}
+    for node in nodes:
+        ids = by_kind(node["estate_rows"], "router_id")
+        local_ids[node["name"]] = [r[1][0] for r in ids]
+        for row in ids:
+            router_owners.setdefault(row[1][0], []).append(node["name"])
     checks, domains, correlations, parents = [], {}, [], {}
     def find(key):
         parents.setdefault(key, key)
@@ -93,13 +99,32 @@ def estate_stages(nodes):
             neighbors[(name, port)] = (peer, remote_port, row[2])
         networks = {r[1][0]: r for r in by_kind(rows, "ospf_network")}
         for row in by_kind(rows, "ospf_neighbor"):
-            _, _, state, peer_role, _, _, port = row[1]
+            peer_id, _, state, peer_role, _, _, port = row[1]
             network = networks.get(port)
             verdict = ospf_verdict(state, network[1][1] if network else "unknown", network[1][2] if network else "unknown", peer_role)
             refs = [row[2]] + ([network[2]] if network else [])
-            ospf[(name, port)] = (verdict, refs)
-            checks.append([CHECKS[5], name, port, verdict, refs, "collect both OSPF interface and neighbor state"])
+            record = {"state": verdict, "refs": refs, "peer_id": peer_id}
+            adjacency_rows[(name, port)] = record
+            by_pair.setdefault((name, peer_id), []).append(record)
         route_evidence[name] = node["route_summary"]
+    for (name, port), record in sorted(adjacency_rows.items()):
+        owners = router_owners.get(record["peer_id"], [])
+        refs, reason, joined = list(record["refs"]), "PEER_NOT_COLLECTED", "unknown"
+        if len(local_ids[name]) != 1:
+            reason = "LOCAL_IDENTITY_MISSING" if not local_ids[name] else "IDENTITY_AMBIGUOUS"
+        elif len(owners) == 1:
+            reciprocal = by_pair.get((owners[0], local_ids[name][0]), [])
+            reason = "PEER_EVIDENCE_MISSING"
+            if reciprocal:
+                for peer_record in reciprocal:
+                    refs.extend(peer_record["refs"])
+                states = [record["state"]] + [r["state"] for r in reciprocal]
+                joined = "problem" if "problem" in states else "ok" if all(s == "ok" for s in states) else "unknown"
+                reason = "PEER_STATE_UNKNOWN" if joined == "unknown" else "observed_adjacency"
+        elif len(owners) > 1:
+            reason = "IDENTITY_AMBIGUOUS"
+        ospf[(name, port)] = (joined, refs, reason)
+        checks.append([CHECKS[5], name, port, joined, refs, "collect both OSPF router identities, interfaces and neighbor state"])
     for (name, port), (peer, remote_port, neighbor_ref) in sorted(neighbors.items()):
         reverse = neighbors.get((peer, remote_port))
         left, right = ports.get((name, port)), ports.get((peer, remote_port))
@@ -118,14 +143,13 @@ def estate_stages(nodes):
         if native == "ok":
             join((lt[0], name), (rt[0], peer))
         checks.append([CHECKS[3], name, port, native, refs + ([lt[1], rt[1]] if lt and rt else []), "collect trunk and native VLAN state"])
-        adj, adjrefs = ospf.get((name, port), ("unknown", [neighbor_ref]))
+        adj, adjrefs, reason = ospf.get((name, port), ("unknown", [neighbor_ref], "PEER_NOT_COLLECTED"))
         route = route_evidence[name]
         if mtu == "problem":
-            for middle, variant in ((adj, "observed"), ("unknown", "unknown-middle")):
-                chain = correlate(mtu, middle, "problem" if route["complete"] and not route["expected_present"] else "unknown")
-                chain.update({"node": name, "port": port, "variant": variant,
-                              "evidence": [refs + [left[3], right[3]], adjrefs if middle != "unknown" else [neighbor_ref], route["evidence"]]})
-                correlations.append(chain)
+            chain = correlate(mtu, adj, "problem" if route["complete"] and not route["expected_present"] else "unknown", reason)
+            chain.update({"node": name, "port": port, "variant": "unknown-middle" if adj == "unknown" else "observed",
+                          "evidence": [refs + [left[3], right[3]], adjrefs, route["evidence"]]})
+            correlations.append(chain)
     components = {}
     for key, items in sorted(domains.items()):
         components.setdefault(find(key), []).extend(items)

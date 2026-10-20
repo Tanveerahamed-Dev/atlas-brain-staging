@@ -17,11 +17,11 @@ if __name__ == "__main__":
     receipt = json.loads((args.run / "engine.json").read_bytes())
     if set(row[0] for row in estate["checks"]) != set(CHECKS):
         raise ValueError("six_checks_not_exercised")
-    if len(receipt["facts_per_device"]) != 100 or any(count < 100 for _, count in receipt["facts_per_device"]):
+    if len(receipt["facts_per_device"]) != 100 or receipt["facts"] != 232835 or any(count < 100 for _, count in receipt["facts_per_device"]):
         raise ValueError("facts_missing")
     if not any(c["variant"] == "observed" and c["complete"] and all(h["state"] == "problem" for h in c["hops"]) for c in estate["correlations"]):
         raise ValueError("three_hop_example_missing")
-    if not any(c["variant"] == "unknown-middle" and c["stopped_at"] == 1 and not c["complete"] for c in estate["correlations"]):
+    if not any(c["variant"] == "unknown-middle" and c["stopped_at"] == 1 and c["hops"][1]["reason"] == "PEER_NOT_COLLECTED" and not c["complete"] for c in estate["correlations"]):
         raise ValueError("unknown_bridge")
     if any(row[3] != "unknown" for row in estate["checks"] if row[0] == CHECKS[4] and int(row[1][3:]) % 20 == 18):
         raise ValueError("unparsed_nx_stp_not_unknown")

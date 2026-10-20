@@ -78,6 +78,11 @@ def stp_intent(size, spec):
     return {str(i): f"0200.0000.{stp_root(i, size, spec):04x}" for i in range(size)}
 
 
+def ospf_id(node, size, spec):
+    participants = [i for i, profile in enumerate(profiles(size)) if spec["profiles"][profile]["ospf_neighbors"]]
+    return f"192.0.2.{participants.index(node) + 1}" if node in participants else None
+
+
 def padded(line, width):
     if len(line) > width - 1:
         raise ValueError("row_width")
@@ -97,6 +102,8 @@ def render(form, profile, node, size, dense):
             lines.append(f"  MTU {1600 if profile == 'core_nx' and i == 0 else 1500} bytes, Full-duplex\n")
     elif form == "running":
         lines = ["system mtu 1500\n", "vlan 100\n", "router ospf 1\n"]
+        if row["ospf_neighbors"]:
+            lines.append(f" router-id {ospf_id(node, size, spec)}\n")
         for i in range(row["interfaces"]):
             lines += [f"interface {interface(i)}\n", " no shutdown\n", " switchport trunk native vlan 100\n"]
             if i == 0:
@@ -108,7 +115,10 @@ def render(form, profile, node, size, dense):
             peer = (node + 1) % size if slot == 0 else (node - 1) % size if slot == 1 else size + node * 40 + slot
             peer_profile = profiles(size)[peer] if peer < size else "access"
             peer_port = iface(peer_profile, 1 if slot == 0 else 0)
-            lines += [f"Device ID: sw-{peer:05d}\n", f"Interface: {interface(slot)}, Port ID (outgoing port): {peer_port}\n"]
+            if form == "cdp":
+                lines += [f"Device ID: sw-{peer:05d}\n", f"Interface: {interface(slot)}, Port ID (outgoing port): {peer_port}\n"]
+            else:
+                lines += [f"Local Intf: {interface(slot)}\n", f"Chassis id: 0200.0000.{peer:04x}\n", f"Port id: {peer_port}\n", f"System Name: sw-{peer:05d}\n"]
     elif form == "trunk":
         lines = ["Port  Mode  Encapsulation  Status  Native vlan\n"]
         lines += [f"{interface(i)} on 802.1q trunking 100\n" for i in range(2)]
@@ -131,7 +141,14 @@ def render(form, profile, node, size, dense):
         lines = ["Neighbor ID Pri State Dead Time Address Interface\n"]
         for i in range(row["ospf_neighbors"]):
             state = "EXSTART/DR" if i == (1 if profile == "wan" else 0) else "2WAY/DROTHER" if i == 1 else "FULL/DR"
-            lines.append(f"192.0.2.{i+1} 1 {state} 00:00:30 198.51.100.{i+1} {interface(i)}\n")
+            if profile == "core_xe" and node % 20 == 16 and i == 0:
+                state = "2WAY/DROTHER"
+            peer = (node + (1 if i == 0 else -1)) % size
+            peer_id = ospf_id(peer, size, spec) if i < 2 else None
+            peer_id = peer_id or f"203.0.113.{i + 1}"
+            if profile == "wan" and node % 100 == 19 and i == 1:
+                peer_id = "203.0.113.254"  # Real unresolved-peer correlation variant.
+            lines.append(f"{peer_id} 1 {state} 00:00:30 198.51.100.{i+1} {interface(i)}\n")
     elif form == "ospf_interfaces":
         for i in range(row["ospf_interfaces"]):
             lines += [f"{interface(i)} is up, line protocol is up\n", "  Network Type BROADCAST, State DROTHER\n"]
@@ -169,7 +186,7 @@ def generate(root, size, dense):
             rel = f"{name}/{form}.txt"
             (root / rel).write_bytes(body)
             artifacts.append({"path": rel, "sha256": digest(body), "bytes": len(body), "form": form, "node": node, "profile": profile})
-    manifest = {"schema": 1, "workload": spec["id"], "frozen_sha256": digest(SPEC.read_bytes()), "size": size, "dense": dense, "totals": totals, "artifacts": artifacts, "intent": {"stp_root_mac": stp_intent(size, spec), "stp_vlan": spec["stp_intent"]["vlan"]},
+    manifest = {"schema": 1, "workload": spec["id"], "frozen_sha256": digest(SPEC.read_bytes()), "size": size, "dense": dense, "totals": totals, "artifacts": artifacts, "intent": {"stp_root_mac": stp_intent(size, spec), "stp_vlan": spec["stp_intent"]["vlan"], "expected_route": spec["expected_route"]},
                 "public_excerpt_sha256": [digest(item["excerpt"].encode("ascii")) for item in strict_json(SPEC.with_name("provenance.json").read_bytes())["public_material"]]}
     (root / "ESTATE.json").write_bytes(canonical(manifest))
     verify(root)
@@ -188,7 +205,7 @@ def verify(root):
     mix = profiles(size)
     if doc["totals"] != expected(size, dense) or doc["frozen_sha256"] != digest(SPEC.read_bytes()):
         raise ValueError("manifest_counts")
-    if doc["intent"] != {"stp_root_mac": stp_intent(size, spec), "stp_vlan": spec["stp_intent"]["vlan"]}:
+    if doc["intent"] != {"stp_root_mac": stp_intent(size, spec), "stp_vlan": spec["stp_intent"]["vlan"], "expected_route": spec["expected_route"]}:
         raise ValueError("manifest_intent")
     wanted = {f"sw-{i:05d}/{form}.txt" for i in range(size) for form in spec["forms"]}
     found, byte_count = set(), 0
@@ -212,7 +229,7 @@ def verify(root):
                     "mac": (b" DYNAMIC ", profile["mac"]), "arp": (b"Internet ", profile["arp"]),
                     "routes": (b"O 203.0.113.", profile["routes"]),
                     "cdp": (b"Device ID: ", profile["neighbors"] // 2),
-                    "lldp": (b"Device ID: ", profile["neighbors"] // 2),
+                    "lldp": (b"System Name: ", profile["neighbors"] // 2),
                     "ospf_neighbors": (b" 1 ", profile["ospf_neighbors"]),
                     "ospf_interfaces": (b" is up, line protocol is ", profile["ospf_interfaces"]),
                     "logging": (b"%LINK-3-UPDOWN:", profile["syslog"])}
