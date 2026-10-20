@@ -242,9 +242,31 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
     return failures
 
 
+def _refusal_bindings(tree: ast.AST) -> set[tuple[int, str]]:
+    """Refuse replacement bindings; the absolute kernel import is the sole origin."""
+    failures: set[tuple[int, str]] = set()
+    for node in ast.walk(tree):
+        rebound = (isinstance(node, ast.Name) and node.id == "Unknown" and isinstance(node.ctx, ast.Store) or
+                   isinstance(node, ast.Attribute) and node.attr == "Unknown" and isinstance(node.ctx, ast.Store) or
+                   isinstance(node, ast.arg) and node.arg == "Unknown" or
+                   isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler,
+                                     ast.MatchAs, ast.MatchStar)) and node.name == "Unknown" or
+                   isinstance(node, ast.MatchMapping) and node.rest == "Unknown")
+        if isinstance(node, ast.Import):
+            rebound = any((alias.asname or alias.name.split(".")[0]) == "Unknown" for alias in node.names)
+        if isinstance(node, ast.ImportFrom):
+            rebound = any(alias.name == "*" or (alias.asname or alias.name) == "Unknown" and not (
+                node.level == 0 and node.module == "atlas_brain.kernel.states" and alias.name == "Unknown"
+            ) for alias in node.names)
+        if rebound:
+            failures.add((node.lineno, "token_unproved_constructor"))
+    return failures
+
+
 def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[int, str], ...]:
     """Audit lexical source units; permit proved byte grammar and closed maps."""
-    failures: set[tuple[int, str]] = set()
-    for nodes, assignments, parameters, unknowns, passthroughs in _scopes(ast.parse(source)):
+    tree = ast.parse(source)
+    failures = _refusal_bindings(tree)
+    for nodes, assignments, parameters, unknowns, passthroughs in _scopes(tree):
         failures.update(_check_unit(nodes, assignments, parameters, unknowns, passthroughs, structural))
     return tuple(sorted(failures))
