@@ -79,7 +79,7 @@ def audit(repo: Path, base: str, head: str) -> dict[str, int | str]:
             count += int(added) + int(deleted)
             parts = path.split("/")
             if parts[0] == "atlas_brain" and len(parts) > 1:
-                depth = 4 if parts[1] == "packs" else 3 if parts[1] == "platform" else 2
+                depth = 4 if parts[1] == "packs" else 3 if parts[1] == "platform" else len(parts)
                 classes.add("/".join(parts[:depth]))
         if path.startswith("docs/adr/"):
             old, new = blob(repo, base, path), blob(repo, head, path)
