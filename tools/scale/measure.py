@@ -82,21 +82,33 @@ def sample_memory(process):
         return None, "confirmed_exit_after_access_denial"
 
 
+def result_snapshot(directory):
+    if not directory.is_dir():
+        raise FileNotFoundError("prior_result_missing")
+    return {p.relative_to(directory).as_posix(): digest(p.read_bytes()) for p in sorted(directory.rglob("*")) if p.is_file()}
+
+
 def measure(input_root, output_root, runtime, size, dense=False, workers=4, recycle=None,
-            container=False, cap=2**31, fault="none", cancel_half=False, environment=None, interpreter="3.14.8", manual=None):
+            container=False, cap=2**31, fault="none", cancel_half=False, environment=None, interpreter="3.14.8", manual=None, prior=None, keep_result=False):
     output_root.mkdir(parents=True, exist_ok=False)
     control = output_root / "control"
     control.mkdir()
     result = output_root / "result"
     engine_receipt = output_root / "engine.json"
     # A prior result is outside the attempted output; every failure must preserve it.
-    prior = output_root / "prior-result.json"
-    prior.write_bytes(b'{"prior":"intact"}\n')
-    prior_hash = digest(prior.read_bytes())
+    prior_basis = "earlier successful analysis result" if prior else "synthetic prior result witness"
+    if prior is None:
+        prior = output_root / "prior-result"
+        prior.mkdir()
+        prior_body = b'{"prior":"intact"}\n'
+        (prior / "estate.json").write_bytes(prior_body)
+        (prior / "MANIFEST.sha256").write_text(digest(prior_body) + "  estate.json\n", encoding="ascii")
+    prior_hash = result_snapshot(prior)
     metadata = {"schema": 1, "runner": shape(), "size": size, "dense": dense,
                 "os": platform.system(), "cap_bytes": cap, "container": container,
                 "fault": fault, "workers_requested": workers, "recycle": recycle,
                 "manual_isolation": manual is not None,
+                "prior_basis": prior_basis, "prior_files": len(prior_hash),
                 "status": "starting", "cancel_half": cancel_half, "sample_hz": 20}
     samples, known, errors, io_errors, exit_races = [], {}, [], [], []
     job, container_id, cg = None, None, None
@@ -259,7 +271,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
         elif container and metadata["status"] == "ok":
             metadata["status"] = "measurement_incomplete"
         metadata["result_exists"] = result.exists()
-        metadata["prior_intact"] = digest(prior.read_bytes()) == prior_hash
+        metadata["prior_intact"] = result_snapshot(prior) == prior_hash
         metadata["pending_directories"] = [p.name for p in output_root.glob(".pending-*")]
         if metadata["status"] == "ok" and not result.exists():
             metadata["status"] = "publication_failed"
@@ -293,7 +305,8 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
         if result.exists():
             shutil.copyfile(result / "MANIFEST.sha256", output_root / "MANIFEST.sha256")
             shutil.copyfile(result / "estate.json", output_root / "estate.json")
-            shutil.rmtree(result)
+            if not keep_result:
+                shutil.rmtree(result)
         hashes = [f"{digest(path.read_bytes())}  {path.relative_to(output_root).as_posix()}\n" for path in sorted(output_root.rglob("*")) if path.is_file()]
         (output_root / "RAW.sha256").write_text("".join(hashes), encoding="ascii")
     print(json.dumps({k: metadata.get(k) for k in ("status", "size", "wall_s", "peak_tree_uss", "peak_job_commit", "cap_verified")}, sort_keys=True), flush=True)

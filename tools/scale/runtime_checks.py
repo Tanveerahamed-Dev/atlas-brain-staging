@@ -92,7 +92,8 @@ def main():
     else:
         for index, (fault, cancel) in enumerate((("none", False), ("kill-once", False), ("kill-twice", False), ("none", True), ("memory", False), ("pack", False), ("pack", False))):
             rows.append(measure(input_root, args.raw / f"fault-{index}-{fault}", args.runtime, 300,
-                                container=platform.system() == "Linux", fault=fault, cancel_half=cancel))
+                                container=platform.system() == "Linux", fault=fault, cancel_half=cancel,
+                                keep_result=index == 0, prior=None if index == 0 else args.raw / "fault-0-none" / "result"))
     digests = [r.get("manifest_sha256") for r in rows if r["status"] == "ok"]
     all_ok = all(r["status"] == "ok" for r in rows)
     assessment = {"schema": 1, "mode": args.mode, "rows": rows,

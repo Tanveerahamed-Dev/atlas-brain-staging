@@ -5,11 +5,21 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
+import tempfile
 import psutil
-from tools.scale.measure import sample_memory
+from tools.scale.measure import sample_memory, result_snapshot
 
 
 class SamplerTests(unittest.TestCase):
+    def test_prior_result_snapshot_detects_a_changed_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            (directory / "estate.json").write_bytes(b'{"prior":"intact"}\n')
+            before = result_snapshot(directory)
+            (directory / "estate.json").write_bytes(b'{"prior":"changed"}\n')
+            self.assertNotEqual(before, result_snapshot(directory))
+
     def test_live_access_denial_is_fatal_to_measurement(self):
         process = Mock(pid=123)
         process.memory_full_info.side_effect = psutil.AccessDenied(123)
