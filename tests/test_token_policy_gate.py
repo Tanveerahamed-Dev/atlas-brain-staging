@@ -29,6 +29,10 @@ def _tree(tmp_path, source):
     "def decode(field):\n lookup = rows.pop\n return lookup(field.raw, 'full')\n",
     "def decode(field): return dict.pop(rows, field.raw, 'full')\n",
     "def decode(field): return mapper(field.raw, 'full')\n",
+    "class Defaults:\n healthy = 'full'\ndef decode(field):\n if field.raw not in ('half', 'full'): return Defaults.healthy\n return exact(field.raw)\n",
+    "class Defaults:\n healthy = 'full'\ndef decode(field):\n fallback = Defaults.healthy\n return fallback\n",
+    "class Defaults:\n healthy = 'full'\ndef decode(field): return Known(value=Defaults.healthy, basis=Basis.OBSERVED, raw=field.raw)\n",
+    "class Defaults:\n raw = 'full'\ndef decode(field): return Defaults.raw\n",
     "def decode(field):\n token = field.raw\n if token not in ('half', 'full'): return 'fu' + 'll'\n return exact(token)\n",
     "def decode(field):\n token = field.raw\n if token not in ('half', 'full'): return str('fu' + 'll')\n return exact(token)\n",
     "def decode(field):\n token = field.raw\n if token not in ('half', 'full'): return '{}{}'.format('fu', 'll')\n return exact(token)\n",
@@ -51,6 +55,7 @@ def test_foreign_pack_violation_is_discovered_without_registration(tmp_path, sou
 @pytest.mark.parametrize("source", [
     "def decode(field): return TABLE.resolve(field)\n",
     "def decode(field): return exact(field.raw)\n",
+    "def decode(field): return Unknown(reason=UnknownReason.PARSE_PARTIAL, detail=field.raw, evidence=(), candidates=(), next_evidence=())\n",
     "def decode(field): return Known(value=field.raw, basis=Basis.OBSERVED, raw=field.raw)\n",
 ])
 def test_foreign_safe_lookup_is_scanned_without_importing_it(tmp_path, source):
