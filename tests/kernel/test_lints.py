@@ -62,6 +62,7 @@ def test_alias_and_alternate_plants(source, rule):
     'with open("x", "rb") as f:\n raw = f.read()',
     'values = {"a", "b"}\nresult = [x for x in sorted(values)]',
     'import re\nx = re.compile("[a-z]+", flags=re.ASCII)',
+    'import re\nfrom re import ASCII as F\nx = re.compile("abc", F)',
 ])
 def test_valid_controls(source):
     assert lint(source, 'atlas_brain/packs/example/parser.py') == ()
@@ -79,14 +80,15 @@ def test_result_constructor_exception_is_only_inside_verdict_function():
     assert not lint('def verdict():\n def result():\n  return CheckResult()', path)
 
 
-def test_all_runner_broad_handlers_are_refused_without_ct_extension():
-    path = 'atlas_brain/runner/__main__.py'
-    handler = 'try:\n pass\nexcept BaseException:\n pass\n'
-    assert 5 in {r for r, _ in lint(handler, path)}
-    aborting = 'try:\n pass\nexcept BaseException:\n raise SystemExit(1)\n'
-    assert 5 in {r for r, _ in lint(aborting, path)}
-    assert 5 in {r for r, _ in lint(aborting + aborting, path)}
-    assert 5 in {r for r, _ in lint('def unrelated():\n try:\n  pass\n except BaseException:\n  pass', path)}
+@pytest.mark.parametrize('source', [
+    'try:\n pass\nexcept BaseException:\n pass\n',
+    'try:\n pass\nexcept BaseException:\n raise SystemExit(1)\n',
+    'try:\n pass\nexcept BaseException:\n raise SystemExit(1)\n' * 2,
+    'def unrelated():\n try:\n  pass\n except BaseException:\n  pass',
+    'def SystemExit(code):\n pass\ntry:\n pass\nexcept BaseException:\n raise SystemExit(1)',
+])
+def test_all_runner_broad_handlers_are_refused_without_ct_extension(source):
+    assert 5 in {r for r, _ in lint(source, 'atlas_brain/runner/__main__.py')}
 
 
 @pytest.mark.parametrize('body', ['pass', 'return 0', 'raise', 'raise SystemExit(0)',
@@ -102,11 +104,6 @@ def test_fail_closed_handler_still_requires_ct_extension(exception):
     source = 'try:\n raise ' + exception + '\nexcept BaseException:\n raise SystemExit(1)'
     for path in ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py'):
         assert 5 in {r for r, _ in lint(source, path)}
-
-
-def test_shadowed_abort_constructor_is_refused():
-    source = 'def SystemExit(code):\n pass\ntry:\n pass\nexcept BaseException:\n raise SystemExit(1)'
-    assert 5 in {r for r, _ in lint(source, 'atlas_brain/runner/__main__.py')}
 
 
 @pytest.mark.parametrize('source', [
@@ -125,11 +122,6 @@ def test_environment_reads_are_refused_in_evidence_layer(source):
 ])
 def test_regex_flag_and_nonliteral_pattern_bypasses_are_refused(source):
     assert 12 in {r for r, _ in lint(source, 'atlas_brain/packs/example/parser.py')}
-
-
-def test_actual_imported_ascii_flag_control():
-    assert not lint('import re\nfrom re import ASCII as F\nx = re.compile("abc", F)',
-                    'atlas_brain/packs/example/parser.py')
 
 
 def test_parsekit_compiler_extension_is_exact_source_and_path_bound():
