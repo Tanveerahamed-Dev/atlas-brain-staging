@@ -1,10 +1,13 @@
 """Byte ownership, span round-trips and honest partial results over random input."""
 from enum import StrEnum
 
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from atlas_brain.evidence.parsekit.rules import Rule, TokenMap, run_rules
 from atlas_brain.kernel.states import CaptureId
+
+
 class Duplex(StrEnum):
     HALF = "half"
     FULL = "full"
