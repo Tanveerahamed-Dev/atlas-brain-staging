@@ -7,7 +7,6 @@ from pathlib import Path
 
 from tools.provenance import validate_tree
 
-
 RAW = b"synthetic output\r\n"
 RECORD = '''fixture_id: synthetic-example
 file: output.txt
@@ -106,7 +105,7 @@ class ProvenanceTests(unittest.TestCase):
     def test_cli_refuses_orphan_record_and_missing_explicit_root(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder) / "fixtures"
-            result = subprocess.run([sys.executable, "tools/provenance.py", str(root)], capture_output=True)
+            result = subprocess.run([sys.executable, "tools/provenance.py", str(root)], capture_output=True, check=False)
             self.assertEqual(result.returncode, 1)
             root.mkdir()
             self.assertEqual(validate_tree(root), [])
