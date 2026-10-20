@@ -43,16 +43,17 @@ _INTERFACE_PATTERNS = tuple(compile_pattern(pattern) for pattern in (
 _VERSION_SUFFIXES = ("", r" \[Feature Release\]", r" \[Maintenance Release\]",
                      r" \[build [^\]\r\n]++\]")
 _DETECTION_RULES = (
-    Rule("nx-banner", "start", r"Cisco Nexus Operating System \(NX-OS\) Software[ \t]*+",
-         "record", "start", "", ()),
+    Rule("nx-banner", "start", r"(?P<banner>Cisco Nexus Operating System \(NX-OS\) Software)[ \t]*+",
+         "record", "start", "", ("banner",)),
     *(Rule(f"nx-version-valid-{major}-{index}", "start",
            r"[ \t]*+NXOS: version (?P<version>" + major
            + r"\.[0-9]++\([0-9A-Za-z.]++\)[A-Za-z0-9]*+)" + suffix + r"[ \t]*+",
            "record", "start", "", ("version",))
       for major in ("9", "10") for index, suffix in enumerate(_VERSION_SUFFIXES)),
-    Rule("nx-version-outside-subset", "start", r"[ \t]*+NXOS: version[^\r\n]*+",
-         "record", "start", "", ()),
-    Rule("other-family", "start", r"[ \t]*+Cisco IOS[^\r\n]*+", "record", "start", "", ()),
+    Rule("nx-version-outside-subset", "start", r"(?P<unsupported_version>[ \t]*+NXOS: version[^\r\n]*+)",
+         "record", "start", "", ("unsupported_version",)),
+    Rule("other-family", "start", r"(?P<other_banner>[ \t]*+Cisco IOS[^\r\n]*+)",
+         "record", "start", "", ("other_banner",)),
 )
 
 def prompt_mode(line: bytes) -> Literal["exec", "config", "loader", "tcl"] | None:
