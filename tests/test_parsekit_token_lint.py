@@ -67,3 +67,18 @@ def test_rule_engine_rejects_a_foreign_fallback_resolver_before_calling_it():
     with pytest.raises(ValueError):
         run_rules(b"duplex a-half\n", CaptureId("cap-a"), (rule,),
                   (("duplex", cast(TokenMap, FallbackMap())),))
+
+
+@pytest.mark.parametrize("source", [
+    "def map(token): return 'full'",
+    "def map(token):\n if token == 'half': return 'half'\n return 'full'",
+    "def map(token):\n if token == 'half': return 'half'\n fallback = 'full'\n return fallback",
+])
+def test_implicit_fallthrough_token_defaults_are_refused(source):
+    assert lint_token_handler(source)
+
+
+def test_explicit_unknown_fallthrough_and_exact_lookup_are_admitted():
+    source = "def map(token):\n if token == 'half': return 'half'\n return Unknown()"
+    assert lint_token_handler(source) == ()
+    assert lint_token_handler("def map(token):\n rows = {'half': 1}\n return rows[token]") == ()
