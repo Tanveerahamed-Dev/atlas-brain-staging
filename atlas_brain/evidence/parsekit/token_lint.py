@@ -61,7 +61,7 @@ def _scopes(tree: ast.AST) -> list[tuple[list[ast.AST], dict[str, list[ast.expr]
                             argument.arg == returned.value.id for argument in args
                         ):
                             passthroughs.add(node.name)
-                    if isinstance(node.returns, ast.Name) and node.returns.id == "Unknown":
+                    if isinstance(node, ast.FunctionDef) and not node.decorator_list and _unknown_only(node.body):
                         unknowns.add(node.name)
             bindings.update(local)
             unknowns.difference_update(local)
@@ -165,6 +165,12 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
                                    and isinstance(n.slice, ast.Slice) and isinstance(n.slice.lower, ast.Attribute)
                                    and isinstance(n.slice.upper, ast.Attribute) and n.slice.lower.attr == "start"
                                    and n.slice.upper.attr == "end" and ast.dump(n.slice.lower.value) == ast.dump(n.slice.upper.value))
+    refusal_tests: set[ast.AST] = set()
+    for branch in nodes:
+        if isinstance(branch, ast.If) and all(isinstance(stmt, ast.Raise) or isinstance(stmt, ast.Return) and
+            isinstance(stmt.value, ast.Call) and isinstance(stmt.value.func, ast.Name) and
+            stmt.value.func.id in {"Unknown", *unknowns} for stmt in branch.body):
+            refusal_tests.update(ast.walk(branch.test))
     failures: set[tuple[int, str]] = set()
     for node in nodes:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and (
@@ -182,7 +188,7 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
             failures.add((node.lineno, "token_convenience_lookup"))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("Known", "Captured") and scalar(node):
             failures.add((node.lineno, "token_catchall"))
-        if structural and isinstance(node, ast.Call) and not _unknown(node) and not (
+        if structural and node not in refusal_tests and isinstance(node, ast.Call) and not _unknown(node) and not (
             isinstance(node.func, ast.Name) and node.func.id in {"Known", "Captured", "EvidenceRef", *proof["unknowns"]}
         ):
             arguments = [*node.args, *(kw.value for kw in node.keywords)]
@@ -227,13 +233,11 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
         if isinstance(node, ast.Match):
             branches.extend(case.body for case in node.cases if any(
                 isinstance(pattern, ast.MatchAs) and pattern.pattern is None for pattern in ast.walk(case.pattern)))
-        if isinstance(node, (ast.If, ast.ExceptHandler, ast.Match)) and any(
-            not _unknown_only(branch) and (not structural or any(
-                isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Return)) and scalar(stmt.value) for stmt in branch
-            )) for branch in branches
+        if not structural and isinstance(node, (ast.If, ast.ExceptHandler, ast.Match)) and any(
+            not _unknown_only(branch) for branch in branches
         ):
             failures.add((node.lineno, "token_catchall"))
-        if isinstance(node, ast.IfExp) and not _unknown(node.orelse) and (not structural or scalar(node.orelse)):
+        if not structural and isinstance(node, ast.IfExp) and not _unknown(node.orelse):
             failures.add((node.lineno, "token_catchall"))
     return failures
 
