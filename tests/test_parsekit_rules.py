@@ -67,3 +67,12 @@ def test_invalid_ignore_and_undeclared_capture_are_refused():
 def test_empty_capture_does_not_invent_a_record():
     result = run_rules(b"", CaptureId("cap-a"), table(), ())
     assert result.lines == result.records == ()
+
+
+def test_runtime_token_map_rejects_plain_string_values():
+    from typing import cast
+
+    import pytest
+
+    with pytest.raises(ValueError):
+        TokenMap.closed({"full": cast(StrEnum, "full")})
