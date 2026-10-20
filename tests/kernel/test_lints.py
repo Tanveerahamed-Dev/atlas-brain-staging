@@ -87,6 +87,10 @@ def test_result_constructor_exception_is_only_inside_verdict_function():
     assert not lint('def verdict():\n def result():\n  return CheckResult()', path)
 
 
+def test_findings_keep_source_line_numbers():
+    assert lint('x = 1\nvalue = tokens.get(token, "up")', 'atlas_brain/packs/example/parser.py') == ((3, 2),)
+
+
 @pytest.mark.parametrize('path', ['atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py'])
 @pytest.mark.parametrize('source', [
     'try:\n pass\nexcept BaseException:\n pass\n',
