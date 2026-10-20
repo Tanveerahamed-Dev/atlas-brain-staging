@@ -11,6 +11,7 @@ from atlas_brain.evidence.parsekit.token_lint import lint_token_handler
     "def decode(field):\n lookup = rows.pop\n return lookup(field.raw, 'full')\n",
     "def decode(field): return dict.pop(rows, field.raw, 'full')\n",
     "def decode(field): return mapper(field.raw, 'full')\n",
+    "PATTERN = compile_pattern(r'(?P<value>\\S++)')\ndef decode(raw: bytes):\n raw = b'full'\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return Known(value=text, basis=Basis.OBSERVED, raw=text)\n",
     "PATTERN = compile_pattern(r'(?P<value>\\S++)')\ndef decode(raw: bytes):\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return text.startswith('half')\n",
     "def decode(token: bytes): return token[:4]\n",
     "def decode(field, evidence): return Known(value=bool(), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
