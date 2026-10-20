@@ -17,7 +17,7 @@ def test_planted_backtracking_shapes_refused(pattern):
 
 @pytest.mark.parametrize("pattern,text", [
     (r"(?P<name>[A-Za-z]++) (?P<value>\d++)", b"port 12"),
-    (r"(?:up|down)", b"up"), (r"[()+*?{}]++", b"(*)"),
+    (r"up", b"up"), (r"[()+*?{}]++", b"(*)"),
     (r"a*+", b"aaa"), (r"a++", b"aaa"), (r"\(a\+\)", b"(a+)"),
     (r"[]a]++", b"]a"),
 ])
@@ -54,7 +54,17 @@ def test_possessive_adjacent_repeats_never_reconsider_splits():
 
 
 def test_admission_syntax_obeys_its_own_policy():
-    from atlas_brain.evidence.parsekit.patterns import _NAME, _QUANTIFIER
+    from atlas_brain.evidence.parsekit.patterns import _NAME, _QUANTIFIERS
 
     compile_pattern(_NAME.pattern)
-    compile_pattern(_QUANTIFIER.pattern)
+    for syntax in _QUANTIFIERS:
+        compile_pattern(syntax.pattern)
+
+
+def test_planted_concatenated_ambiguous_alternatives_are_refused():
+    with pytest.raises(ValueError):
+        compile_pattern("(?:a|aa)" * 30)
+
+
+def test_literal_pipe_is_not_an_alternative():
+    assert compile_pattern(r"a\|b").fullmatch(b"a|b")
