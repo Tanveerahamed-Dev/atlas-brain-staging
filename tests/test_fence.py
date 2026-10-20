@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.fence import allowed
+from tools.fence import allowed, dependencies_allowed
 
 
 @pytest.mark.parametrize("path", [
@@ -39,7 +39,7 @@ def test_current_tree_passes():
 
 @pytest.mark.parametrize("plant", ["none", "status_json", "wrong_gate_shape", "invalid_json", "scalar_json"])
 def test_governance_gate_data_command(tmp_path, plant):
-    files = {"governance/generators.json": json.dumps({"uv.lock": {
+    files = {"pyproject.toml": "[project]\ndependencies = []\n", "governance/generators.json": json.dumps({"uv.lock": {
         "command": "uv lock", "tool": "uv==0.13.1", "inputs": ["pyproject.toml"]}})}
     if plant == "status_json":
         files["governance/STATUS.json"] = '{"status": "Synthetic process document"}'
@@ -56,3 +56,23 @@ def test_governance_gate_data_command(tmp_path, plant):
     result = subprocess.run([sys.executable, str(Path("tools/fence.py").resolve())],
                             cwd=tmp_path, capture_output=True, check=False)
     assert result.returncode == int(plant != "none"), result.stderr
+
+
+@pytest.mark.parametrize("dependencies,extras,expected", [
+    ([], {}, True), (["unapproved==1.0"], {}, False),
+    ([], {"extra": ["unapproved"]}, False), ([], {"extra": []}, True),
+])
+def test_dependency_declarations_and_tracked_command(tmp_path, dependencies, extras, expected):
+    assert dependencies_allowed({"project": {"dependencies": dependencies, "optional-dependencies": extras}}) is expected
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\ndependencies = " + json.dumps(dependencies) + "\n[project.optional-dependencies]\n"
+        + "\n".join(f"{key} = {json.dumps(value)}" for key, value in extras.items()), encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    result = subprocess.run([sys.executable, str(Path("tools/fence.py").resolve())],
+                            cwd=tmp_path, capture_output=True, check=False)
+    assert result.returncode == int(not expected), result.stderr
+
+
+def test_empty_runtime_dependencies_pass():
+    assert dependencies_allowed({"project": {"dependencies": []}})
