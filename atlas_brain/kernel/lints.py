@@ -26,6 +26,7 @@ def nested_unbounded(pattern: str) -> bool:
             continue
         if char == '\\':
             escaped = True
+            last_group = False
             continue
         if char == '[':
             in_class = True
@@ -146,7 +147,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             hit(7, node)
         if fact_path and (called.startswith(('locale.', 'zoneinfo.')) or short in ('strptime', 'strftime', 'astimezone')):
             hit(8, node)
-        if path not in RUNNER and (called in ('os.getenv', 'os.getenvb', 'time.time', 'time.time_ns') or short in ('now', 'utcnow', 'today')):
+        if fact_path and called in ('time.localtime', 'time.tzset', 'time.ctime', 'time.asctime', 'datetime.datetime.fromtimestamp', 'datetime.date.fromtimestamp'):
+            hit(8, node)
+        if path not in RUNNER and (called in ('os.getenv', 'os.getenvb', 'time.time', 'time.time_ns', 'time.monotonic', 'time.perf_counter') or short in ('now', 'utcnow', 'today')):
             hit(9, node)
         if short in ('open', 'read_text', 'write_text'):
             mode = node.args[1] if len(node.args) > 1 else None
@@ -166,6 +169,6 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
         if path != LOADER and called in ('importlib.import_module', '__import__', 'builtins.__import__'):
             hit(15, node)
     for lineno, line in enumerate(source.splitlines(), 1):
-        if '# pyright:' in line and 'ignore[' in line and 'reviewer:' not in line:
+        if re.search(r'#\s*pyright:\s*ignore\[', line, re.ASCII) and not re.search(r'reviewer:\s*\S', line, re.ASCII):
             findings.add((6, lineno))
     return tuple(sorted(findings))
