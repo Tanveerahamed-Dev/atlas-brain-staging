@@ -15,7 +15,7 @@ def _tail(node: ast.AST) -> str:
 
 def _lookup_value(node: ast.AST) -> bool:
     return any(isinstance(part, ast.Subscript) and (
-        isinstance(part.slice, ast.Name) or
+        isinstance(part.slice, (ast.Name, ast.Attribute)) or
         (isinstance(part.slice, ast.Constant) and type(part.slice.value) is str))
         for part in ast.walk(node))
 
@@ -37,7 +37,8 @@ def _literal_pattern(pattern: ast.pattern) -> bool:
 
 
 def _enum_comparison(node: ast.AST) -> bool:
-    return any(isinstance(part, ast.Compare) and any(
+    return any(isinstance(part, ast.Compare) and
+        not any(isinstance(value, ast.Subscript) for value in ast.walk(part)) and any(
         isinstance(value, ast.Constant) and type(value.value) is str
         for value in ast.walk(part)) for part in ast.walk(node))
 
