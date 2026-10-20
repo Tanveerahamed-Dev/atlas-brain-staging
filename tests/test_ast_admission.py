@@ -12,6 +12,8 @@ from tools.fence import SCOPED_API, STDLIB_API, source_allowed
 TOKEN = "atlas_brain/kernel/token_lints.py"
 LINTS = "atlas_brain/kernel/lints.py"
 GRANTS = [(path, api) for path, apis in SCOPED_API.items() for api in sorted(apis)]
+K_SCOPE_ADDITION = {"ast.AnnAssign", "ast.Assign", "ast.Compare", "ast.Constant", "ast.Expr",
+                    "ast.MatchAs", "ast.Return", "ast.stmt", "ast.Subscript"}
 
 
 @pytest.mark.parametrize("path,api", GRANTS)
@@ -77,7 +79,7 @@ def test_global_reexport_cannot_hide_protected_import_hop(source):
 def test_amendment_matches_exact_grant_and_bounds():
     assert set(SCOPED_API) == {TOKEN, LINTS, "atlas_brain/evidence/parsekit/token_lint.py",
                                "atlas_brain/evidence/parsekit/token_audit.py"}
-    endpoints = SCOPED_API[TOKEN] | SCOPED_API[LINTS]
+    endpoints = (SCOPED_API[TOKEN] - K_SCOPE_ADDITION) | SCOPED_API[LINTS]
     assert len(endpoints) == 40
     assert not any(api.startswith("ast.") for api in STDLIB_API)
     text = Path("docs/adr/0003-adr0002-ast-amendment.md").read_text(encoding="utf-8")
@@ -85,8 +87,23 @@ def test_amendment_matches_exact_grant_and_bounds():
     assert len(text.splitlines()) <= 60 and len(text) <= 4000
 
 
+def test_k_class_scope_amendment_has_only_nine_actual_using_bindings():
+    assert len(SCOPED_API[TOKEN]) == 22
+    assert K_SCOPE_ADDITION <= SCOPED_API[TOKEN]
+    text = Path("docs/adr/0006-adr0002-k-token-scope.md").read_text(encoding="utf-8")
+    assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == K_SCOPE_ADDITION
+    assert len(text.splitlines()) <= 60 and len(text) <= 4000
+    for api in K_SCOPE_ADDITION:
+        assert source_allowed(f"import ast; {api}", path=TOKEN)
+        assert not source_allowed(f"import ast; {api}", path="atlas_brain/kernel/runtime.py")
+    assert not source_allowed("import ast; ast.literal_eval('0')", path=TOKEN)
+    assert not source_allowed("from .kernel.token_lints import ast; ast.Compare",
+                              {TOKEN: "import ast"}, "atlas_brain/runtime.py")
+
+
 @pytest.mark.parametrize("path,source,expected", [
     (TOKEN, "import ast; ast.Name", 0), (LINTS, "import ast; ast.parse('')", 0),
+    (TOKEN, "import ast; ast.Compare", 0), (TOKEN, "import ast; ast.literal_eval('0')", 1),
     (LINTS, "import ast; ast.literal_eval('0')", 1),
     ("atlas_brain/kernel/runtime.py", "import ast; ast.Name", 1),
 ])
