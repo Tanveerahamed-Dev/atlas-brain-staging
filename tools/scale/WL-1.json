@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "generator_sha256": "275715242e250a0e36fbce48e39bef01399535d5e95e4007d71ccee7df5b221f",
   "id": "WL-1",
   "seed": 0,
   "sizes": [100, 300, 1000],

@@ -65,6 +65,17 @@ class FrozenWorkloadTests(unittest.TestCase):
         self.assertEqual(workload.expected(1000, True)["bytes"], 1686962550)
         self.assertEqual(workload.expected(1000, True)["mac"], 1240000)
 
+    def test_logical_interfaces_are_inside_the_frozen_denominator(self):
+        spec = workload.load_spec()
+        for profile, expected in spec["profiles"].items():
+            running = workload.render("running", profile, 18, 100, False).decode("ascii")
+            interfaces = workload.render("interfaces", profile, 18, 100, False).decode("ascii")
+            configured = [line.split()[1] for line in running.splitlines() if line.startswith("interface ")]
+            observed = [line.split()[0] for line in interfaces.splitlines() if " is up, line protocol" in line]
+            self.assertEqual(len(configured), expected["interfaces"])
+            self.assertEqual(set(configured), set(observed))
+            self.assertIn("Port-channel1", observed)
+
 
 class ParserTests(unittest.TestCase):
     def test_exactly_sixteen_variants(self):

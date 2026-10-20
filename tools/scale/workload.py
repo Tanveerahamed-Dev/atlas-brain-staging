@@ -33,7 +33,10 @@ def load_spec(path=SPEC):
     frozen = SPEC.with_suffix(".sha256").read_text(encoding="ascii").split()[0]
     if digest(raw) != frozen:
         raise ValueError("manifest_digest")
-    return strict_json(raw)
+    spec = strict_json(raw)
+    if digest(Path(__file__).read_bytes()) != spec["generator_sha256"]:
+        raise ValueError("generator_digest")
+    return spec
 
 
 def profiles(size):
@@ -72,7 +75,7 @@ def padded(line, width):
 
 def render(form, profile, node, size, dense):
     row = load_spec()["profiles"][profile]
-    interface = lambda i: iface(profile, i)
+    interface = lambda i: "Port-channel1" if i == row["interfaces"] - 1 else iface(profile, i)
     count = lambda key: row[key] * (2 if dense and key in ("mac", "arp", "syslog") else 1)
     lines = []
     if form == "interfaces":
@@ -86,7 +89,7 @@ def render(form, profile, node, size, dense):
             lines += [f"interface {interface(i)}\n", " no shutdown\n", " switchport trunk native vlan 100\n"]
             if i == 0:
                 lines.append(" channel-group 1 mode active\n")
-        lines += ["interface Port-channel1\n", " switchport trunk native vlan 100\n", " mtu 1500\n"]
+        lines.append(" mtu 1500\n")  # Last declared interface is the logical channel.
     elif form in ("cdp", "lldp"):
         for i in range(row["neighbors"] // 2):
             slot = i * 2 + (form == "lldp")
@@ -188,6 +191,7 @@ def verify(root):
             raise ValueError("capture_digest")
         profile = spec["profiles"][mix[node]]
         counters = {"interfaces": (b" is up, line protocol is ", profile["interfaces"]),
+                    "running": (b"\ninterface ", profile["interfaces"]),
                     "mac": (b" DYNAMIC ", profile["mac"]), "arp": (b"Internet ", profile["arp"]),
                     "routes": (b"O 203.0.113.", profile["routes"]),
                     "cdp": (b"Device ID: ", profile["neighbors"] // 2),
