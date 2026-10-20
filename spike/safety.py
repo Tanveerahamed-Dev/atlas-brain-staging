@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import threading
 
 VIOLATIONS = 0
 CREATIONS = []
@@ -11,6 +12,8 @@ IMPORTS = set()
 _INSTALLED = False
 _WORKER = False
 _CTYPES_READY = False
+_WINDOWS_CREATION = threading.local()
+_WINDOWS_WRAPPED = False
 DENIED = {"socket.connect", "socket.bind", "socket.sendto", "socket.sendmsg",
           "socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyaddr", "socket.getnameinfo",
           "urllib.Request", "http.client.connect", "ftplib.connect", "smtplib.connect", "webbrowser.open",
@@ -63,9 +66,15 @@ def _audit(event, args):
     if event == "socket.__new__":
         refused = args[1] != 1  # AF_UNIX only; numeric avoids importing socket in hook.
     if event in ("_posixsubprocess.fork_exec", "_winapi.CreateProcess"):
-        allowed = _creation_allowed(args)
+        attested = getattr(_WINDOWS_CREATION, "validated", None) if event == "_winapi.CreateProcess" else None
+        if attested is not None:
+            _WINDOWS_CREATION.validated = None  # One native event, same thread, same application.
+            allowed = args[0] == attested[0] and not _WORKER
+        else:
+            allowed = _creation_allowed(args)
         CREATIONS.append({"event": event, "allowed": allowed, "grammar": "cpython-spawn-or-tracker",
-                          "observed": [repr(value) for value in args[:2]]})
+                          "observed": [repr(value) for value in args[:2]],
+                          "validated_command": attested[1] if attested is not None else None})
         refused = not allowed
     if refused:
         VIOLATIONS += 1
@@ -73,8 +82,25 @@ def _audit(event, args):
 
 
 def install(worker=False):
-    global _INSTALLED, _WORKER
+    global _INSTALLED, _WORKER, _WINDOWS_WRAPPED
     _WORKER = worker
+    if os.name == "nt" and not _WINDOWS_WRAPPED:
+        import _winapi
+        original = _winapi.CreateProcess
+        def guarded(application, command, process_attrs, thread_attrs, inherit, flags, env, cwd, startup):
+            # 3.14.8's C audit event formats its PyObject command as wchar_t*.
+            # Validate real arguments BEFORE C; an unbound native event remains refused.
+            if not _creation_allowed((application, command, cwd)):
+                global VIOLATIONS
+                VIOLATIONS += 1
+                raise EgressDenied("_winapi.CreateProcess.command")
+            _WINDOWS_CREATION.validated = (application, command)
+            try:
+                return original(application, command, process_attrs, thread_attrs, inherit, flags, env, cwd, startup)
+            finally:
+                _WINDOWS_CREATION.validated = None
+        _winapi.CreateProcess = guarded
+        _WINDOWS_WRAPPED = True
     if not _INSTALLED:
         sys.addaudithook(_audit)
         _INSTALLED = True

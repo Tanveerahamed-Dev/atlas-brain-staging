@@ -21,6 +21,8 @@ class AdmissionTests(unittest.TestCase):
         argv[-2] = "print('planted arbitrary code')"
         bad = (executable, " ".join('"' + s + '"' for s in argv), None) if os.name == "nt" else ([os.fsencode(executable)], [os.fsencode(v) for v in argv], None)
         self.assertFalse(_creation_allowed(bad))
+        if os.name == "nt":
+            self.assertFalse(_creation_allowed((executable, "\x01", None)))
 
     def test_five_startup_witnesses(self):
         witnesses = {
