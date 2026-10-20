@@ -123,7 +123,7 @@ def test_canonical_recursive_roundtrip_property():
 
 
 @pytest.mark.parametrize("operation", ["add", "sub", "mul", "matmul", "truediv",
-    "floordiv", "mod", "pow", "lshift", "rshift", "and", "or", "xor"])
+    "floordiv", "mod", "pow", "lshift", "rshift", "and", "or", "xor", "divmod"])
 @pytest.mark.parametrize("prefix", ["", "r", "i"])
 def test_arithmetic_protocol_family_is_refused(operation, prefix):
     assert violations(f"result = left.__{prefix}{operation}__(right)")
