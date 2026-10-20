@@ -80,6 +80,17 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     def contains(node: ast.AST, names: tuple[str, ...]) -> bool:
         return any(tail(n) in names for n in ast.walk(node))
 
+    rebound = {name(n) for n in ast.walk(tree) if isinstance(n, (ast.Name, ast.Attribute)) and isinstance(n.ctx, ast.Store)}
+    for binding in ast.walk(tree):
+        identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else ''
+        if identifier in aliases:
+            rebound.add(aliases[identifier])
+
+    def ascii_flag(node: ast.AST) -> bool:
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return ascii_flag(node.left) or ascii_flag(node.right)
+        return name(node) in ('re.ASCII', 're.A') and name(node) not in rebound and 're' not in rebound
+
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
 
     def inside_verdict(node: ast.AST) -> bool:
@@ -148,7 +159,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             iterator = node.iter
             if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and tail(iterator.func) in ('set', 'frozenset')):
                 hit(11, node)
-        if isinstance(node, (ast.Attribute, ast.Name)) and fact_path and name(node) in ('os.environ', 'os.environb'):
+        if isinstance(node, (ast.Attribute, ast.Name)) and path not in RUNNER and name(node) in ('os.environ', 'os.environb'):
             hit(9, node)
         if not isinstance(node, ast.Call):
             continue
@@ -177,9 +188,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 hit(10, node)
         if called.startswith('re.') and short in ('compile', 'search', 'match', 'fullmatch', 'findall', 'finditer', 'split', 'sub', 'subn'):
             flags = list(node.args[1:] if short == 'compile' else node.args[2:]) + [k.value for k in node.keywords if k.arg == 'flags']
-            if not any(contains(f, ('ASCII', 'A')) for f in flags):
+            if not any(ascii_flag(f) for f in flags):
                 hit(12, node)
-            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str) and nested_unbounded(node.args[0].value):
+            if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str) or nested_unbounded(node.args[0].value):
                 hit(12, node)
         if path != LOADER and called in ('importlib.import_module', '__import__', 'builtins.__import__'):
             hit(15, node)

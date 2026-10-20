@@ -85,3 +85,26 @@ def test_runner_has_only_one_top_level_broad_handler():
     assert not lint(handler, path)
     assert 5 in {r for r, _ in lint(handler + handler, path)}
     assert 5 in {r for r, _ in lint('def unrelated():\n try:\n  pass\n except BaseException:\n  pass', path)}
+
+
+@pytest.mark.parametrize('source', [
+    'import os\nx = os.environ["X"]',
+    'from os import environ as env\nx = env["X"]',
+])
+def test_environment_reads_are_refused_in_evidence_layer(source):
+    assert 9 in {r for r, _ in lint(source, 'atlas_brain/evidence/intake.py')}
+
+
+@pytest.mark.parametrize('source', [
+    'import re\nASCII = 0\nx = re.compile("abc", ASCII)',
+    'import re\nPATTERN = "(a+)+"\nx = re.compile(PATTERN, re.ASCII)',
+    'from re import ASCII\nimport re\nASCII = 0\nx = re.compile("abc", ASCII)',
+    'import re\nx = re.compile("abc", re.ASCII * 0)',
+])
+def test_regex_flag_and_nonliteral_pattern_bypasses_are_refused(source):
+    assert 12 in {r for r, _ in lint(source, 'atlas_brain/packs/example/parser.py')}
+
+
+def test_actual_imported_ascii_flag_control():
+    assert not lint('import re\nfrom re import ASCII as F\nx = re.compile("abc", F)',
+                    'atlas_brain/packs/example/parser.py')
