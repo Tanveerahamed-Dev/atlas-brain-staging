@@ -45,6 +45,17 @@ def test_closed_map_preserves_each_mapped_enum(member):
     assert result.records[0].fields[0][1].value is member
 
 
+@given(st.sampled_from(("*+", "++", "?+", "{2}+", "{,3}+", "{1,}+")),
+       st.sampled_from(("*+", "++", "?+", "{2}+", "{,3}+", "{1,}+")))
+def test_generated_nested_quantifiers_are_always_refused(inner, outer):
+    import pytest
+
+    from atlas_brain.evidence.parsekit.patterns import compile_pattern
+
+    with pytest.raises(ValueError):
+        compile_pattern(f"(?:a{inner}){outer}")
+
+
 @given(st.sampled_from(("record", "enter_state", "leave_state")),
        st.sampled_from((r".*+", r".++", r"[\s\S]*+", r"\w++", r".?+")),
        st.binary(max_size=128))
