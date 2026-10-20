@@ -61,7 +61,9 @@ def lint_token_handler(source: str) -> tuple[tuple[int, str], ...]:
                 if any(isinstance(pattern, ast.MatchAs) and pattern.pattern is None
                        for pattern in ast.walk(case.pattern)):
                     branches.append(case.body)
-        if any(not _unknown_only(branch) for branch in branches):
+        if isinstance(node, (ast.If, ast.ExceptHandler, ast.Match)) and any(
+            not _unknown_only(branch) for branch in branches
+        ):
             failures.add((node.lineno, "token_catchall"))
         if isinstance(node, ast.IfExp) and not _unknown(node.orelse):
             failures.add((node.lineno, "token_catchall"))
