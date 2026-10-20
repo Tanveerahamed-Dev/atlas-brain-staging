@@ -12,8 +12,15 @@ from typing import Literal
 from atlas_brain.evidence.parsekit.patterns import compile_pattern
 from atlas_brain.evidence.parsekit.rules import Rule, run_rules
 from atlas_brain.kernel.states import (
-    Basis, CaptureId, EvidenceRef, EvidenceRole, IntegrityState, Known, Unknown,
-    UnknownReason, WholeCapture,
+    Basis,
+    CaptureId,
+    EvidenceRef,
+    EvidenceRole,
+    IntegrityState,
+    Known,
+    Unknown,
+    UnknownReason,
+    WholeCapture,
 )
 
 ERROR_SIGNATURES = (
