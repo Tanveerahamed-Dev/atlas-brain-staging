@@ -64,6 +64,8 @@ class MeasurementTests(unittest.TestCase):
             for name, body in {"memory.peak": "4096", "memory.max": "2147483648", "memory.swap.max": "0", "memory.events": "oom_kill 0\n", "memory.stat": "anon 2048\n"}.items():
                 (directory / name).write_text(body, encoding="ascii")
             self.assertEqual(collect(directory)["memory.peak"], 4096)
+            (directory / "memory.max").write_text("max", encoding="ascii")
+            self.assertEqual(collect(directory)["memory.max"], "max")
 
     def test_real_queue_pickle_roundtrip_is_measured(self):
         from multiprocessing.reduction import ForkingPickler
