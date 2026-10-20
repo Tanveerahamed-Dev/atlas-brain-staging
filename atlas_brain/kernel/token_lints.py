@@ -24,10 +24,12 @@ def _literal_pattern(pattern: ast.pattern) -> bool:
     return isinstance(pattern, ast.MatchOr) and all(_literal_pattern(p) for p in pattern.patterns)
 
 
-def fallback_node(node: ast.AST) -> bool:
+def fallback_node(node: ast.AST, called: str = '') -> bool:
     """True means rule 3 must refuse this node; no code under scan executes."""
     if isinstance(node, ast.Call):
-        return _tail(node.func) in ('get', 'setdefault')
+        short = (called or _tail(node.func)).rsplit('.', 1)[-1]
+        return short in ('get', 'setdefault', 'defaultdict') or (
+            short == 'pop' and (len(node.args) > 1 or bool(node.keywords)))
     if isinstance(node, (ast.If, ast.IfExp)):
         return bool(node.orelse) and _token_subject(node.test)
     if isinstance(node, ast.Match):
