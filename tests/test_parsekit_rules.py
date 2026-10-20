@@ -6,7 +6,6 @@ import pytest
 from atlas_brain.evidence.parsekit.rules import Rule, TokenMap, run_rules
 from atlas_brain.kernel.states import CaptureId, Unknown, UnknownReason
 
-
 CITATION = ("https://github.com/Tanveerahamed-Dev/atlas-brain-staging/"
             "blob/67893ef01b3b228ae428e3e459782539e501b5ee/tests/test_parsekit_rules.py#L42")
 
