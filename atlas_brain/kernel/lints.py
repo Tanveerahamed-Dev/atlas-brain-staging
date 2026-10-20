@@ -88,6 +88,8 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
         identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)) else ''
         if identifier:
             rebound.add(name(ast.Name(id=identifier, ctx=ast.Load())))
+    assertions = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.Call) and name(n.func) == 'typing.assert_never'
+                           and name(n.func) not in rebound and 'typing' not in rebound)
 
     def ascii_flag(node: ast.AST) -> bool:
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
@@ -150,7 +152,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 for field in node.body:
                     if isinstance(field, ast.AnnAssign) and field.value is not None and not contains(field.annotation, ('ClassVar',)):
                         hit(2, field)
-        if fallback_node(node, name(node.func) if isinstance(node, ast.Call) else ''):
+        if fallback_node(node, name(node.func) if isinstance(node, ast.Call) else '', assertions=assertions):
             hit(3, node)
         if isinstance(node, ast.ExceptHandler) and (node.type is None or contains(node.type, ('BaseException',))):
             hit(5, node)
