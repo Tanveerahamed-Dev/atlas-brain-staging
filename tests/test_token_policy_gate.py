@@ -42,3 +42,12 @@ def test_missing_scan_of_an_expected_handler_refuses_gate(tmp_path, monkeypatch)
     monkeypatch.setattr(SourceVisitor, "visit_AsyncFunctionDef", lambda self, node: None)
     with pytest.raises(ValueError, match="unscanned"):
         audit_tree(root)
+
+
+def test_module_named_function_has_its_own_scan_record(tmp_path):
+    root = _tree(tmp_path, "")
+    (root / "packs/new/parsers/fields.py").write_text(
+        "def module(field): return TABLE.resolve(field)\n", encoding="utf-8",
+    )
+    report = audit_tree(root)
+    assert report.expected == report.audited and report.findings == ()
