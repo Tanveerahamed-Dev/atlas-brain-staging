@@ -34,6 +34,8 @@ def main():
     records["pass"] = records["import_time_denied"] and all(p["denied"] and p["count"] == 1 for role in ("coordinator", "worker", "retry") for p in records[role]) and all(records[role + "_flags_match"] for role in ("worker", "retry"))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(records, sort_keys=True) + "\n", encoding="ascii")
+    import hashlib
+    args.out.with_suffix(".sha256").write_text(hashlib.sha256(args.out.read_bytes()).hexdigest() + "  " + args.out.name + "\n", encoding="ascii")
     sys.exit(0 if records["pass"] else 1)
 
 

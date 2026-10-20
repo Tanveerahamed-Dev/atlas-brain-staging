@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tools.scale.workload import canonical, digest, generate, verify
 
-FLAGS = ["-I", "-X", "warn_default_encoding", "-W", "error::EncodingWarning"]
+FLAGS = ["-I", "-X", "utf8=1", "-X", "warn_default_encoding", "-W", "error::EncodingWarning"]
 
 
 def command(*args):
@@ -84,7 +84,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
                 "os": platform.system(), "cap_bytes": cap, "container": container,
                 "fault": fault, "workers_requested": workers, "recycle": recycle,
                 "status": "starting", "cancel_half": cancel_half, "sample_hz": 20}
-    samples, known, errors = [], {}, []
+    samples, known, errors, io_errors = [], {}, [], []
     job, container_id, cg = None, None, None
     logfile = (output_root / "console.log").open("wb")
     started = time.monotonic()
@@ -150,13 +150,17 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
                 try:
                     known[(member.pid, member.create_time())] = member
                     memory = member.memory_full_info()
-                    usage = member.cpu_times()
-                    io = member.io_counters()
                     tree_uss += memory.uss
                     tree_rss += memory.rss
-                    cpu_s += usage.user + usage.system
-                    io_written += io.write_bytes
-                    pid_rows.append([member.pid, memory.uss, memory.rss, usage.user + usage.system])
+                    member_cpu = None
+                    try:
+                        usage = member.cpu_times()
+                        member_cpu = usage.user + usage.system
+                        cpu_s += member_cpu
+                        io_written += member.io_counters().write_bytes
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        io_errors.append({"pid": member.pid, "t_s": now - started, "kind": "cpu_or_io_unavailable"})
+                    pid_rows.append([member.pid, memory.uss, memory.rss, member_cpu])
                 except psutil.NoSuchProcess:
                     pass
                 except psutil.AccessDenied:
@@ -244,7 +248,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             job.close()
         if container_id:
             subprocess.run(["docker", "rm", "-f", container_id], check=False, stdout=subprocess.DEVNULL)
-        metadata.update({"samples": len(samples), "sampling_errors": sorted(set(errors)), "cgroup_last": sampled_cg,
+        metadata.update({"samples": len(samples), "sampling_errors": sorted(set(errors)), "io_sampling_errors": io_errors, "cgroup_last": sampled_cg,
                          "peak_job_commit": job_peak, "peak_tree_uss": max((s["uss"] for s in samples), default=0),
                          "median_tree_uss": statistics.median([s["uss"] for s in samples]) if samples else 0,
                          "max_tree_rss": max((s["rss"] for s in samples), default=0),
