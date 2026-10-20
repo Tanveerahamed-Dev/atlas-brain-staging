@@ -154,3 +154,33 @@ def detect(raw: bytes, capture: CaptureId) -> Known[str] | Unknown:
         return _unknown(raw, capture, UnknownReason.PLATFORM_UNKNOWN, "iosxe_subset_unclaimed")
     return Known(value=family, basis=Basis.OBSERVED,
                  evidence=tuple(_reference(raw, capture, field.span) for field in fields), raw=fields[0].raw)
+
+
+_INTERFACE_PREFIXES = (
+    (b"GigabitEthernet", "GigabitEthernet"), (b"Gi", "GigabitEthernet"),
+    (b"TenGigabitEthernet", "TenGigabitEthernet"), (b"Te", "TenGigabitEthernet"),
+    (b"FastEthernet", "FastEthernet"), (b"Fa", "FastEthernet"),
+    (b"HundredGigE", "HundredGigE"),
+)
+
+
+def interface_name(raw: bytes) -> str | None:
+    """Physical subset only; None is unrecognised, never pass-through or a fact.
+
+    CanonicalInterface/view types have not landed. This helper supplies no speed,
+    role, platform/train support or effective-configuration assertion.
+    """
+    for prefix, canonical in _INTERFACE_PREFIXES:
+        if not raw.startswith(prefix):
+            continue
+        pieces = raw[len(prefix):].split(b".")
+        if len(pieces) > 2:
+            return None
+        path = pieces[0].split(b"/")
+        if not 1 <= len(path) <= 4:
+            return None
+        numbers = path + pieces[1:]
+        if any(not part.isdigit() or (len(part) > 1 and part.startswith(b"0")) for part in numbers):
+            return None
+        return canonical + raw[len(prefix):].decode("ascii")
+    return None
