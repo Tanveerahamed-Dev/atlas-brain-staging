@@ -24,13 +24,17 @@ class Captured:
     value: str | Unknown
 
 
+def _is_enum(value: object) -> bool:
+    return isinstance(value, StrEnum)
+
+
 @dataclass(frozen=True, slots=True)
 class TokenMap:
     entries: tuple[tuple[str, StrEnum], ...]
 
     def __post_init__(self) -> None:
         if (not self.entries or len(dict(self.entries)) != len(self.entries)
-                or any(not isinstance(v, StrEnum) for _, v in self.entries)
+                or any(not _is_enum(v) for _, v in self.entries)
                 or len({type(v) for _, v in self.entries}) != 1):
             raise ValueError("token map requires unique rows from one closed enum")
 
