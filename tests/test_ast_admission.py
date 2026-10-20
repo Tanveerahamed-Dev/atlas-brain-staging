@@ -13,7 +13,7 @@ TOKEN = "atlas_brain/kernel/token_lints.py"
 LINTS = "atlas_brain/kernel/lints.py"
 GRANTS = [(path, api) for path, apis in SCOPED_API.items() for api in sorted(apis)]
 K_SCOPE_ADDITION = {"ast.AnnAssign", "ast.Assign", "ast.Compare", "ast.Constant", "ast.Expr",
-                    "ast.MatchAs", "ast.Return", "ast.stmt", "ast.Subscript"}
+                    "ast.MatchAs", "ast.MatchMapping", "ast.MatchStar", "ast.Return", "ast.stmt", "ast.Subscript"}
 
 
 @pytest.mark.parametrize("path,api", GRANTS)
@@ -87,8 +87,8 @@ def test_amendment_matches_exact_grant_and_bounds():
     assert len(text.splitlines()) <= 60 and len(text) <= 4000
 
 
-def test_k_class_scope_amendment_has_only_nine_actual_using_bindings():
-    assert len(SCOPED_API[TOKEN]) == 22
+def test_k_class_scope_amendment_has_only_eleven_actual_using_bindings():
+    assert len(SCOPED_API[TOKEN]) == 24
     assert K_SCOPE_ADDITION <= SCOPED_API[TOKEN]
     text = Path("docs/adr/0006-adr0002-k-token-scope.md").read_text(encoding="utf-8")
     assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == K_SCOPE_ADDITION
