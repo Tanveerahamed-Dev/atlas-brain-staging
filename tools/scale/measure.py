@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 from tools.scale.workload import canonical, digest, generate, verify
 
 FLAGS = ["-I", "-X", "utf8=1", "-X", "warn_default_encoding", "-W", "error::EncodingWarning"]
+PREPARED_IMAGES = set()
 
 
 def command(*args):
@@ -118,6 +119,13 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
     sampled_cg, job_peak = {}, None
     try:
         if container:
+            if interpreter not in PREPARED_IMAGES:
+                subprocess.run(["docker", "run", "--rm", "--network", "none", "--user", f"{os.getuid()}:{os.getgid()}",
+                                "--mount", f"type=bind,src={ROOT},dst=/repo,readonly",
+                                "--mount", f"type=bind,src={ROOT / '.s0'},dst=/repo/.s0",
+                                "--workdir", "/repo", f"python:{interpreter}-slim", "python", "-I", "-S",
+                                "tools/scale/prepare.py", "--references-only"], check=True)
+                PREPARED_IMAGES.add(interpreter)
             container_input = "/inputs/" + input_root.name
             arguments = ["python"] + FLAGS + ["/repo/spike/bootstrap.py", "--root", container_input, "--out", "/run/result", "--receipt", "/run/engine.json", "--control", "/run/control", "--workers", str(workers), "--fault", fault]
             if recycle:

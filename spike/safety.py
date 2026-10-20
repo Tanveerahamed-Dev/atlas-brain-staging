@@ -109,18 +109,28 @@ def install(worker=False):
 def census(directories=None):
     if directories is None:
         import site
-        directories = [Path(p) for p in site.getsitepackages()] + [Path(p) for p in sys.path if Path(p).is_dir()]
+        directories = [Path(p) for p in site.getsitepackages()] + [Path(p) for p in sys.path if Path(p).exists()]
     rows = []
     for directory in sorted(set(directories)):
+        if directory.is_file():
+            import zipfile
+            if zipfile.is_zipfile(directory):
+                with zipfile.ZipFile(directory) as archive:
+                    for entry in archive.namelist():
+                        name = entry.lower()
+                        if name in ("sitecustomize.py", "usercustomize.py", "sitecustomize.pyc", "usercustomize.pyc", "sitecustomize/__init__.py", "usercustomize/__init__.py"):
+                            raise ValueError("startup_code_unadmitted:" + entry)
+            continue
         if not directory.is_dir():
             continue
         for path in sorted(directory.iterdir()):
             name = path.name.lower()
-            special = name in ("sitecustomize.py", "usercustomize.py", "sitecustomize", "usercustomize", "sitecustomize.pyc", "usercustomize.pyc", "sitecustomize.pyd", "usercustomize.pyd", "sitecustomize.so", "usercustomize.so")
+            special = any(name == prefix or name.startswith(prefix + ".") and name.endswith((".py", ".pyc", ".pyd", ".so"))
+                          for prefix in ("sitecustomize", "usercustomize"))
             if not special and not name.endswith((".pth", ".start")):
                 continue
             raw = path.read_bytes() if path.is_file() else b"package"
-            lines = raw.decode("utf-8-sig").splitlines()
+            lines = [] if special else raw.decode("utf-8-sig").splitlines()
             executable = special or (name.endswith(".start") and any(s.strip() and not s.startswith("#") for s in lines)) or (name.endswith(".pth") and any(s.startswith(("import ", "import\t")) for s in lines))
             rows.append({"name": path.name, "sha256": hashlib.sha256(raw).hexdigest(), "class": "executable" if executable else "path_only"})
             if executable:

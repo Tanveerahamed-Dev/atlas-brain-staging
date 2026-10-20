@@ -131,6 +131,7 @@ def task(payload):
             "facts": total_rows, "bytes": len(raw), "pid": os.getpid(), "violations": safety.VIOLATIONS,
             "environment": environment(), "wall_ns": time.perf_counter_ns() - start, "cpu_ns": time.process_time_ns() - cpu,
             "process_cpu_ns": time.process_time_ns(), "initializer_to_task_ns": start - _START,
+            "imports": sorted(safety.IMPORTS),
             "ready_latency_ns": start - payload["queued_ns"], "gc": gc.get_stats()}
 
 
@@ -213,6 +214,10 @@ def execute(args, startup_modules):
         from spike import metrics
         metrics.install(None)
         def devices():
+            if args.pause_before_workers:
+                (args.control / "before-workers.ready").write_text("ready\n", encoding="ascii")
+                while not (args.control / "before-workers.release").exists():
+                    time.sleep(0.01)
             results, retry, failures = pool_run(payloads, worker_count, args.recycle, environment(), census, catalogue, args.control / "progress.json", args.pause_at_half)
             if retry:
                 second, failed, extra = pool_run(retry, 1, args.recycle, environment(), census, catalogue, args.control / "retry-progress.json")
@@ -261,7 +266,8 @@ def execute(args, startup_modules):
                                "requested_hash_seed": os.environ.get("PYTHONHASHSEED"), "hash_seed_effective": args.expected_seed if args.manual_isolation else "random (-I ignores PYTHONHASHSEED)",
                                "startup_modules": startup_modules, "startup_census": census,
                                "catalogue": catalogue, "imports": sorted(safety.IMPORTS), "creations": safety.CREATIONS,
-                               "startup_baseline_enforced": False},
+                               "startup_baseline_enforced": True,
+                               "admission": __import__("spike.admission", fromlist=["RECEIPT"]).RECEIPT},
                    "workers": [{k: v for k, v in n.items() if k not in ("estate_rows", "route_summary")} for n in nodes]}
         if sys.platform == "linux":
             peak = Path("/sys/fs/cgroup/memory.peak")
@@ -282,6 +288,7 @@ def main(startup_modules):
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--recycle", type=int)
     parser.add_argument("--pause-at-half", action="store_true")
+    parser.add_argument("--pause-before-workers", action="store_true")
     parser.add_argument("--manual-isolation", action="store_true")
     parser.add_argument("--expected-seed", choices=("0", "4242"))
     parser.add_argument("--expected-hash", type=int)

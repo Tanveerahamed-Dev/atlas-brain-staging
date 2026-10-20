@@ -295,7 +295,7 @@ jobs:
           retention-days: 90
   windows-locked-install:
     needs: smoke
-    if: contains(github.event.head_commit.message, '[closure]')
+    if: contains(github.event.head_commit.message, '[locked]')
     runs-on: windows-latest
     timeout-minutes: 29
     steps:
@@ -341,5 +341,42 @@ jobs:
         with:
           name: windows-locked-install-${{ github.sha }}
           path: .s0/locked-install/
+          if-no-files-found: error
+          retention-days: 90
+  startup-admission:
+    needs: smoke
+    if: contains(github.event.head_commit.message, '[startup]')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.14.8', '3.15.0']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 29
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Record clean coordinator and spawn-worker module baselines twice
+        run: |
+          python -m pip install psutil==7.2.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m venv --without-pip .s0/runtime
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $runtime = if ($IsWindows) { '.s0/runtime/Scripts/python.exe' } else { '.s0/runtime/bin/python' }
+          "S0_RUNTIME=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $runtime -I -S tools/scale/prepare.py
+          exit $LASTEXITCODE
+      - name: Qualify all five startup-hook classes before and after the census
+        run: python tools/scale/startup_checks.py --runtime $env:S0_RUNTIME --raw .s0/startup
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: startup-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: |
+            .s0/startup/
+            .s0/startup-*.json
+            .s0/import-closure.json
           if-no-files-found: error
           retention-days: 90

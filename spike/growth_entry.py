@@ -1,10 +1,14 @@
 """Separate diagnostic: four fixed lanes, 75 real device tasks per lane."""
 import sys
+STARTUP_MODULES = tuple(sorted(sys.modules))
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 from spike import safety
 safety.install()
+from spike.admission import install as admit
+admit(STARTUP_MODULES, "worker" if __name__ == "__mp_main__" else "coordinator")
 
 from concurrent.futures import ProcessPoolExecutor
 import json
