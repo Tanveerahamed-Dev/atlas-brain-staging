@@ -80,8 +80,11 @@ def _field(parsed: ParseResult, name: str, raw: bytes, capture: CaptureId) -> Kn
     return Known(value=text, basis=Basis.OBSERVED, evidence=evidence, raw=text)
 
 
-def _bind_missing[T](field: Known[T] | Unknown, evidence: tuple[EvidenceRef, ...]) -> Known[T] | Unknown:
+def _bind_missing[T](field: Known[T] | Unknown, evidence: tuple[EvidenceRef, ...], partial: bool) -> Known[T] | Unknown:
     if isinstance(field, Unknown) and field.reason is UnknownReason.PARSE_UNSUPPORTED_VARIANT and evidence:
+        if partial:
+            context = tuple(ref for ref in field.evidence if isinstance(ref, EvidenceRef))
+            return _unknown(UnknownReason.PARSE_PARTIAL, "partial_system_record", context)
         return _unknown(UnknownReason.FIELD_NOT_PRINTED, "field_not_printed", evidence)
     return field
 
@@ -143,12 +146,12 @@ def extract_fields(raw: bytes, capture: CaptureId, *, integrity: IntegrityState)
     reload_reason = _field(parsed, "reload_reason", raw, capture)
     witnesses = tuple(ref for field in (uptime, image, reload_reason) if isinstance(field, Known)
                       for ref in field.evidence if isinstance(ref, EvidenceRef))
-    uptime = _bind_missing(uptime, witnesses)
-    image = _bind_missing(image, witnesses)
-    reload_reason = _bind_missing(reload_reason, witnesses)
-    partial = not witnesses or any(isinstance(field, Unknown) and field.reason in
+    partial = parsed.quality == "partial" or not witnesses or any(isinstance(field, Unknown) and field.reason in
                   (UnknownReason.PARSE_PARTIAL, UnknownReason.CONFLICTING_EVIDENCE)
                   for field in (uptime, image, reload_reason))
+    uptime = _bind_missing(uptime, witnesses, partial)
+    image = _bind_missing(image, witnesses, partial)
+    reload_reason = _bind_missing(reload_reason, witnesses, partial)
     parsed = ParseResult(parsed.records, parsed.lines, parsed.tokens + tokens,
                          "partial" if partial else parsed.quality)
     return SystemFields(uptime=uptime, image=image, reload_reason=reload_reason,
