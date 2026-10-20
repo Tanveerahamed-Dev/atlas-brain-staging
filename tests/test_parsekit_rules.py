@@ -54,7 +54,7 @@ def test_ordered_states_and_cited_ignore():
 
 def test_first_rule_wins_and_lone_cr_is_not_a_line_break():
     rules = (Rule("first", "start", r"(?P<value>[\s\S]*+)", "record", "start", "", ("value",)),
-             Rule("second", "start", r".*+", "record", "start", "", ()))
+             Rule("second", "start", r"(?P<value>.*+)", "record", "start", "", ("value",)))
     result = run_rules(b"a\rb\r\n", CaptureId("cap-a"), rules, ())
     assert len(result.lines) == 1
     assert result.records[0].rule_id == "first"
