@@ -54,10 +54,11 @@ def test_possessive_adjacent_repeats_never_reconsider_splits():
 
 
 def test_admission_syntax_obeys_its_own_policy():
-    from atlas_brain.evidence.parsekit.patterns import _NAME, _QUANTIFIER
+    from atlas_brain.evidence.parsekit.patterns import _NAME, _QUANTIFIERS
 
     compile_pattern(_NAME.pattern)
-    compile_pattern(_QUANTIFIER.pattern)
+    for syntax in _QUANTIFIERS:
+        compile_pattern(syntax.pattern)
 
 
 def test_planted_concatenated_ambiguous_alternatives_are_refused():

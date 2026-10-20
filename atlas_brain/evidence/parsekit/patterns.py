@@ -2,7 +2,9 @@
 import re
 
 # These expressions inspect pattern syntax, never capture data.
-_QUANTIFIER = re.compile(r"\{(?:[0-9]++,[0-9]*+|[0-9]++|,[0-9]*+)\}", re.ASCII)
+_QUANTIFIERS = tuple(re.compile(syntax, re.ASCII) for syntax in (
+    r"\{[0-9]++,[0-9]*+\}", r"\{[0-9]++\}", r"\{,[0-9]*+\}",
+))
 _NAME = re.compile(r"\(\?P<[A-Za-z_][A-Za-z_0-9]*+>", re.ASCII)
 
 
@@ -63,7 +65,8 @@ def compile_pattern(pattern: str) -> re.Pattern[bytes]:
         elif char == "|":
             raise ValueError("express alternatives as separate ordered rules")
         else:
-            quantifier = _QUANTIFIER.match(pattern, index)
+            quantifier = next((match for syntax in _QUANTIFIERS
+                               if (match := syntax.match(pattern, index)) is not None), None)
             if char in "*+?" or quantifier is not None:
                 if atom:
                     raise ValueError("nested repeat")
