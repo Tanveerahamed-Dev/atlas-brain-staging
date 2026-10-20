@@ -13,6 +13,7 @@ concurrency:
   cancel-in-progress: false
 env:
   UV_VERSION: '0.13.1'
+  ATLAS_TEST_MARKER: ${{ github.run_id }}-synthetic-canary
 jobs:
   lock:
     runs-on: ubuntu-latest
@@ -55,3 +56,27 @@ jobs:
       - run: uv run --no-sync pyright
       - run: uv run --no-sync python tools/fence.py
       - run: uv run --no-sync pytest -q
+  privacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8 # budget: 4 minutes (S6 A2)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - run: uv sync --locked
+      - run: uv run --no-sync pytest -q tests/test_privacy.py
+      - name: Scan changed blobs (full tree on nightly)
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        shell: bash
+        run: |
+          if [[ -n "$BASE" && ! "$BASE" =~ ^0+$ ]]; then
+            uv run --no-sync python tools/privacy.py --base "$BASE" --head HEAD
+          else
+            uv run --no-sync python tools/privacy.py
+          fi
