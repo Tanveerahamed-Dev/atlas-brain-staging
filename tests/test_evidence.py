@@ -85,7 +85,7 @@ def test_r13_registered_empty_and_failed_looks_empty(tmp_path):
     assert classify_cli(b"", "yes", True).value == "empty"
     assert classify_cli(b"", "no", False).value == "unverified_prompt"
     assert classify_cli(b"", "unknown", False).value == "unverified_prompt"
-    manifest = bundle(tmp_path, succeeded="no")
+    manifest = bundle(tmp_path, succeeded="no", prompt_verified=True)
     assert a.import_folder(tmp_path, a.Budgets(10000, 10000, 10)).captures[0].integrity.value == "unverified_prompt"
     manifest["attempts"][0].update(succeeded="yes", transport_defect="timeout")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
