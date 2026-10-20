@@ -1,8 +1,10 @@
 """Child-process audit witness for the engine's current import surface and output boundary."""
 import argparse
-import importlib
+import importlib.util
+import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 from pathlib import Path
@@ -26,14 +28,31 @@ def contract_path(path, root: Path, *, directory: bool = False) -> bool:
             or re.fullmatch(r"checks/[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.jsonl", relative) is not None)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--probe", choices=("engine", "inside", "noncontract", "outside", "rename", "launch", "fork"), default="engine")
-    args = parser.parse_args()
+def engine_census():
+    spec = importlib.util.find_spec("atlas_brain")
+    if spec is None or spec.origin is None or not spec.submodule_search_locations:
+        raise RuntimeError("engine package unavailable")
+    root = Path(spec.origin).resolve().parent
+    modules = {}
+    for source in root.rglob("*.py"):
+        if source.is_symlink() or not source.resolve().is_relative_to(root):
+            raise RuntimeError("engine source link refused")
+        parts = source.relative_to(root).with_suffix("").parts
+        parts = parts[:-1] if parts[-1] == "__init__" else parts
+        name = ".".join(("atlas_brain", *parts))
+        if name in modules:
+            raise RuntimeError("ambiguous engine source")
+        modules[name] = str(source.resolve())
+    if "atlas_brain" not in modules or len(modules) < 2:
+        raise RuntimeError("engine witness exercised no modules")
+    return sorted(modules.items())
+
+
+def child_probe(args, payload) -> int:
     root = args.root.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    violations = []
+    violations, imported = [], []
+    reason, code = None, 1
     sys.dont_write_bytecode = True
     mutations = {"os.remove", "os.rmdir", "os.mkdir", "os.rename", "os.link", "os.symlink", "os.chmod", "os.chown", "os.utime", "os.truncate"}
     def audit(event, values):
@@ -51,30 +70,22 @@ def main() -> int:
     sys.addaudithook(audit)
     try:
         if args.probe == "engine":
-            package = importlib.import_module("atlas_brain")
-            package_root = Path(package.__file__).parent
-            modules = set()
-            for source in package_root.rglob("*.py"):
-                if source.is_symlink() or not source.resolve().is_relative_to(package_root.resolve()):
-                    raise RuntimeError("engine source link refused")
-                parts = source.relative_to(package_root).with_suffix("").parts
-                parts = parts[:-1] if parts[-1] == "__init__" else parts
-                if parts:
-                    modules.add(package.__name__ + "." + ".".join(parts))
-            for module in sorted(modules):
-                importlib.import_module(module)
-            if not modules:
-                raise RuntimeError("engine witness exercised no modules")
+            for name, expected_path in payload["census"]:
+                module = importlib.import_module(name)
+                if (Path(module.__file__).resolve() != Path(expected_path)
+                        or Path(module.__spec__.origin).resolve() != Path(expected_path)):
+                    raise RuntimeError("import origin differs from planned source")
+                imported.append(name)
         elif args.probe == "launch":
             subprocess.run([sys.executable, "-c", "pass"], check=True)
         elif args.probe == "fork":
             if not hasattr(os, "fork"):
-                print("fork probe unavailable")
-                return 2
-            pid = os.fork()
-            if pid == 0:
-                os._exit(0)
-            os.waitpid(pid, 0)
+                reason, code = "fork probe unavailable", 2
+            else:
+                pid = os.fork()
+                if pid == 0:
+                    os._exit(0)
+                os.waitpid(pid, 0)
         elif args.probe == "rename":
             target = root / "result.json"
             target.write_text("{}", encoding="utf-8")
@@ -82,9 +93,42 @@ def main() -> int:
         else:
             target = root / "result.json" if args.probe == "inside" else root / "notes.txt" if args.probe == "noncontract" else root.parent / "forbidden"
             target.write_text("{}", encoding="utf-8")
-        return int(bool(violations))
-    except (RuntimeError, OSError, ImportError):
-        print(f"output witness refused: {violations[-1] if violations else 'engine import failed'}")
+        if reason is None:
+            code = int(bool(violations))
+    except (RuntimeError, OSError, ImportError, SystemExit) as error:
+        reason = type(error).__name__
+    print(json.dumps({"nonce": payload["nonce"], "completed": code == 0, "modules": imported,
+                      "violations": violations, "reason": reason}, sort_keys=True))
+    return code
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--probe", choices=("engine", "inside", "noncontract", "outside", "rename", "launch", "fork"), default="engine")
+    parser.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.child:
+        return child_probe(args, json.load(sys.stdin))
+    nonce = secrets.token_hex(16)
+    try:
+        census = engine_census() if args.probe == "engine" else []
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "--child", "--root", str(args.root), "--probe", args.probe],
+            input=json.dumps({"nonce": nonce, "census": census}), capture_output=True, text=True, check=False,
+            env={**os.environ, "PYTHONPATH": os.pathsep.join(str(Path(p).resolve()) for p in sys.path)},
+        )
+        receipt = json.loads(result.stdout)
+        if not isinstance(receipt, dict) or receipt.get("nonce") != nonce:
+            raise ValueError("missing completion receipt")
+        completed = (result.returncode == 0 and receipt.get("completed") is True
+                     and receipt.get("modules") == [name for name, _ in census] and receipt.get("violations") == [])
+        receipt.pop("nonce")
+        receipt["completed"] = completed
+        print(json.dumps(receipt, sort_keys=True))
+        return 0 if completed else 2 if result.returncode == 2 else 1
+    except (OSError, ValueError, RuntimeError, ImportError):
+        print(json.dumps({"completed": False, "violations": [], "reason": "missing completion receipt or invalid census"}))
         return 1
 
 

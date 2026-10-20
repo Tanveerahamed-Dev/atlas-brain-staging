@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from tools.output_witness import contract_path
 from tools.fence import source_allowed
+from tools.output_witness import contract_path
 
 
 @pytest.mark.parametrize("probe,expected", [("engine", 0), ("inside", 0), ("noncontract", 1), ("outside", 1), ("rename", 1), ("launch", 1)] + ([("fork", 1)] if hasattr(os, "fork") else []))
