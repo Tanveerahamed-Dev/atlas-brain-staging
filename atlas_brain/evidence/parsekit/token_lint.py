@@ -115,7 +115,7 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
         isinstance(value, ast.Attribute) and value.attr == "raw" for value in values)}
     raw_names.update(n.arg for n in parameters if n.arg == "token" or
                      isinstance(n.annotation, ast.Name) and n.annotation.id == "str")
-    buffers = {n.arg for n in parameters if n.arg != "token" and isinstance(n.annotation, ast.Name) and n.annotation.id == "bytes"}
+    buffers = {n.arg for n in parameters if n.arg != "token" and n.arg not in assignments and isinstance(n.annotation, ast.Name) and n.annotation.id == "bytes"}
     proof: dict[str, set[str]] = {"fallbacks": set(), "observed": set(assignments) | {n.arg for n in parameters}, "buffers": buffers,
              "data": set(buffers), "raw": raw_names, "maps": set(), "patterns": set(), "mapped": set(), "tables": tables, "unknowns": unknowns}
 
