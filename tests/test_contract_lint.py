@@ -3,6 +3,7 @@ import pytest
 
 from tools.contract_lint import violations
 
+
 @pytest.mark.parametrize("plant", ["x = a + b", "x += 1", "x = a * b",
     "x = -a", "x = a < b", "x = a == b", "x = sum(rows)",
     "x = min(rows)", "x = statistics.mean(rows)", "from operator import add",
