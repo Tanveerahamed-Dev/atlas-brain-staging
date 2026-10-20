@@ -15,24 +15,32 @@ def _unknown_only(statements: list[ast.stmt]) -> bool:
     )
 
 
-def _scalar(value: ast.expr | None) -> bool:
+def _scalar_expression(value: ast.expr | None, fallbacks: set[str], observed: set[str]) -> bool:
     if isinstance(value, ast.Constant):
         return value.value is not None
+    if isinstance(value, ast.Name):
+        return value.id in fallbacks
     if isinstance(value, ast.Attribute):
-        return value.attr.isupper() and not (isinstance(value.value, ast.Name) and value.value.id == "IntegrityState"
+        if value.attr == "raw" and value.attr not in fallbacks:
+            receiver = value.value
+            while isinstance(receiver, (ast.Attribute, ast.Subscript)):
+                receiver = receiver.value
+            return not (isinstance(receiver, ast.Name) and receiver.id in observed and receiver.id not in fallbacks)
+        return not (isinstance(value.value, ast.Name) and value.value.id == "IntegrityState"
                     and value.attr in ("ERROR", "EMPTY", "UNKNOWN_FORMAT", "UNVERIFIED_PROMPT", "PAGING_ARTIFACTS"))
+    if _unknown(value):
+        return False
     if isinstance(value, ast.Call):
         if isinstance(value.func, ast.Name) and value.func.id == "Known":
-            return any(key.arg == "value" and _scalar(key.value) for key in value.keywords)
+            return any(key.arg == "value" and _scalar_expression(key.value, fallbacks, observed) for key in value.keywords)
         parts = [*value.args, *(key.value for key in value.keywords)]
         if isinstance(value.func, ast.Attribute):
             parts.append(value.func.value)
-        return bool(parts) and all(_scalar(part) for part in parts)
-    if value is None or isinstance(value, ast.Name):
+        return bool(parts) and all(_scalar_expression(part, fallbacks, observed) for part in parts)
+    if value is None:
         return False
     children = [child for child in ast.iter_child_nodes(value) if isinstance(child, ast.expr)]
-    return not children or any(_scalar(child) for child in children)
-
+    return any(_scalar_expression(child, fallbacks, observed) for child in children)
 
 def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[int, str], ...]:
     """Audit source as data. Structural mode keeps byte-grammar operations.
@@ -57,12 +65,17 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
     )}
     raw_names.update(n.arg for n in ast.walk(tree) if isinstance(n, ast.arg)
                      and (n.arg == "token" or (isinstance(n.annotation, ast.Name) and n.annotation.id == "str")))
-    fallback_names = {name for name, values in assignments.items() if any(_scalar(value) for value in values)}
-    for _ in assignments:
+    fallback_names: set[str] = set()
+    observed_names = set(assignments) | {n.arg for n in ast.walk(tree) if isinstance(n, ast.arg)}
+
+    def scalar(value: ast.expr | None) -> bool:
+        return _scalar_expression(value, fallback_names, observed_names)
+
+    for _ in range(len(assignments) + 1):
         for name, values in assignments.items():
             if any(isinstance(value, ast.Name) and value.id in raw_names for value in values):
                 raw_names.add(name)
-            if any(isinstance(value, ast.Name) and value.id in fallback_names for value in values):
+            if any(scalar(value) for value in values):
                 fallback_names.add(name)
     span_slices: set[ast.AST] = set()
     if structural:
@@ -81,7 +94,7 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for index, statement in enumerate(node.body):
                 if isinstance(statement, ast.Return) and not _unknown(statement.value) and (
-                    _scalar(statement.value) if structural else
+                    scalar(statement.value) if structural else
                     isinstance(statement.value, (ast.Constant, ast.Attribute))
                     or any(isinstance(child, ast.Return) for prior in node.body[:index] for child in ast.walk(prior))
                 ):
@@ -92,7 +105,7 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
                  or (isinstance(node.value, ast.Name) and node.value.id in raw_names)))
         ):
             failures.add((node.lineno, "token_convenience_lookup"))
-        if structural and isinstance(node, ast.Call):
+        if structural and isinstance(node, ast.Call) and not _unknown(node):
             arguments = [*node.args, *(kw.value for kw in node.keywords if not (
                 kw.arg == "basis" and isinstance(node.func, ast.Name) and node.func.id == "Known"
                 and isinstance(kw.value, ast.Attribute) and kw.value.attr == "OBSERVED"
@@ -102,17 +115,17 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
             raw_input = any((isinstance(child, ast.Attribute) and child.attr == "raw")
                             or (isinstance(child, ast.Name) and child.id in raw_names)
                             for value in arguments for child in ast.walk(value))
-            if raw_input and any(_scalar(value) or (isinstance(value, ast.Name) and value.id in fallback_names)
+            if raw_input and any(scalar(value) or (isinstance(value, ast.Name) and value.id in fallback_names)
                                  for value in arguments):
                 failures.add((node.lineno, "token_fallback_argument"))
         if isinstance(node, ast.Name) and node.id in ("getattr", "vars", "__getattribute__", "eval", "exec"):
             failures.add((node.lineno, "token_unproved_lookup"))
         if isinstance(node, ast.Return) and (
-            (structural and _scalar(node.value))
+            (structural and scalar(node.value))
             or (isinstance(node.value, ast.Name) and node.value.id in fallback_names)
         ):
             failures.add((node.lineno, "token_catchall"))
-        if isinstance(node, ast.Lambda) and _scalar(node.body):
+        if isinstance(node, ast.Lambda) and scalar(node.body):
             failures.add((node.lineno, "token_catchall"))
         if isinstance(node, ast.Subscript) and node not in span_slices and (
             isinstance(node.slice, ast.Slice) or (isinstance(node.value, ast.Name) and node.value.id in raw_names)
@@ -136,10 +149,10 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
                 isinstance(pattern, ast.MatchAs) and pattern.pattern is None for pattern in ast.walk(case.pattern)))
         if isinstance(node, (ast.If, ast.ExceptHandler, ast.Match)) and any(
             not _unknown_only(branch) and (not structural or any(
-                isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Return)) and _scalar(stmt.value) for stmt in branch
+                isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Return)) and scalar(stmt.value) for stmt in branch
             )) for branch in branches
         ):
             failures.add((node.lineno, "token_catchall"))
-        if isinstance(node, ast.IfExp) and not _unknown(node.orelse) and (not structural or _scalar(node.orelse)):
+        if isinstance(node, ast.IfExp) and not _unknown(node.orelse) and (not structural or scalar(node.orelse)):
             failures.add((node.lineno, "token_catchall"))
     return tuple(sorted(failures))
