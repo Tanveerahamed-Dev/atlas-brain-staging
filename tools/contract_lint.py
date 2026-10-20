@@ -7,12 +7,13 @@ DENIED = {"sum", "min", "max", "len", "abs", "round", "pow", "divmod",
           "math", "operator", "statistics", "functools", "Counter", "count",
           "eval", "exec", "__import__", "getattr"}
 # Discover the complete syntax operator class; only spelling differences are mapped.
-SPELLING = {"mult": "mul", "div": "truediv"}
+SPELLING = {"mult": "mul", "matmult": "matmul", "div": "truediv"}
 ARITHMETIC_METHODS = {f"__{prefix}{SPELLING.get(name, name)}__"
     for operation in ast.operator.__subclasses__()
     for name in (operation.__name__.lower().removeprefix("bit"),)
     for prefix in ("", "r", "i")}
-ARITHMETIC_METHODS.update(f"__{name}__" for name in ("neg", "pos", "invert", "abs", "round", "divmod"))
+ARITHMETIC_METHODS.update(f"__{name}__" for name in ("neg", "pos", "invert", "abs", "round"))
+ARITHMETIC_METHODS.update(f"__{prefix}divmod__" for prefix in ("", "r", "i"))
 DENIED.update(ARITHMETIC_METHODS)
 
 
