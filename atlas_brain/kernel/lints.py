@@ -4,8 +4,8 @@ Scan the product tree, including uncalled functions. This conservative AST gate
 complements strict typing and runtime admission; it is not a Python sandbox.
 """
 import ast
-from hashlib import sha256
 import re
+from hashlib import sha256
 
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
@@ -198,9 +198,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             flags = list(node.args[1:] if short == 'compile' else node.args[2:]) + [k.value for k in node.keywords if k.arg == 'flags']
             if not any(ascii_flag(f) for f in flags):
                 hit(12, node)
-            if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
-                if not (pk_compiler_source and called == 're.compile' and inside_pk_compiler(node)):
-                    hit(12, node)
+            nonliteral = not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str)
+            if nonliteral and not (pk_compiler_source and called == 're.compile' and inside_pk_compiler(node)):
+                hit(12, node)
             if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str) and nested_unbounded(node.args[0].value):
                 hit(12, node)
         if path != LOADER and called in ('importlib.import_module', '__import__', 'builtins.__import__'):
