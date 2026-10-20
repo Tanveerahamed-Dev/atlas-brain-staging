@@ -13,7 +13,7 @@ def ref(role=k.EvidenceRole.SUBJECT):
 
 
 def test_closed_fact_union_and_vocabularies():
-    assert {getattr(t, '__origin__', t) for t in get_args(k.Fact)} == {
+    assert {getattr(t, '__origin__', t) for t in get_args(k.Fact.__value__)} == {
         k.Known, k.Absent, k.Unknown, k.NotApplicable}
     assert len(k.UnknownReason) == 30
     assert len(k.Basis) == 7
