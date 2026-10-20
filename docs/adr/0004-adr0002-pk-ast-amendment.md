@@ -1,6 +1,6 @@
 # ADR-0004: ADR-0002 amendment for PK AST tooling
 
-Status: accepted
+Status: superseded
 
 Standing supervisor approval, 2026-10-20:
 https://github.com/Tanveerahamed-Dev/atlas-brain-staging/pull/67#issuecomment-6297326921
