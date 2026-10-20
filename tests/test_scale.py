@@ -19,7 +19,7 @@ class FrozenWorkloadTests(unittest.TestCase):
             "arp": 314000, "routes": 379000, "neighbors": 11100,
             "ospf_neighbors": 1400, "ospf_interfaces": 4000,
             "syslog": 1000000, "artifacts": 20000,
-            "bytes": 1127211350})
+            "bytes": 1127218550})
 
     def test_manifest_tamper_is_refused(self):
         with tempfile.TemporaryDirectory() as root:
@@ -47,6 +47,23 @@ class FrozenWorkloadTests(unittest.TestCase):
             capture.write_bytes(capture.read_bytes() + b"planted violation\n")
             with self.assertRaisesRegex(ValueError, "capture"):
                 workload.verify(estate)
+
+    def test_rehashed_wrong_row_count_is_refused(self):
+        with tempfile.TemporaryDirectory() as root:
+            estate = Path(root) / "input"
+            doc = workload.generate(estate, 100, False)
+            item = next(a for a in doc["artifacts"] if a["form"] == "mac")
+            capture = estate / item["path"]
+            raw = capture.read_bytes().replace(b"DYNAMIC", b"INVALID", 1)
+            capture.write_bytes(raw)
+            item["sha256"] = workload.digest(raw)
+            (estate / "ESTATE.json").write_bytes(workload.canonical(doc))
+            with self.assertRaisesRegex(ValueError, "capture_rows"):
+                workload.verify(estate)
+
+    def test_dense_exact_bytes_and_counts(self):
+        self.assertEqual(workload.expected(1000, True)["bytes"], 1686962550)
+        self.assertEqual(workload.expected(1000, True)["mac"], 1240000)
 
 
 class ParserTests(unittest.TestCase):

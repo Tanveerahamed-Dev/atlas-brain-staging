@@ -112,7 +112,7 @@ def render(form, profile, node, size, dense):
     elif form == "ospf_neighbors":
         lines = ["Neighbor ID Pri State Dead Time Address Interface\n"]
         for i in range(row["ospf_neighbors"]):
-            state = "EXSTART/DR" if i == 0 else "2WAY/DROTHER" if i == 1 else "FULL/DR"
+            state = "EXSTART/DR" if i == (1 if profile == "wan" else 0) else "2WAY/DROTHER" if i == 1 else "FULL/DR"
             lines.append(f"192.0.2.{i+1} 1 {state} 00:00:30 198.51.100.{i+1} {interface(i)}\n")
     elif form == "ospf_interfaces":
         for i in range(row["ospf_interfaces"]):
@@ -160,9 +160,9 @@ def generate(root, size, dense):
 
 def verify(root):
     spec = load_spec()
-    root = root.resolve()
     if root.is_symlink():
         raise ValueError("capture_symlink")
+    root = root.resolve()
     doc = strict_json((root / "ESTATE.json").read_bytes())
     size, dense = doc["size"], doc["dense"]
     if type(size) is not int or type(dense) is not bool or doc["schema"] != 1 or doc["workload"] != "WL-1":
@@ -186,6 +186,21 @@ def verify(root):
             raise ValueError("capture_identity")
         if len(body) != item["bytes"] or digest(body) != item["sha256"]:
             raise ValueError("capture_digest")
+        profile = spec["profiles"][mix[node]]
+        counters = {"interfaces": (b" is up, line protocol is ", profile["interfaces"]),
+                    "mac": (b" DYNAMIC ", profile["mac"]), "arp": (b"Internet ", profile["arp"]),
+                    "routes": (b"O 203.0.113.", profile["routes"]),
+                    "cdp": (b"Device ID: ", profile["neighbors"] // 2),
+                    "lldp": (b"Device ID: ", profile["neighbors"] // 2),
+                    "ospf_neighbors": (b" 1 ", profile["ospf_neighbors"]),
+                    "ospf_interfaces": (b" is up, line protocol is ", profile["ospf_interfaces"]),
+                    "logging": (b"%LINK-3-UPDOWN:", profile["syslog"])}
+        if item["form"] in counters:
+            token, required = counters[item["form"]]
+            if dense and item["form"] in ("mac", "arp", "logging"):
+                required *= 2
+            if body.count(token) != required:
+                raise ValueError("capture_rows")
         found.add(name)
         byte_count += len(body)
         per_node[node] += len(body)

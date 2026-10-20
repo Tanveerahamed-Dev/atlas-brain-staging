@@ -141,8 +141,8 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
                 current = []
             pid_rows = []
             for member in current:
-                known[(member.pid, member.create_time())] = member
                 try:
+                    known[(member.pid, member.create_time())] = member
                     memory = member.memory_full_info()
                     usage = member.cpu_times()
                     io = member.io_counters()

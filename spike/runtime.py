@@ -200,6 +200,10 @@ def execute(args, startup_modules):
                                "catalogue": catalogue, "imports": sorted(safety.IMPORTS), "creations": safety.CREATIONS,
                                "startup_baseline_enforced": False},
                    "workers": [{k: v for k, v in n.items() if k not in ("estate_rows", "route_summary")} for n in nodes]}
+        if sys.platform == "linux":
+            peak = Path("/sys/fs/cgroup/memory.peak")
+            if peak.exists():
+                receipt["cgroup_peak_before_receipt"] = int(peak.read_text(encoding="ascii"))
         args.receipt.write_bytes(canonical(receipt))
     finally:
         if pending.exists():
