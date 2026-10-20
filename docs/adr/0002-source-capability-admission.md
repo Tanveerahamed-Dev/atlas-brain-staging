@@ -1,6 +1,6 @@
 # ADR-0002: Default-closed source capability admission
 
-Status: accepted
+Status: superseded
 
 Approved by the supervisor under owner delegation on 2026-10-20:
 https://github.com/Tanveerahamed-Dev/atlas-brain-staging/pull/59#issuecomment-6294921926
