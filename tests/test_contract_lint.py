@@ -86,6 +86,17 @@ def test_workflow_concurrency_separates_main_pr_and_merge_group_heads():
     'import json\njson.dumps = callback\nresult = json.dumps(value)',
     'from hashlib import sha256 as safe\nfrom atlas_brain.kernel.states import callback as safe\nresult = safe(left, right)',
     'from json import *\nresult = dumps(value)',
+    'from atlas_brain.kernel.states import Known\nclass Row(Known):\n    pass',
+    'class Row(metaclass=external):\n    pass',
+    'from atlas_brain.kernel.states import callback\n@callback\nclass Row:\n    pass',
+    'from hashlib import sha256 as safe\ntry:\n    pass\nexcept Exception as safe:\n    pass',
+    'from hashlib import sha256 as safe\ndef safe():\n    pass',
+    'from atlas_brain.kernel.states import callback\nresult = list(map(callback, values))',
+    'from atlas_brain.kernel.states import callback\nresult = sorted(values, key=callback)',
+    'result = sorted(values, **options)',
+    'result = map(*options)',
+    'result = list(map(map, operations, values))',
+    'result = list(map(range, values))',
 ])
 def test_reflected_arithmetic_fails_real_lint_entrypoint(tmp_path, plant):
     import subprocess
@@ -119,11 +130,13 @@ def test_missing_contract_tree_fails_closed(tmp_path):
 
 
 @pytest.mark.parametrize("source", [
+    'result = sorted(values, key=lambda item: item.encode("utf-16be"))',
+    'result = sorted(values, key=None)',
     'import json as encoder\nresult = encoder.dumps(value)',
     'from hashlib import sha256 as digest\nresult = digest(value).hexdigest()',
     'import re\nNAME = re.compile("name")\nresult = NAME.fullmatch(value)',
     'from typing import cast\nresult = cast("str", value).encode("utf-8")',
-    'from atlas_brain.contract.canonical import canonical as encode\nresult = encode(value)',
+    'def encode(value):\n    return str(value)\nresult = list(map(encode, values))',
     'from dataclasses import asdict, dataclass\n@dataclass(frozen=True, slots=True)\nclass Row:\n    value: str\nresult = asdict(Row("evidence"))',
 ])
 def test_structural_capabilities_pass_real_lint_entrypoint(tmp_path, source):
@@ -133,3 +146,27 @@ def test_structural_capabilities_pass_real_lint_entrypoint(tmp_path, source):
     path.write_text(source, encoding="utf-8")
     assert subprocess.run([sys.executable, "tools/contract_lint.py", str(path)],
         capture_output=True, check=False).returncode == 0
+
+
+def test_only_declared_contract_exports_are_callable(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+    script = Path("tools/contract_lint.py").resolve()
+    helper = tmp_path / "atlas_brain/contract/helpers.py"
+    helper.parent.mkdir(parents=True)
+    caller = tmp_path / "projection.py"
+    callers = [
+        "from atlas_brain.contract.helpers import apply\nresult = list(apply(callback, values))",
+        "import atlas_brain.contract.helpers as operations\nresult = list(operations.apply(callback, values))",
+    ]
+    for body, expected in [
+        ("apply = map\n", 1),
+        ("def apply(callback, values):\n    return map(str, values)\n", 0),
+    ]:
+        helper.write_text(body, encoding="utf-8")
+        for source in callers:
+            caller.write_text(source, encoding="utf-8")
+            result = subprocess.run([sys.executable, str(script), str(caller)],
+                cwd=tmp_path, capture_output=True, text=True, check=False)
+            assert result.returncode == expected
