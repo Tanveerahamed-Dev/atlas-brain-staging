@@ -1,0 +1,1 @@
+{"uv.lock": {"command": "uv lock", "tool": "uv==0.13.1", "inputs": ["pyproject.toml", ".python-version"]}}
