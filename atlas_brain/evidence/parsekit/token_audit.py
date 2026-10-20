@@ -24,8 +24,10 @@ class SourceVisitor(ast.NodeVisitor):
         if text is None:
             raise ValueError("unscanned source unit")
         self.audited.append(f"{self.path}:{line}:{name}")
-        self.findings.update((self.path, line + row - 1, code)
-                             for row, code in lint_token_handler(text, structural=not self.strict))
+        context = text if self.strict else self.source
+        offset = line - 1 if self.strict else 0
+        self.findings.update((self.path, offset + row, code)
+                             for row, code in lint_token_handler(context, structural=not self.strict))
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.audit(node, node.lineno, node.name)
