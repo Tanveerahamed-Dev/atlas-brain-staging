@@ -59,6 +59,12 @@ def test_only_not_collected_can_never_be_ok():
     assert run(missing).state is CheckState.UNKNOWN
 
 
+@pytest.mark.parametrize('reason', tuple(UnknownReason))
+def test_every_unknown_reason_blocks_ok(reason):
+    missing = Unknown(reason=reason, detail=None, evidence=(evidence(),), candidates=(), next_evidence=())
+    assert run(missing).state is CheckState.UNKNOWN
+
+
 def test_positive_observation_can_be_ok_and_wrong_reason_state_is_refused():
     fact = Known(value=1, basis=Basis.OBSERVED, evidence=(evidence(),), raw=None)
     assert run(fact).state is CheckState.OK
