@@ -41,6 +41,10 @@ def test_closed_fact_union_and_vocabularies():
     lambda: k.ByteSpan(start=True, end=1),
     lambda: k.FieldPointer(pointer='bad'),
     lambda: k.FieldPointer(pointer='/bad~2escape'),
+    lambda: k.FactRef(fact=1, subject=2),
+    lambda: k.RegistryRef(table=1, row_id='r', table_digest='a' * 64, citation='source'),
+    lambda: k.EvidenceNeed(node='node:a', operation='example.read', params=(), resolves=['fact'], reruns=(), after_s=None, unprintable=()),
+    lambda: k.Known(value=[], basis=k.Basis.OBSERVED, evidence=(ref(),), raw=None),
     lambda: k.EvidenceRef(capture=k.CaptureId(''), locator=k.WholeCapture(),
                           role=k.EvidenceRole.SUBJECT, excerpt_sha256='bad'),
 ])
@@ -68,3 +72,5 @@ def test_positive_state_and_absence_witness_controls():
     assert k.Unknown(reason=k.UnknownReason.NOT_COLLECTED, detail='never_attempted',
                      evidence=(), candidates=(), next_evidence=()).reason == k.UnknownReason.NOT_COLLECTED
     assert k.FieldPointer(pointer='/a~1b/~0').pointer
+    assert k.RegistryRef(table='example', row_id='one', table_digest='a' * 64, citation='synthetic').row_id == 'one'
+    assert k.FactRef(fact=k.FactId('example.fact'), subject=k.EntityKey('node:a')).fact

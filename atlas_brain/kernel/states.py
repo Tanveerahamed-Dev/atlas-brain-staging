@@ -19,6 +19,10 @@ def require(condition: bool, code: str) -> None:
         raise ValueError(code)
 
 
+def text_fields(*values: str) -> None:
+    require(all(type(v) is str and bool(v) for v in values), 'invalid_text_fields')
+
+
 def digest(value: str) -> None:
     require(type(value) is str and re.fullmatch('[0-9a-f]{64}', value, re.ASCII) is not None, 'invalid_digest')
 
@@ -82,7 +86,7 @@ class FactRef:
     subject: EntityKey
 
     def __post_init__(self) -> None:
-        require(bool(self.fact) and bool(self.subject), 'missing_fact_provenance')
+        text_fields(self.fact, self.subject)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -93,7 +97,7 @@ class RegistryRef:
     citation: str
 
     def __post_init__(self) -> None:
-        require(bool(self.table) and bool(self.row_id) and bool(self.citation), 'missing_registry_provenance')
+        text_fields(self.table, self.row_id, self.citation)
         digest(self.table_digest)
 
 
@@ -172,8 +176,12 @@ class EvidenceNeed:
     unprintable: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        require(bool(self.node) and bool(self.operation), 'missing_operation')
+        text_fields(self.node, self.operation)
+        require(type(self.params) is tuple and all(type(p) is tuple and len(p) == 2 and all(type(v) is str for v in p) for p in self.params), 'invalid_param_types')
         require(self.params == tuple(sorted(self.params)) and len(dict(self.params)) == len(self.params), 'invalid_params')
+        for values in (self.resolves, self.reruns, self.unprintable):
+            require(type(values) is tuple and values == tuple(sorted(set(values))), 'invalid_operation_refs')
+            text_fields(*values)
         require(self.after_s is None or (type(self.after_s) is int and self.after_s >= 0), 'invalid_delay')
 
 
