@@ -4,35 +4,8 @@ Registration flags are outputs of a validated operation registry, never inferred
 from an empty payload. Printed partial records require their own complete spans.
 """
 from dataclasses import dataclass
-from enum import StrEnum
 
-from .states import UnknownReason, require
-
-
-class IntegrityState(StrEnum):
-    COMPLETE = 'complete'
-    EMPTY = 'empty'
-    ABSENCE_BANNER = 'absence_banner'
-    ERROR = 'error'
-    TRUNCATED = 'truncated'
-    PAGING_ARTIFACTS = 'paging_artifacts'
-    UNVERIFIED_PROMPT = 'unverified_prompt'
-    UNKNOWN_FORMAT = 'unknown_format'
-
-
-class ReadScope(StrEnum):
-    FULL_EVIDENCED = 'full_evidenced'
-    NOT_SCOPE_SENSITIVE = 'not_scope_sensitive'
-    LIMITED = 'limited'
-    UNKNOWN = 'unknown'
-
-
-class ViewConsistency(StrEnum):
-    ATOMIC = 'atomic'
-    SINGLE_RESPONSE = 'single_response'
-    NON_ATOMIC = 'non_atomic'
-    CACHED = 'cached'
-    UNKNOWN = 'unknown'
+from .states import IntegrityState, ReadScope, UnknownReason, ViewConsistency, require
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

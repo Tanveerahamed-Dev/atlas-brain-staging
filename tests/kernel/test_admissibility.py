@@ -2,10 +2,8 @@ from itertools import product
 
 import pytest
 
-from atlas_brain.kernel.admissibility import (
-    IntegrityState, ReadScope, ViewConsistency, admissibility,
-)
-from atlas_brain.kernel.states import UnknownReason
+from atlas_brain.kernel.admissibility import admissibility
+from atlas_brain.kernel.states import IntegrityState, ReadScope, UnknownReason, ViewConsistency
 
 
 def decide(integrity, scope, view, registered=True):
