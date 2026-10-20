@@ -18,7 +18,7 @@ def _encode(value: object) -> str:
                 raise ValueError("integer_out_of_range")
             return str(value)
         case list() | tuple():
-            items = cast(list[object] | tuple[object, ...], value)
+            items = cast("list[object] | tuple[object, ...]", value)
             return f"[{','.join(map(_encode, items))}]"
         case dict():
             entries = cast(dict[object, object], value)

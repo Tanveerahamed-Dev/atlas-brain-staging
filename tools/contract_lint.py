@@ -36,5 +36,8 @@ def violations(source: str) -> list[int]:
 
 
 if __name__ == "__main__":
-    raise SystemExit(int(any(violations(p.read_text(encoding="utf-8"))
-        for p in Path("atlas_brain/contract").rglob("*.py"))))
+    failures = [(p, line) for p in Path("atlas_brain/contract").rglob("*.py")
+        for line in violations(p.read_text(encoding="utf-8"))]
+    for path, line in failures:
+        print(f"{path.as_posix()}:{line}: contract computation refused")
+    raise SystemExit(int(bool(failures)))
