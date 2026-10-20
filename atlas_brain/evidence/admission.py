@@ -32,6 +32,8 @@ class Budgets:
     bundle_bytes: int
     artifact_bytes: int
     artifacts: int
+    nesting_depth: int = 64
+    numeric_digits: int = 40
 
     def __post_init__(self) -> None:
         if any(type(n) is not int or n <= 0 for n in asdict(self).values()):
@@ -60,7 +62,45 @@ def member_names(names: list[str]) -> None:
         raise AdmissionRefused("duplicate_member")
 
 
-def strict_json(raw: bytes) -> object:
+def json_limits(text: str, nesting_depth: int, numeric_digits: int, member: str) -> None:
+    """Bound structure and numeric tokens before the decoder allocates objects."""
+    depth = digits = 0
+    quoted = escaped = False
+    for char in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+            digits = 0
+        elif char in "[{":
+            depth += 1
+            digits = 0
+            if depth > nesting_depth:
+                raise BudgetExceeded(member)
+        elif char in "]}":
+            depth -= 1
+            digits = 0
+        elif "0" <= char <= "9":
+            digits += 1
+            if digits > numeric_digits:
+                raise AdmissionRefused("numeric_literal_too_long")
+        elif char not in "-.eE+":
+            digits = 0
+
+
+def strict_json(raw: bytes, nesting_depth: int = 64, numeric_digits: int = 40,
+                member: str = "json") -> object:
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError as error:
+        raise AdmissionRefused("invalid_json") from error
+    json_limits(text, nesting_depth, numeric_digits, member)
+
     def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
         result: dict[str, object] = {}
         for key, value in items:
@@ -79,7 +119,7 @@ def strict_json(raw: bytes) -> object:
         return value
 
     try:
-        return cast(object, json.loads(raw.decode("utf-8"), object_pairs_hook=pairs,
+        return cast(object, json.loads(text, object_pairs_hook=pairs,
                                        parse_constant=constant, parse_float=number))
     except (ValueError, UnicodeError, RecursionError) as error:
         raise AdmissionRefused("invalid_json") from error
@@ -135,6 +175,8 @@ def folder_members(root: Path, budgets: Budgets) -> dict[str, bytes]:
         for child in sorted(directory.iterdir()):
             info = child.lstat()
             name = child.relative_to(root).as_posix()
+            if len(child.relative_to(root).parts) > budgets.nesting_depth:
+                raise BudgetExceeded(name)
             names.append(name)
             if child.is_symlink() or child.is_junction() or info.st_nlink > 1 and not stat.S_ISDIR(info.st_mode):
                 raise AdmissionRefused("linked_member")
@@ -157,7 +199,7 @@ def folder_members(root: Path, budgets: Budgets) -> dict[str, bytes]:
         if len(raw) > budgets.artifact_bytes:
             raise BudgetExceeded(name)
         if name.casefold().endswith(".json"):
-            strict_json(raw)
+            strict_json(raw, budgets.nesting_depth, budgets.numeric_digits, name)
         result[name] = raw
     return result
 
@@ -176,7 +218,8 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
     members = folder_members(root, budgets)
     if "manifest.json" not in members:
         raise AdmissionRefused("missing_manifest")
-    manifest = record(strict_json(members["manifest.json"]), ("version", "bundle_id", "importer", "attempts", "captures"))
+    manifest = record(strict_json(members["manifest.json"], budgets.nesting_depth, budgets.numeric_digits, "manifest.json"),
+                      ("version", "bundle_id", "importer", "attempts", "captures"))
     if type(manifest["version"]) is not int or manifest["version"] not in (1, 2):
         raise AdmissionRefused("unsupported_manifest_version")
     attempts: list[Attempt] = []

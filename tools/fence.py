@@ -43,6 +43,17 @@ SCOPED_API = {
         "ast.ImportFrom", "ast.iter_child_nodes", "ast.Lambda", "ast.Load", "ast.Module", "ast.Name",
         "ast.NamedExpr", "ast.parse", "ast.Set", "ast.SetComp", "ast.stmt", "ast.Store", "ast.Subscript", "ast.walk",
     },
+    "atlas_brain/evidence/parsekit/token_lint.py": {
+        "ast.AnnAssign", "ast.arg", "ast.Assign", "ast.AST", "ast.AsyncFunctionDef", "ast.Attribute",
+        "ast.Call", "ast.Compare", "ast.Constant", "ast.Dict", "ast.dump", "ast.ExceptHandler", "ast.expr",
+        "ast.FunctionDef", "ast.If", "ast.IfExp", "ast.In", "ast.iter_child_nodes", "ast.Lambda", "ast.List",
+        "ast.Match", "ast.MatchAs", "ast.Name", "ast.NotIn", "ast.parse", "ast.Raise", "ast.Return",
+        "ast.Slice", "ast.Starred", "ast.stmt", "ast.Subscript", "ast.Tuple", "ast.walk",
+    },
+    "atlas_brain/evidence/parsekit/token_audit.py": {
+        "ast.AST", "ast.AsyncFunctionDef", "ast.ClassDef", "ast.FunctionDef", "ast.get_source_segment",
+        "ast.Lambda", "ast.Module", "ast.NodeVisitor", "ast.parse", "ast.walk",
+    },
 }
 
 
