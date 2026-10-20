@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.fence import allowed, dependencies_allowed, source_allowed
+from tools.fence import STDLIB_API, allowed, dependencies_allowed, source_allowed
 
 
 @pytest.mark.parametrize("path", [
@@ -68,6 +68,13 @@ def test_current_tree_passes():
     "setattr(object(), 'synthetic', 1)", "delattr(object(), 'synthetic')",
     "hasattr(object(), 'synthetic')", "dir(object())",
     "def frame(): yield\nframe().gi_frame.f_builtins['__import__']('webbrowser')",
+    "import pkgutil; pkgutil.resolve_name('webbrowser')",
+    "from pkgutil import resolve_name as load; load('webbrowser')",
+    "import unittest.mock; unittest.mock.patch('webbrowser.open')",
+    "import json; json.codecs.lookup('synthetic')",
+    "import re; re.sys.modules['builtins']",
+    "from json import codecs", "from json import *",
+    "from .capture import *", "object().__getattribute__('synthetic')",
 ])
 def test_denied_engine_imports(source):
     assert not source_allowed(source)
@@ -76,6 +83,17 @@ def test_denied_engine_imports(source):
 @pytest.mark.parametrize("source", ["import json; json.dumps({})", "from json import dumps; dumps({})", "from typing import Literal", "from atlas_brain.kernel import states", "import re; re.compile('x')"])
 def test_allowed_engine_imports(source):
     assert source_allowed(source)
+
+
+@pytest.mark.parametrize("endpoint", sorted(STDLIB_API))
+def test_admitted_stdlib_api(endpoint):
+    module, name = endpoint.rsplit(".", 1)
+    assert source_allowed(f"from {module} import {name} as admitted; admitted")
+
+
+@pytest.mark.parametrize("module", sorted(sys.stdlib_module_names - {name.split('.')[0] for name in STDLIB_API}))
+def test_unadmitted_stdlib_modules_are_closed(module):
+    assert not source_allowed(f"import {module}")
 
 
 @pytest.mark.parametrize("config", [
@@ -90,7 +108,7 @@ def test_empty_runtime_dependencies_pass():
     assert dependencies_allowed({"project": {"dependencies": []}})
 
 
-@pytest.mark.parametrize("plant", ["none", "import", "exec", "nested_builtin", "frame_reflection", "dependency", "prose", "status_json", "invalid_json", "scalar_json", "wrong_gate_shape"])
+@pytest.mark.parametrize("plant", ["none", "import", "exec", "nested_builtin", "frame_reflection", "stdlib_loader", "dependency", "prose", "status_json", "invalid_json", "scalar_json", "wrong_gate_shape"])
 def test_required_fence_command_refuses_real_tracked_plants(tmp_path, plant):
     source = "import webbrowser" if plant == "import" else "import json"
     if plant == "exec":
@@ -99,6 +117,8 @@ def test_required_fence_command_refuses_real_tracked_plants(tmp_path, plant):
         source = "getattr(__import__('builtins'), 'exec')('import webbrowser')"
     if plant == "frame_reflection":
         source = "from inspect import currentframe; getattr(currentframe(), 'f_builtins')['__import__']('webbrowser')"
+    if plant == "stdlib_loader":
+        source = "import pkgutil; pkgutil.resolve_name('webbrowser')"
     deps = '["unapproved==1.0"]' if plant == "dependency" else "[]"
     files = {"pyproject.toml": f"[project]\ndependencies = {deps}\n",
              "atlas_brain/probe.py": source, "governance/generators.json": json.dumps({

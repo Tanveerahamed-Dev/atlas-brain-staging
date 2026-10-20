@@ -22,6 +22,13 @@ DYNAMIC = {"exec", "eval", "compile", "__import__", "__builtins__", "globals", "
            "builtins.exec", "builtins.eval", "builtins.compile", "builtins.__import__", "sys.modules", "sys._getframe"}
 CODE_ATTRIBUTES = {"__globals__", "__builtins__", "__code__", "__closure__", "__dict__", "__subclasses__",
                    "f_builtins", "f_globals", "f_locals", "gi_frame", "cr_frame", "ag_frame", "tb_frame"}
+# Proposed default-closed admission; publication requires the owner's fence decision.
+STDLIB_API = {
+    "collections.abc.Mapping", "dataclasses.asdict", "dataclasses.dataclass", "enum.StrEnum",
+    "hashlib.sha256", "json.dumps", "json.loads", "math.isfinite", "stat.S_ISDIR", "stat.S_ISREG",
+    "pathlib.Path", "pathlib.PurePosixPath", "re.ASCII", "re.Pattern", "re.compile", "re.error",
+    "re.fullmatch", "re.search", "typing.Literal", "typing.NewType", "typing.final", "typing.cast",
+}
 
 
 def allowed(path: str) -> bool:
@@ -65,6 +72,7 @@ def gate_data_allowed(path: str, data) -> bool:
 
 def source_allowed(source: str) -> bool:
     tree, aliases, modules, module_aliases = ast.parse(source), {}, [], set()
+    external_aliases = set()
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -72,12 +80,23 @@ def source_allowed(source: str) -> bool:
                 modules.append(item.name)
                 aliases[item.asname or item.name.split(".")[0]] = item.name if item.asname else item.name.split(".")[0]
                 module_aliases.add(item.asname or item.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom) and not node.level:
-            modules.append(node.module or "")
+                if item.name.split(".")[0] != "atlas_brain":
+                    if not any(api.startswith(item.name + ".") for api in STDLIB_API):
+                        return False
+                    external_aliases.add(item.asname or item.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if any(item.name == "*" for item in node.names):
+                return False
+            if node.level:
+                continue
             for item in node.names:
                 qualified = f"{node.module}.{item.name}"
                 modules.append(qualified)
                 aliases[item.asname or item.name] = qualified
+                if (node.module or "").split(".")[0] != "atlas_brain":
+                    if qualified not in STDLIB_API:
+                        return False
+                    external_aliases.add(item.asname or item.name)
     def qualified(node):
         if isinstance(node, ast.Name):
             return aliases.get(node.id, node.id)
@@ -87,10 +106,22 @@ def source_allowed(source: str) -> bool:
             parent = parents.get(node)
             if not isinstance(parent, ast.Attribute) or parent.value is not node:
                 return False
-        if isinstance(node, ast.Attribute) and node.attr in CODE_ATTRIBUTES:
+        if isinstance(node, ast.Attribute) and (node.attr in CODE_ATTRIBUTES
+                or node.attr.startswith("_") and node.attr not in {"__init__", "__init_subclass__"}):
             return False
         if isinstance(node, (ast.Name, ast.Attribute)) and qualified(node) in DYNAMIC:
             return False
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            base = node
+            while isinstance(base, ast.Attribute):
+                base = base.value
+            if isinstance(base, ast.Name) and base.id in external_aliases:
+                name = qualified(node)
+                if name not in STDLIB_API:
+                    parent = parents.get(node)
+                    if not (isinstance(parent, ast.Attribute) and parent.value is node
+                            and any(api.startswith(name + ".") for api in STDLIB_API)):
+                        return False
     return all(
         name not in DYNAMIC and name.split(".")[0] in sys.stdlib_module_names | {"atlas_brain"}
         and not any(name == banned or name.startswith(banned + ".") for banned in BANNED)
