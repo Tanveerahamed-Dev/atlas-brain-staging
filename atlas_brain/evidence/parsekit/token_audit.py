@@ -61,7 +61,7 @@ def audit_tree(root: Path) -> SourceAudit:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
         scope: ast.AST = tree
-        line, label = 1, "module"
+        line, label = 1, "@module"
         if path == core:
             owners = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "TokenMap"]
             if len(owners) != 1:
