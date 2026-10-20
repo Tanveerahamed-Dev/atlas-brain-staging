@@ -32,6 +32,8 @@ def test_every_lint_fires_on_its_plant(rule, source):
     ('def map_token(token):\n if token == "up":\n  return 1\n else:\n  return 2', 3),
     ('value = tokens.setdefault(token, "up")', 3),
     ('value = tokens.pop(token, "up")', 3),
+    ('value = states[raw] if raw in states else "up"', 3),
+    ('match raw:\n case _: value = "up"', 3),
     ('from collections import defaultdict as DD\nvalues = DD(lambda: "up")', 3),
     ('value = tokens.get(token) or "up"', 3),
     ('def map_token(token):\n match token:\n  case object(): return "up"', 3),
@@ -109,14 +111,6 @@ def test_all_runner_broad_handlers_are_refused_without_ct_extension(path, source
 
 
 @pytest.mark.parametrize('source', [
-    'import os\nx = os.environ["X"]',
-    'from os import environ as env\nx = env["X"]',
-])
-def test_environment_reads_are_refused_in_evidence_layer(source):
-    assert 9 in {r for r, _ in lint(source, 'atlas_brain/evidence/intake.py')}
-
-
-@pytest.mark.parametrize('source', [
     'import re\nASCII = 0\nx = re.compile("abc", ASCII)',
     'import re\nPATTERN = "(a+)+"\nx = re.compile(PATTERN, re.ASCII)',
     'from re import ASCII\nimport re\nASCII = 0\nx = re.compile("abc", ASCII)',
@@ -169,12 +163,16 @@ def test_bound_and_unbound_binary_open_controls(source):
     assert not lint(source, 'atlas_brain/evidence/admission.py')
 
 
-@pytest.mark.parametrize('source', [
+@pytest.mark.parametrize('path,rule,source', [
+    ('atlas_brain/evidence/intake.py', 9, source) for source in [
+        'import os\nx = os.environ["X"]', 'from os import environ as env\nx = env["X"]',
+    ]
+] + [('atlas_brain/evidence/admission.py', 10, source) for source in [
     'with path.open("r") as f:\n text = f.read()',
     'import io\nwith io.open("rb", "r") as f:\n text = f.read()',
     'import builtins\nwith builtins.open("rb") as f:\n text = f.read()',
     'from pathlib import Path\nwith Path.open(path, "r") as f:\n text = f.read()',
     'text = path.read_text(None, "b")',
-])
-def test_text_open_still_requires_encoding(source):
-    assert 10 in {r for r, _ in lint(source, 'atlas_brain/evidence/admission.py')}
+]])
+def test_environment_and_text_read_refusals(path, rule, source):
+    assert rule in {r for r, _ in lint(source, path)}
