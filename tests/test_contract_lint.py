@@ -98,6 +98,16 @@ def test_workflow_concurrency_separates_main_pr_and_merge_group_heads():
     'result = map(*options)',
     'result = list(map(map, operations, values))',
     'result = list(map(range, values))',
+    'import json\nfrom atlas_brain.kernel.states import compute\nresult = json.dumps(value, default=compute)',
+    'from json import dumps as write\nfrom atlas_brain.kernel.states import compute\nresult = write(value, default=compute)',
+    'import dataclasses\nfrom atlas_brain.kernel.states import compute\nresult = dataclasses.asdict(value, dict_factory=compute)',
+    'from dataclasses import asdict as project\nfrom atlas_brain.kernel.states import compute\nresult = project(value, dict_factory=compute)',
+    'import json\nresult = json.dumps(value, **options)',
+    'from dataclasses import asdict\nresult = asdict(value, **options)',
+    'import json\nresult = json.dumps(value, cls=Encoder)',
+    'from atlas_brain.kernel.states import compute\nresult = type("Carrier", (), {"encode": compute}).encode(value)',
+    'from typing import Callable\nfrom dataclasses import dataclass\n@dataclass\nclass Carrier:\n    encode: Callable[[object], str]\ndef project(compute: Callable[[object], str], value: object) -> str:\n    return Carrier(compute).encode(value)',
+    'from atlas_brain.kernel.states import compute\nclass Carrier:\n    __iter__ = compute\nresult = list(Carrier())',
 ])
 def test_reflected_arithmetic_fails_real_lint_entrypoint(tmp_path, plant):
     import subprocess
@@ -131,6 +141,8 @@ def test_missing_contract_tree_fails_closed(tmp_path):
 
 
 @pytest.mark.parametrize("source", [
+    'import json\nresult = json.dumps(value, ensure_ascii=False, separators=(",", ":"))',
+    'from dataclasses import dataclass\n@dataclass(frozen=True, slots=True, kw_only=True)\nclass Row:\n    value: str',
     'result = sorted(values, key=lambda item: item.encode("utf-16be"))',
     'result = sorted(values, key=None)',
     'import json as encoder\nresult = encoder.dumps(value)',

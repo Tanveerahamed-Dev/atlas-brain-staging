@@ -18,6 +18,9 @@ DENIED.update(ARITHMETIC_METHODS)
 # A closed structural capability policy, rather than an incomplete list of numeric helpers.
 MODULE_CALLS = {"json": {"dumps"}, "re": {"compile"}, "hashlib": {"sha256"},
                 "typing": {"cast", "final"}, "dataclasses": {"dataclass", "asdict"}}
+OPTIONS = {"json.dumps": {"ensure_ascii", "separators"}, "dataclasses.dataclass": {"frozen", "slots", "kw_only"},
+           "builtins.sorted": {"key", "reverse"}, "builtins.str": {"encoding", "errors"},
+           "method.encode": {"encoding", "errors"}, "method.fullmatch": {"pos", "endpos"}}
 DECLARATIVE = {"collections.abc", "__future__"}
 BUILTIN_CALLS = {"type", "isinstance", "str", "range", "map", "sorted", "all", "tuple", "list", "dict"}
 METHOD_CALLS = {"encode", "join", "fullmatch", "hexdigest", "items", "keys", "values"}
@@ -68,6 +71,13 @@ def violations(source: str) -> list[int]:
                 aliases[alias] = f"{module}.{entry.name}" if module else entry.name if entry.asname else alias
                 if module and entry.name in (own_exports(module) if own_module(module) else MODULE_CALLS.get(module, set())):
                     trusted.add(alias)
+    members = {}
+    for record in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
+        for member in record.body:
+            if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                members[member] = member.name
+            for target in ([member.target] if isinstance(member, ast.AnnAssign) else member.targets if isinstance(member, ast.Assign) else []):
+                members.update((n, n.id) for n in ast.walk(target) if isinstance(n, ast.Name))
     safe_names = BUILTIN_CALLS | trusted | local
     protected = safe_names | set(aliases)
 
@@ -87,6 +97,17 @@ def violations(source: str) -> list[int]:
             return target.attr in (own_exports(module) if own_module(module) else MODULE_CALLS.get(module, set())) if module else target.attr in METHOD_CALLS
         return False
 
+    def admitted_options(call):
+        target = call.func  # This runs only after callee admission.
+        if isinstance(target, ast.Name):
+            identity = aliases.get(target.id, f"builtins.{target.id}" if target.id in BUILTIN_CALLS else "local")
+        else:
+            owner = qualified(target.value)
+            identity = f"{owner}.{target.attr}" if owner else f"method.{target.attr}"
+        if identity in {"local", "builtins.dict"} or own_module(identity):
+            return True
+        return all(k.arg in OPTIONS.get(identity, set()) for k in call.keywords)
+
     def admitted_callback(callback):
         if isinstance(callback, ast.Lambda):
             return True  # Its body and bindings are inspected by the same walk.
@@ -104,8 +125,10 @@ def violations(source: str) -> list[int]:
         imported = isinstance(node, ast.Import) and any(not admitted_module(a.name) for a in node.names)
         imported_from = isinstance(node, ast.ImportFrom) and (node.level or not admitted_module(node.module or "") or any(a.name == "*" for a in node.names))
         private_or_write = isinstance(node, ast.Attribute) and (node.attr.startswith("_") or isinstance(node.ctx, (ast.Store, ast.Del)))
-        call = isinstance(node, ast.Call) and (not admitted_call(node.func) or (isinstance(node.func, ast.Name) and node.func.id in VALIDATORS and ast.dump(node) != VALIDATORS[node.func.id]))
+        call = isinstance(node, ast.Call) and (not admitted_call(node.func) or not admitted_options(node) or (isinstance(node.func, ast.Name) and node.func.id in VALIDATORS and ast.dump(node) != VALIDATORS[node.func.id]))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "type":
+                call = call or len(node.args) != 1 or bool(node.keywords)
             if node.func.id == "map":
                 call = call or not node.args or not admitted_callback(node.args[0])
             if node.func.id == "sorted":
@@ -119,8 +142,9 @@ def violations(source: str) -> list[int]:
             call = any(not admitted_call(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list)
         if isinstance(node, ast.ExceptHandler):
             shadow = node.name in protected
+        protocol_binding = node in members and (members[node].startswith("__") or members[node] in METHOD_CALLS)
         class_hook = isinstance(node, ast.ClassDef) and (bool(node.keywords) or any(not isinstance(base, ast.Name) or base.id != "object" for base in node.bases))
-        if arithmetic or (unary and not literal) or compare or name in DENIED or imported or imported_from or private_or_write or call or shadow or class_hook:
+        if arithmetic or (unary and not literal) or compare or name in DENIED or imported or imported_from or private_or_write or call or shadow or class_hook or protocol_binding:
             bad.append(node.lineno)
     return sorted(set(bad))
 
