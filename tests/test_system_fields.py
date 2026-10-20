@@ -2,6 +2,7 @@
 from hashlib import sha256
 
 from atlas_brain.kernel.states import (
+    ByteSpan,
     CaptureId,
     EvidenceRef,
     Known,
@@ -20,9 +21,10 @@ def test_missing_fields_and_boot_epoch_never_become_defaults():
     result = extract_fields(b"", CAPTURE)
     for fact in (result.uptime, result.image, result.reload_reason):
         assert isinstance(fact, Unknown)
-        assert fact.reason is UnknownReason.FIELD_NOT_PRINTED
+        assert fact.reason is UnknownReason.EMPTY_UNREGISTERED
     assert isinstance(result.boot_epoch, Unknown)
-    assert result.boot_epoch.reason is UnknownReason.NOT_COLLECTED
+    assert result.boot_epoch.reason is UnknownReason.EMPTY_UNREGISTERED
+    assert result.parse.quality == "partial"
 
 
 def test_positive_observed_fields_round_trip_to_original_bytes():
@@ -82,3 +84,39 @@ def test_invalid_text_is_not_promoted_to_a_known_image():
     result = extract_fields(b'System image file is "\xff"\n', CAPTURE)
     assert isinstance(result.image, Unknown)
     assert result.image.reason is UnknownReason.PARSE_PARTIAL
+
+
+def test_wholly_unrecognised_response_is_not_a_recognised_record():
+    result = extract_fields(b"unrecognised firmware response\n", CAPTURE)
+    assert result.parse.quality == "partial"
+    for fact in (result.uptime, result.image, result.reload_reason):
+        assert isinstance(fact, Unknown)
+        assert fact.reason is UnknownReason.PARSE_UNSUPPORTED_VARIANT
+
+
+def test_failed_capture_cannot_promote_even_matching_fields():
+    for raw in (b"", b"% Invalid input\n", RAW):
+        result = extract_fields(raw, CAPTURE, succeeded=False)
+        assert result.parse.quality == "partial"
+        for fact in (result.uptime, result.image, result.reload_reason, result.boot_epoch):
+            assert isinstance(fact, Unknown)
+            assert fact.reason is UnknownReason.CAPTURE_ERROR
+
+
+def test_missing_field_is_bound_to_positive_record_bytes():
+    raw = b'System image file is "bootflash:packages.conf"\n'
+    result = extract_fields(raw, CAPTURE)
+    assert isinstance(result.image, Known)
+    for fact in (result.uptime, result.reload_reason):
+        assert isinstance(fact, Unknown)
+        assert fact.reason is UnknownReason.FIELD_NOT_PRINTED
+        assert fact.evidence == result.image.evidence
+        assert isinstance(fact.evidence[0].locator, ByteSpan)
+
+
+def test_malformed_only_record_cannot_witness_an_omitted_field():
+    result = extract_fields(b"sw-a uptime is not a duration\n", CAPTURE)
+    assert result.parse.quality == "partial"
+    for fact in (result.image, result.reload_reason):
+        assert isinstance(fact, Unknown)
+        assert fact.reason is UnknownReason.PARSE_UNSUPPORTED_VARIANT
