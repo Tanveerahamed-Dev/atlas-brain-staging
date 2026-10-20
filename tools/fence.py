@@ -118,8 +118,9 @@ def import_bindings(tree, path):
 
 
 class ImportIndex:
-    def __init__(self, sources):
+    def __init__(self, sources, forbidden=()):
         self.modules = {}
+        self.forbidden = frozenset(forbidden)
         packages = set()
         for path, source in sources.items():
             module = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__")
@@ -140,6 +141,8 @@ class ImportIndex:
         return name in self.modules or any(module.startswith(name + ".") for module in self.modules)
 
     def origin(self, name, seen=frozenset()):
+        if any(name == module or name.startswith(module + ".") for module in self.forbidden):
+            return None
         if not name.startswith("atlas_brain.") and name != "atlas_brain":
             return name
         if name in seen:
@@ -163,7 +166,7 @@ def source_allowed(source: str, sources=None, path="atlas_brain/probe.py") -> bo
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
         aliases = import_bindings(tree, path)[0]
-        index = ImportIndex(sources or {})
+        index = ImportIndex(sources or {}, () if path in SCOPED_API else scoped_modules)
     except ValueError:
         return False
     def admitted(name):
