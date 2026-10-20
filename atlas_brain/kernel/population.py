@@ -25,6 +25,8 @@ class ExpectedSet:
     def __post_init__(self, candidates: tuple[EntityKey, ...]) -> None:
         require(bool(self.population) and type(self.closed) is bool, 'invalid_population')
         require(all(type(v) is tuple for v in (self.member_evidence, self.exclusions, self.unresolved)), 'invalid_partition_records')
+        for rows, width in ((self.member_evidence, 2), (self.exclusions, 3), (self.unresolved, 2)):
+            require(all(type(row) is tuple and len(row) == width for row in rows), 'invalid_partition_row')
         excluded = tuple(e[0] for e in self.exclusions)
         unresolved = tuple(u[0] for u in self.unresolved)
         for keys in (candidates, self.members, excluded, unresolved, self.lower_bound_nodes):

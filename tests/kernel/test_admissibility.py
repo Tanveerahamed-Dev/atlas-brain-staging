@@ -45,3 +45,10 @@ def test_string_enum_and_truthy_flags_are_refused():
     with pytest.raises(ValueError):
         decide(IntegrityState.EMPTY, ReadScope.FULL_EVIDENCED,
                ViewConsistency.SINGLE_RESPONSE, registered='yes')
+
+
+def test_admission_record_rejects_truthy_non_booleans():
+    from atlas_brain.kernel.admissibility import Admission
+
+    with pytest.raises(ValueError):
+        Admission(problem='yes', ok=True, population=True, reason=None)
