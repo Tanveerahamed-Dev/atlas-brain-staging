@@ -1,10 +1,13 @@
 """Synthetic field-extraction cases; these do not establish a platform floor."""
 from hashlib import sha256
 
+import pytest
+
 from atlas_brain.kernel.states import (
     ByteSpan,
     CaptureId,
     EvidenceRef,
+    IntegrityState,
     Known,
     Unknown,
     UnknownReason,
@@ -96,7 +99,7 @@ def test_wholly_unrecognised_response_is_not_a_recognised_record():
 
 def test_failed_capture_cannot_promote_even_matching_fields():
     for raw in (b"", b"% Invalid input\n", RAW):
-        result = extract_fields(raw, CAPTURE, succeeded=False)
+        result = extract_fields(raw, CAPTURE, integrity=IntegrityState.ERROR)
         assert result.parse.quality == "partial"
         for fact in (result.uptime, result.image, result.reload_reason, result.boot_epoch):
             assert isinstance(fact, Unknown)
@@ -120,3 +123,11 @@ def test_malformed_only_record_cannot_witness_an_omitted_field():
     for fact in (result.image, result.reload_reason):
         assert isinstance(fact, Unknown)
         assert fact.reason is UnknownReason.PARSE_UNSUPPORTED_VARIANT
+
+def test_non_admitted_integrity_is_refused_without_fact_promotion():
+    for state in (IntegrityState.TRUNCATED, IntegrityState.PAGING_ARTIFACTS,
+                  IntegrityState.UNVERIFIED_PROMPT, IntegrityState.UNKNOWN_FORMAT, IntegrityState.ABSENCE_BANNER):
+        with pytest.raises(ValueError, match="capture_integrity_not_admitted"):
+            extract_fields(RAW, CAPTURE, integrity=state)
+    with pytest.raises(TypeError, match="capture_integrity_required"):
+        extract_fields(RAW, CAPTURE, integrity="complete")
