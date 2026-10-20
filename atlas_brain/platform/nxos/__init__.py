@@ -23,24 +23,24 @@ ERROR_SIGNATURES = (
 )
 DENIAL_SIGNATURES = (b"% Permission denied for the role", b"%Permission denied for the role")
 PAGER_SIGNATURES = (b"--More--",)
-_PROMPT_EXEC = compile_pattern(r"[A-Za-z0-9_][A-Za-z0-9_.-]*#[ \t]*")
-_PROMPT_CONFIG = compile_pattern(r"[A-Za-z0-9_][A-Za-z0-9_.-]*\(config[^()\r\n]*\)#[ \t]*")
+_PROMPT_EXEC = compile_pattern(r"[A-Za-z0-9_][A-Za-z0-9_.-]*+#[ \t]*+")
+_PROMPT_CONFIG = compile_pattern(r"[A-Za-z0-9_][A-Za-z0-9_.-]*+\(config[^()\r\n]*+\)#[ \t]*+")
 _INTERFACE_PATTERNS = tuple(compile_pattern(pattern) for pattern in (
-    r"(?:Eth|Ethernet)[1-9][0-9]*/[1-9][0-9]*",
-    r"(?:Eth|Ethernet)[1-9][0-9]*/[1-9][0-9]*/[1-9][0-9]*",
-    r"(?:Eth|Ethernet)[1-9][0-9]*/[1-9][0-9]*\.[1-9][0-9]*",
-    r"Vlan[1-9][0-9]*", r"port-channel[1-9][0-9]*", r"mgmt0", r"nve[1-9][0-9]*",
+    r"(?:Eth|Ethernet)[1-9][0-9]*+/[1-9][0-9]*+",
+    r"(?:Eth|Ethernet)[1-9][0-9]*+/[1-9][0-9]*+/[1-9][0-9]*+",
+    r"(?:Eth|Ethernet)[1-9][0-9]*+/[1-9][0-9]*+\.[1-9][0-9]*+",
+    r"Vlan[1-9][0-9]*+", r"port-channel[1-9][0-9]*+", r"mgmt0", r"nve[1-9][0-9]*+",
 ))
 _DETECTION_RULES = (
-    Rule("nx-banner", "start", r"Cisco Nexus Operating System \(NX-OS\) Software[ \t]*",
+    Rule("nx-banner", "start", r"Cisco Nexus Operating System \(NX-OS\) Software[ \t]*+",
          "record", "start", "", ()),
-    Rule("nx-version", "start", r"[ \t]*NXOS: version (?P<version>(?:9|10)\.[0-9]+\([0-9A-Za-z.]+\)[A-Za-z0-9]*)[ \t]*",
+    Rule("nx-version", "start", r"[ \t]*+NXOS: version (?P<version>(?:9|10)\.[0-9]++\([0-9A-Za-z.]++\)[A-Za-z0-9]*+)[ \t]*+",
          "record", "start", "", ("version",)),
-    Rule("nx-version-annotated", "start", r"[ \t]*NXOS: version (?P<version>(?:9|10)\.[0-9]+\([0-9A-Za-z.]+\)[A-Za-z0-9]*) \[(?:Feature Release|Maintenance Release|build [^\]\r\n]+)\][ \t]*",
+    Rule("nx-version-annotated", "start", r"[ \t]*+NXOS: version (?P<version>(?:9|10)\.[0-9]++\([0-9A-Za-z.]++\)[A-Za-z0-9]*+) \[(?:Feature Release|Maintenance Release|build [^\]\r\n]++)\][ \t]*+",
          "record", "start", "", ("version",)),
-    Rule("nx-version-outside-subset", "start", r"[ \t]*NXOS: version[^\r\n]*",
+    Rule("nx-version-outside-subset", "start", r"[ \t]*+NXOS: version[^\r\n]*+",
          "record", "start", "", ()),
-    Rule("other-family", "start", r".*Cisco IOS[^\r\n]*", "record", "start", "", ()),
+    Rule("other-family", "start", r"[ \t]*+Cisco IOS[^\r\n]*+", "record", "start", "", ()),
 )
 
 
