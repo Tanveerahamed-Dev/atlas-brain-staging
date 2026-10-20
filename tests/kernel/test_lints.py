@@ -5,7 +5,8 @@ import pytest
 from atlas_brain.kernel.lints import lint
 
 
-@pytest.mark.parametrize('rule,source', [
+@pytest.mark.parametrize('path,rule,source', [
+    ('atlas_brain/packs/example/parser.py', rule, source) for rule, source in [
     (1, 'class Record:\n value: int | None'),
     (2, '@dataclass\nclass Record:\n value: int = 1'),
     (3, 'value = tokens.get(token, "up")'),
@@ -21,12 +22,8 @@ from atlas_brain.kernel.lints import lint
     (13, 'from atlas_brain.kernel.states import Known as K\nclass Forged(K):\n pass'),
     (14, 'from urllib.request import urlopen as load'),
     (15, 'import importlib as imp\nimp.import_module("pack")'),
-])
-def test_every_lint_fires_on_its_plant(rule, source):
-    assert rule in {r for r, _ in lint(source, 'atlas_brain/packs/example/parser.py')}
-
-
-@pytest.mark.parametrize('source,rule', [
+    ]
+] + [('atlas_brain/model/record.py', rule, source) for source, rule in [
     ('from typing import Optional as O\nclass R:\n value: O[int]', 1),
     ('@dataclasses.dataclass()\nclass R:\n value: int = field(default_factory=int)', 2),
     ('def map_token(token):\n if token == "up":\n  return 1\n else:\n  return 2', 3),
@@ -34,6 +31,10 @@ def test_every_lint_fires_on_its_plant(rule, source):
     ('value = tokens.pop(token, "up")', 3),
     ('value = states[raw] if raw in states else "up"', 3),
     ('match raw:\n case _: value = "up"', 3),
+    ('def mapped(raw):\n if raw == "up": return "up"\n else: return "up" + ""', 3),
+    ('def assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
+    ('from typing import assert_never\ndef assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
+    ('match fact:\n case Known(): pass\n case _ as impossible: assert_never(impossible)', 3),
     ('from collections import defaultdict as DD\nvalues = DD(lambda: "up")', 3),
     ('value = tokens.get(token) or "up"', 3),
     ('def map_token(token):\n match token:\n  case object(): return "up"', 3),
@@ -59,26 +60,36 @@ def test_every_lint_fires_on_its_plant(rule, source):
     ('import socket as s', 14),
     ('from urllib import request as r', 14),
     ('x = __import__("pack")', 15),
-])
-def test_alias_and_alternate_plants(source, rule):
-    assert rule in {r for r, _ in lint(source, 'atlas_brain/model/record.py')}
+]])
+def test_every_lint_and_alternate_plant(path, rule, source):
+    assert rule in {r for r, _ in lint(source, path)}
 
 
-@pytest.mark.parametrize('source', [
+@pytest.mark.parametrize('path,source', [
+    ('atlas_brain/packs/example/parser.py', source) for source in [
     '@dataclass(frozen=True)\nclass Record:\n value: int',
     'value = tokens[token]',
     'values = (1, True, None, Ellipsis, "token", b"bytes")',
     'match token:\n case "up": value = 1\n case "down": value = 0',
-    'match fact:\n case Known(): pass\n case _ as impossible: assert_never(impossible)',
+    'from typing import assert_never\nmatch fact:\n case Known(): pass\n case _ as impossible: assert_never(impossible)',
+    'from typing import assert_never as terminal\nmatch fact:\n case Known(): pass\n case _ as impossible: terminal(impossible)',
+    'import typing as t\nmatch fact:\n case Known(): pass\n case _ as impossible: t.assert_never(impossible)',
     'x = 1 # pyright: ignore[reportAssignmentType] reviewer: REV',
     'with open("x", encoding="utf-8") as f:\n text = f.read()',
     'with open("x", "rb") as f:\n raw = f.read()',
     'values = {"a", "b"}\nresult = [x for x in sorted(values)]',
     'import re\nx = re.compile("[a-z]+", flags=re.ASCII)',
     'import re\nfrom re import ASCII as F\nx = re.compile("abc", F)',
-])
-def test_valid_controls(source):
-    assert lint(source, 'atlas_brain/packs/example/parser.py') == ()
+    ]
+] + [('atlas_brain/evidence/admission.py', source) for source in [
+    'from pathlib import Path\nwith Path("x").open("rb") as f:\n raw = f.read()',
+    'with path.open("rb") as f:\n raw = f.read()',
+    'with path.open(mode="rb") as f:\n raw = f.read()',
+    'from pathlib import Path\nwith Path.open(path, "rb") as f:\n raw = f.read()',
+    'import io\nwith io.open("x", "rb") as f:\n raw = f.read()',
+]])
+def test_valid_controls(path, source):
+    assert lint(source, path) == ()
 
 
 def test_product_tree_passes_all_fifteen_lints():
@@ -150,17 +161,6 @@ def test_same_dynamic_compiler_call_elsewhere_is_refused():
                  'atlas_brain/evidence/parsekit/other.py',
                  'atlas_brain/packs/example/parser.py'):
         assert 12 in {r for r, _ in lint(source, path)}
-
-
-@pytest.mark.parametrize('source', [
-    'from pathlib import Path\nwith Path("x").open("rb") as f:\n raw = f.read()',
-    'with path.open("rb") as f:\n raw = f.read()',
-    'with path.open(mode="rb") as f:\n raw = f.read()',
-    'from pathlib import Path\nwith Path.open(path, "rb") as f:\n raw = f.read()',
-    'import io\nwith io.open("x", "rb") as f:\n raw = f.read()',
-])
-def test_bound_and_unbound_binary_open_controls(source):
-    assert not lint(source, 'atlas_brain/evidence/admission.py')
 
 
 @pytest.mark.parametrize('path,rule,source', [
