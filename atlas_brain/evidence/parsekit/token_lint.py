@@ -93,7 +93,7 @@ def _scalar_expression(value: ast.expr | None, proof: dict[str, set[str]]) -> bo
             if value.func.id == "Captured":
                 return any(_scalar_expression(part, proof) for part in value.args[2:3]) or any(
                     key.arg == "value" and _scalar_expression(key.value, proof) for key in value.keywords)
-        if isinstance(value.func, ast.Attribute) and isinstance(value.func.value, ast.Name) and value.args and (
+        if isinstance(value.func, ast.Attribute) and isinstance(value.func.value, ast.Name) and value.args and not _scalar_expression(value.args[0], proof) and (
             value.func.attr == "resolve" and value.func.value.id in proof["maps"] or
             value.func.attr in ("fullmatch", "match", "search") and value.func.value.id in proof["patterns"]
         ):
@@ -132,7 +132,7 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
                     isinstance(value.func.value, ast.Name) and value.func.value.id == factory) for value in values):
                     proof[key].add(name)
             for key, origins, methods in (("mapped", "maps", ("resolve",)), ("data", "patterns", ("fullmatch", "match", "search"))):
-                if all(isinstance(value, ast.Name) and value.id in proof[key] or isinstance(value, ast.Call) and value.args and
+                if all(isinstance(value, ast.Name) and value.id in proof[key] or isinstance(value, ast.Call) and value.args and not scalar(value.args[0]) and
                     isinstance(value.func, ast.Attribute) and value.func.attr in methods and
                     isinstance(value.func.value, ast.Name) and value.func.value.id in proof[origins] for value in values):
                     proof[key].add(name)
