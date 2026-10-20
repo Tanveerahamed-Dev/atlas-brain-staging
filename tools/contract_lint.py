@@ -34,6 +34,17 @@ def own_module(name):
     return name == "atlas_brain.contract" or name.startswith("atlas_brain.contract.")
 
 
+def own_exports(module):
+    if not own_module(module):
+        return set()
+    stem = Path(*module.split("."))
+    source = next((p for p in (stem.with_suffix(".py"), stem / "__init__.py") if p.is_file()), None)
+    if source is None:
+        return set()
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    return {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+
+
 def admitted_module(name):
     return name in MODULE_CALLS or name in DECLARATIVE or own_module(name) or name.startswith(("atlas_brain.kernel.", "atlas_brain.model."))
 
@@ -55,7 +66,7 @@ def violations(source: str) -> list[int]:
                 bindings[alias] = bindings.get(alias, 0) + 1
                 module = node.module or "" if isinstance(node, ast.ImportFrom) else ""
                 aliases[alias] = f"{module}.{entry.name}" if module else entry.name if entry.asname else alias
-                if module and (own_module(module) or entry.name in MODULE_CALLS.get(module, set())):
+                if module and entry.name in (own_exports(module) if own_module(module) else MODULE_CALLS.get(module, set())):
                     trusted.add(alias)
     safe_names = BUILTIN_CALLS | trusted | local
     protected = safe_names | set(aliases)
@@ -73,8 +84,13 @@ def violations(source: str) -> list[int]:
             return target.id in safe_names
         if isinstance(target, ast.Attribute) and not target.attr.startswith("_"):
             module = qualified(target.value)
-            return (own_module(module) or target.attr in MODULE_CALLS.get(module, set())) if module else target.attr in METHOD_CALLS
+            return target.attr in (own_exports(module) if own_module(module) else MODULE_CALLS.get(module, set())) if module else target.attr in METHOD_CALLS
         return False
+
+    def admitted_callback(callback):
+        if isinstance(callback, ast.Lambda):
+            return True  # Its body and bindings are inspected by the same walk.
+        return admitted_call(callback) and not (isinstance(callback, ast.Name) and callback.id in {*VALIDATORS, "map", "sorted"})
 
     bad = []
     for node in ast.walk(tree):
@@ -89,6 +105,11 @@ def violations(source: str) -> list[int]:
         imported_from = isinstance(node, ast.ImportFrom) and (node.level or not admitted_module(node.module or "") or any(a.name == "*" for a in node.names))
         private_or_write = isinstance(node, ast.Attribute) and (node.attr.startswith("_") or isinstance(node.ctx, (ast.Store, ast.Del)))
         call = isinstance(node, ast.Call) and (not admitted_call(node.func) or (isinstance(node.func, ast.Name) and node.func.id in VALIDATORS and ast.dump(node) != VALIDATORS[node.func.id]))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "map":
+                call = call or not node.args or not admitted_callback(node.args[0])
+            if node.func.id == "sorted":
+                call = call or any(k.arg is None or (k.arg == "key" and not (isinstance(k.value, ast.Constant) and k.value.value is None) and not admitted_callback(k.value)) for k in node.keywords)
         shadow = (isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in protected) or (isinstance(node, ast.arg) and node.arg in protected)
         if isinstance(node, ast.alias):
             alias = node.asname or node.name.split(".")[0]

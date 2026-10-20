@@ -3,6 +3,7 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path, PurePosixPath
 
 ROOTS = {"README.md", "LICENSE", ".gitattributes", ".gitignore",
@@ -22,6 +23,12 @@ def allowed(path: str) -> bool:
     if path.startswith("governance/"):
         return path in GOVERNANCE
     return path in ROOTS or path.startswith(TREES)
+
+
+def dependencies_allowed(config: dict) -> bool:
+    project = config.get("project", {})
+    extras = project.get("optional-dependencies", {})
+    return project.get("dependencies") == [] and isinstance(extras, dict) and all(v == [] for v in extras.values())
 
 
 def gate_data_allowed(path: str, data) -> bool:
@@ -57,6 +64,7 @@ def main() -> int:
         for path in paths:
             if path.startswith("governance/") and allowed(path):
                 failures += not gate_data_allowed(path, json.loads(Path(path).read_text(encoding="utf-8")))
+        failures += not dependencies_allowed(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8")))
     except (OSError, ValueError, TypeError):
         failures = 1
     print(f"path fence: {failures} refused paths")
