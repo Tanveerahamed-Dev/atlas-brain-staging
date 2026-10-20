@@ -103,3 +103,22 @@ def test_cited_whitespace_ignore_preserves_an_unrecognised_line():
     result = run_rules(b" \t\nnew token\n", CaptureId("cap-a"), (rule,), ())
     assert result.quality == "partial"
     assert [line.status for line in result.lines] == ["ignored", "unrecognised"]
+
+
+@pytest.mark.parametrize("rows", [
+    [["full", Duplex.FULL]],
+    (["full", Duplex.FULL],),
+])
+def test_mutable_rows_cannot_change_a_frozen_token_map(rows):
+    from typing import cast
+
+    with pytest.raises(ValueError):
+        TokenMap(cast(tuple[tuple[str, StrEnum], ...], rows))
+
+
+def test_closed_map_snapshots_the_source_dictionary():
+    rows = {"full": Duplex.FULL}
+    mapping = TokenMap.closed(rows)
+    rows["full"] = Duplex.HALF
+    result = run_rules(b"duplex full\n", CaptureId("cap-a"), table(), (("duplex", mapping),))
+    assert result.records[0].fields[0][1].value is Duplex.FULL
