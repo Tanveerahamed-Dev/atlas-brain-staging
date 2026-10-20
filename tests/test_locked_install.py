@@ -3,6 +3,16 @@ import unittest
 
 
 class LockedInstallTests(unittest.TestCase):
+    def test_startup_allowlist_requires_locked_owner_and_record_hash(self):
+        from tools.scale.locked_install import validate_hooks
+        row = {"owner": "coverage", "sha256": "a" * 64, "record_sha256": "a" * 64, "class": "executable"}
+        self.assertEqual(validate_hooks([row], {"coverage": "7.16.2"}, "dev"), [row])
+        with self.assertRaisesRegex(ValueError, "startup_hook_ownership"):
+            validate_hooks([row], {}, "dev")
+        with self.assertRaisesRegex(ValueError, "runtime_startup_code"):
+            validate_hooks([row], {"coverage": "7.16.2"}, "runtime")
+        with self.assertRaisesRegex(ValueError, "startup_hook_record_digest"):
+            validate_hooks([dict(row, record_sha256="b" * 64)], {"coverage": "7.16.2"}, "dev")
     def test_missing_and_wrong_development_tool_are_refused(self):
         from tools.scale.locked_install import validate
         lock = {"package": [{"name": "atlas-brain", "version": "0.0.0", "source": {"virtual": "."}},
@@ -31,6 +41,18 @@ class LockedInstallTests(unittest.TestCase):
         self.assertEqual(validate(lock, project, {}, "dev", "win32"), {})
         with self.assertRaisesRegex(ValueError, "locked_install_mismatch"):
             validate(lock, project, {}, "dev", "linux")
+
+    def test_transitive_extra_is_part_of_the_installed_closure(self):
+        from tools.scale.locked_install import validate
+        source = {"registry": "https://pypi.org/simple"}
+        lock = {"package": [{"name": "tool", "version": "1", "source": source, "dependencies": [{"name": "lib", "extra": ["addon"]}]},
+                            {"name": "lib", "version": "1", "source": source, "optional-dependencies": {"addon": [{"name": "extra-dep"}]}},
+                            {"name": "extra-dep", "version": "1", "source": source}]}
+        project = {"dependency-groups": {"dev": ["tool==1"]}}
+        with self.assertRaisesRegex(ValueError, "locked_install_mismatch"):
+            validate(lock, project, {"tool": "1", "lib": "1"}, "dev")
+        complete = {"tool": "1", "lib": "1", "extra-dep": "1"}
+        self.assertEqual(validate(lock, project, complete, "dev"), complete)
 
 
 if __name__ == "__main__":

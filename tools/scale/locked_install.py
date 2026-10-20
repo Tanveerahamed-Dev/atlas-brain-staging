@@ -36,7 +36,7 @@ def validate(lock, project, installed, profile, platform_name=None):
         expected = {}
     else:
         packages = {normalized(p["name"]): p for p in lock["package"]}
-        expected, pending = {}, []
+        expected, pending, expanded = {}, [], set()
         for requirement in project["dependency-groups"]["dev"]:
             match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([^; ]+)(?:;\s*(.*))?", requirement)
             if match is None:
@@ -46,43 +46,38 @@ def validate(lock, project, installed, profile, platform_name=None):
                 continue
             if packages[normalized(name)]["version"] != version:
                 raise ValueError("declared_development_pin_mismatch")
-            pending.append(normalized(name))
+            pending.append((normalized(name), ()))
         while pending:
-            name = pending.pop()
-            if name in expected:
+            name, extras = pending.pop()
+            key = (name, extras)
+            if key in expanded:
                 continue
+            expanded.add(key)
             package = packages[name]
             expected[name] = package["version"]
-            for dependency in package.get("dependencies", []):
+            dependencies = list(package.get("dependencies", []))
+            for extra in extras:
+                dependencies.extend(package["optional-dependencies"][extra])
+            for dependency in dependencies:
                 marker = dependency.get("marker")
                 if marker is not None:
                     if not applies(marker, platform_name):
                         continue
-                pending.append(normalized(dependency["name"]))
+                pending.append((normalized(dependency["name"]), tuple(sorted(dependency.get("extra", [])))))
     if installed != expected:
         raise ValueError("locked_install_mismatch:" + json.dumps({"expected": expected, "actual": installed}, sort_keys=True))
     return expected
 
 
-INSPECT = """
-import sys
-startup = sorted(sys.modules)
-import hashlib, importlib.metadata, json, pathlib, sysconfig
-hooks = []
-distributions = {}
-for dist in importlib.metadata.distributions():
-    distributions[dist.metadata['Name']] = dist.version
-    for file in dist.files or ():
-        name = file.name.lower()
-        if name.endswith(('.pth', '.start')) or name.startswith(('sitecustomize.', 'usercustomize.')):
-            path = pathlib.Path(dist.locate_file(file))
-            hooks.append({'path': str(file).replace('\\\\', '/'), 'owner': dist.metadata['Name'],
-                          'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-                          'text': path.read_text(encoding='utf-8-sig')})
-print(json.dumps({'installed': distributions, 'startup_modules': startup, 'hooks': hooks,
-                  'python': sys.version, 'isolated': sys.flags.isolated,
-                  'purelib_form': pathlib.Path(sysconfig.get_path('purelib')).name}))
-"""
+def validate_hooks(rows, installed, profile):
+    for row in rows:
+        if not row["owner"] or normalized(row["owner"]) not in installed:
+            raise ValueError("startup_hook_ownership")
+        if row["sha256"] != row["record_sha256"]:
+            raise ValueError("startup_hook_record_digest")
+        if profile == "runtime" and row["class"] == "executable":
+            raise ValueError("runtime_startup_code")
+    return rows
 
 
 def main():
@@ -93,11 +88,21 @@ def main():
     args = parser.parse_args()
     from tools.scale.measure import shape
     runtime = args.subject / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-    observed = json.loads(subprocess.check_output([str(runtime), "-I", "-c", INSPECT], encoding="utf-8"))
-    installed = {normalized(k): v for k, v in observed["installed"].items()}
+    inspector = str(Path(__file__).with_name("inspect_install.py").resolve())
     lock_path, project_path = args.subject / "uv.lock", args.subject / "pyproject.toml"
-    expected = validate(tomllib.loads(lock_path.read_text(encoding="utf-8")),
-                        tomllib.loads(project_path.read_text(encoding="utf-8")), installed, args.profile)
+    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    project = tomllib.loads(project_path.read_text(encoding="utf-8"))
+    prestart = json.loads(subprocess.check_output([str(runtime), "-I", "-S", inspector], encoding="utf-8"))
+    preinstalled = {normalized(k): v for k, v in prestart["installed"].items()}
+    expected = validate(lock, project, preinstalled, args.profile)
+    validate_hooks(prestart["hooks"], expected, args.profile)
+    observed = json.loads(subprocess.check_output([str(runtime), "-I", inspector], encoding="utf-8"))
+    installed = {normalized(k): v for k, v in observed["installed"].items()}
+    validate(lock, project, installed, args.profile)
+    if preinstalled != installed or prestart["hooks"] != observed["hooks"]:
+        raise ValueError("locked_startup_environment_changed")
+    observed["prestart_no_site_census"] = prestart
+    observed["startup_allowlist"] = validate_hooks(observed["hooks"], expected, args.profile)
     observed.update({"schema": 1, "status": "pass", "profile": args.profile,
                      "runner": shape(), "expected": expected,
                      "subject_head": subprocess.check_output(["git", "-C", str(args.subject), "rev-parse", "HEAD"], encoding="ascii").strip(),
@@ -117,7 +122,10 @@ def main():
     if args.profile == "dev":
         # Optional -S launch: append the locked purelib/platlib directly, never
         # invoke site.addsitedir or execute an editable .pth hook.
-        code = "import sys,sysconfig;sys.path.extend(dict.fromkeys([sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]));import pytest,hypothesis,grimp;assert sys.flags.no_site == 1;print('locked development imports succeeded under -S')"
+        code = "import sys,sysconfig;sys.path.extend(dict.fromkeys([sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]));import pytest,hypothesis,grimp;assert sys.flags.no_site == 1;"
+        if "coverage" in expected:
+            code += "import coverage;from coverage.tracer import CTracer;"
+        code += "print('locked development imports and selected native extensions succeeded under -S')"
         observed["manual_no_site_development_imports"] = subprocess.check_output([str(runtime.absolute()), "-I", "-S", "-c", code], encoding="utf-8").strip()
     args.out.write_text(json.dumps(observed, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 

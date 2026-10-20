@@ -413,3 +413,62 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 90
+  planned-native-install:
+    needs: smoke
+    if: contains(github.event.head_commit.message, '[planned-install]')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.14.8', '3.15.0']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 29
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: '0.13.1'
+          enable-cache: false
+      - name: Install the frozen full planned set and attest startup ownership
+        run: |
+          New-Item -ItemType Directory -Force .s0/planned-install | Out-Null
+          python -m pip install psutil==7.2.2 packaging==26.3
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv --version > .s0/planned-install/uv-version.txt
+          uv sync --locked --no-dev --python ${{ matrix.python }} --project tools/scale/locked-plan *> .s0/planned-install/runtime-install.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/scale/locked_install.py --subject tools/scale/locked-plan --profile runtime --out .s0/planned-install/runtime.json
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv sync --locked --python ${{ matrix.python }} --project tools/scale/locked-plan *> .s0/planned-install/dev-install.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/scale/locked_install.py --subject tools/scale/locked-plan --profile dev --out .s0/planned-install/dev.json
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          git diff --exit-code -- tools/scale/locked-plan
+          exit $LASTEXITCODE
+      - name: Planted unowned and tampered hooks fail before running
+        run: python tools/scale/qualify_install.py --subject tools/scale/locked-plan --raw .s0/planned-install
+      - name: Exercise the installed tool entry points
+        working-directory: tools/scale/locked-plan
+        run: |
+          uv run --no-sync --python ${{ matrix.python }} pytest --version > ../../../.s0/planned-install/pytest-version.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync --python ${{ matrix.python }} ruff --version > ../../../.s0/planned-install/ruff-version.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync --python ${{ matrix.python }} pyright --version > ../../../.s0/planned-install/pyright-version.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync --python ${{ matrix.python }} coverage --version > ../../../.s0/planned-install/coverage-version.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (-not $IsWindows) {
+            uv run --no-sync --python ${{ matrix.python }} python -c "import mutmut, importlib.metadata; print(importlib.metadata.version('mutmut'))" > ../../../.s0/planned-install/mutmut-version.txt
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: planned-install-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
+          path: .s0/planned-install/
+          if-no-files-found: error
+          retention-days: 90
