@@ -1,4 +1,5 @@
 fixture_id: iosxe-show-interfaces-trunk-public-001
+file: raw.txt
 tier: P
 source:
   kind: library_testdata
@@ -22,7 +23,7 @@ platform:
 licence:
   name: Apache-2.0
   redistribution: public
-  notice: "../../_licences/genieparser/NOTICE"
+  notice: "Source: https://github.com/CiscoTestAutomation/genieparser Pinned revision: 6e0b25eb76be058e787e2859a89bc6edfa4e0bf6 Licence: Apache-2.0; full licence text is retained in repository LICENSE. No upstream root NOTICE was present at this revision. Raw samples, where imported, are unmodified. No endorsement is implied. Full Apache-2.0 licence text is retained in repository LICENSE."
 sha256: "4aeed8b2d8544e6cd36573dcdc96b4d5ee600f3376a67637f3abe29c6b2f96e3"
 privacy:
   scanner_version: q-public-import-v1

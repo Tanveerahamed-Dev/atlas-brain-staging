@@ -1,4 +1,5 @@
 fixture_id: nxos-show-interface-status-public-001
+file: raw.txt
 tier: P
 source:
   kind: library_testdata
@@ -22,12 +23,11 @@ platform:
 licence:
   name: Apache-2.0
   redistribution: public
-  notice: "../../_licences/napalm/NOTICE"
+  notice: "napalm Copyright 2015 Spotify AB. All rights reserved. This project includes software developed at Spotify AB. Mircea Ulinic, Kirk Byers, David Barroso, and many others, who are not necessarily associated with Spotify AB, have contributed as well. Full Apache-2.0 licence text is retained in repository LICENSE."
 sha256: "3296040bf6d8fec6ae4db793794ab66d5fd36137ec0df3ab05069354e7f88094"
 privacy:
   scanner_version: q-public-import-v1
   result: pass
   exemption: null
 line_count: 16
-format_floor: true
-format_evidence: public_sample
+format_floor: false

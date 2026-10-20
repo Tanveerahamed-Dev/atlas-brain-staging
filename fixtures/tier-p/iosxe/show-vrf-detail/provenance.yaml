@@ -1,4 +1,5 @@
 fixture_id: iosxe-show-vrf-detail-public-001
+file: raw.txt
 tier: P
 source:
   kind: library_testdata
@@ -22,7 +23,7 @@ platform:
 licence:
   name: Apache-2.0
   redistribution: public
-  notice: "../../_licences/suzieq/NOTICE"
+  notice: "Source: https://github.com/netenglabs/suzieq Pinned revision: 75198b5585ebef91f0659b6b1ec3c964cc2cd1ad Licence: Apache-2.0; full licence text is retained in repository LICENSE. No upstream root NOTICE was present at this revision. Raw samples, where imported, are unmodified. No endorsement is implied. Full Apache-2.0 licence text is retained in repository LICENSE."
 sha256: "61938c1dae531302c13fe2396ec689acad731f4ae83e12f86b258b8209163ed6"
 privacy:
   scanner_version: q-public-import-v1
@@ -30,5 +31,3 @@ privacy:
   exemption: null
 line_count: 25
 format_floor: false
-format_floor_hold: source_version_conflict
-version_caveat: 'Path label is 16.10.1; sibling show_version.txt reports BLD_V1610_THROTTLE_LATEST_20180903_070602_V16_10_0_101_2. Exact capture train requires source clarification.'
