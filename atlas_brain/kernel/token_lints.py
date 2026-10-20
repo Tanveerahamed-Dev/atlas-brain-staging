@@ -47,6 +47,12 @@ def _value_branch(body: list[ast.stmt]) -> bool:
     return bool(body) and isinstance(body[-1], (ast.Assign, ast.AnnAssign, ast.Return))
 
 
+def _returned_default(body: list[ast.stmt]) -> bool:
+    while len(body) == 1 and isinstance(body[0], ast.If):
+        body = body[0].orelse
+    return bool(body) and isinstance(body[-1], ast.Return)
+
+
 def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset()) -> bool:
     """Refuse defaults; assertion call witnesses require whole-module binding proof."""
     if isinstance(node, ast.Call):
@@ -57,7 +63,8 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
         return (_lookup_value(node.body) or _lookup_value(node.orelse) or
                 _enum_comparison(node.test))
     if isinstance(node, ast.If) and node.orelse:
-        return (_enum_comparison(node.test) and _value_branch(node.body) and _value_branch(node.orelse)) or any(_lookup_value(part.value)
+        return (_enum_comparison(node.test) and (_returned_default(node.orelse) or
+                (_value_branch(node.body) and _value_branch(node.orelse)))) or any(_lookup_value(part.value)
                    for statement in node.body + node.orelse for part in ast.walk(statement)
                    if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
     if isinstance(node, ast.Match):
