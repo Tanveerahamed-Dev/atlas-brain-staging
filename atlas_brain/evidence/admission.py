@@ -7,6 +7,10 @@ from pathlib import Path, PurePosixPath
 import stat
 from typing import cast
 
+from .capture import Capture, classify_cli, unrecorded_time
+from .text import text_lines
+from atlas_brain.kernel.states import CaptureId, EntityKey
+
 
 class AdmissionRefused(ValueError):
     """The entire bundle is inadmissible; the message is a stable receipt code."""
@@ -79,7 +83,10 @@ def strict_json(raw: bytes) -> object:
 
 
 def record(value: object, fields: tuple[str, ...]) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != set(fields):
+    if not isinstance(value, dict):
+        raise AdmissionRefused("invalid_record_fields")
+    value = cast(dict[str, object], value)
+    if set(value) != set(fields):
         raise AdmissionRefused("invalid_record_fields")
     return cast(dict[str, object], value)
 
@@ -146,3 +153,59 @@ def folder_members(root: Path, budgets: Budgets) -> dict[str, bytes]:
             strict_json(raw)
         result[name] = raw
     return result
+
+
+
+@dataclass(frozen=True, slots=True)
+class Bundle:
+    id: str
+    importer: str
+    manifest_sha256: str
+    options_sha256: str
+    attempts: tuple[Attempt, ...]
+    captures: tuple[Capture, ...]
+
+
+def import_folder(root: Path, budgets: Budgets) -> Bundle:
+    members = folder_members(root, budgets)
+    if "manifest.json" not in members:
+        raise AdmissionRefused("missing_manifest")
+    manifest = record(strict_json(members["manifest.json"]), ("version", "bundle_id", "importer", "attempts", "captures"))
+    if type(manifest["version"]) is not int or manifest["version"] != 1:
+        raise AdmissionRefused("unsupported_manifest_version")
+    attempts: list[Attempt] = []
+    captures: list[Capture] = []
+    for field in ("attempts", "captures"):
+        if not isinstance(manifest[field], list):
+            raise AdmissionRefused("invalid_manifest_list")
+    for value in cast(list[object], manifest["attempts"]):
+        row = record(value, ("source", "operation", "attempted", "succeeded", "transport_defect"))
+        attempts.append(Attempt(*(string(row, f) for f in ("source", "operation", "attempted", "succeeded", "transport_defect"))))
+    keys = [(a.source, a.operation) for a in attempts]
+    if len(keys) != len(set(keys)):
+        raise AdmissionRefused("duplicate_attempt")
+    paths: list[str] = []
+    for value in cast(list[object], manifest["captures"]):
+        row = record(value, ("path", "source", "operation", "rendered", "codec", "sha256", "prompt_verified"))
+        path, source, operation, rendered, codec, digest = (string(row, f) for f in ("path", "source", "operation", "rendered", "codec", "sha256"))
+        member_names([path])
+        paths.append(path)
+        if path not in members or sha256(members[path]).hexdigest() != digest or path == "manifest.json":
+            raise AdmissionRefused("capture_hash_mismatch")
+        if type(row["prompt_verified"]) is not bool:
+            raise AdmissionRefused("invalid_prompt_flag")
+        attempt = next((a for a in attempts if (a.source, a.operation) == (source, operation)), Attempt(source, operation, "unknown", "unknown", ""))
+        if (source, operation) not in keys:
+            attempts.append(attempt)
+            keys.append((source, operation))
+        raw = members[path]
+        try:
+            lines = text_lines(raw, codec)
+        except (ValueError, LookupError) as error:
+            raise AdmissionRefused("unsupported_capture_codec") from error
+        captures.append(Capture(CaptureId("cap:" + sha256(path.encode()).hexdigest()), EntityKey("node:" + source),
+                                operation, rendered, codec, raw, classify_cli(raw, attempt.succeeded, cast(bool, row["prompt_verified"])),
+                                lines, "unknown", unrecorded_time()))
+    member_names(paths)
+    return Bundle(string(manifest, "bundle_id"), string(manifest, "importer"), sha256(members["manifest.json"]).hexdigest(),
+                  budgets.sha256, tuple(attempts), tuple(captures))

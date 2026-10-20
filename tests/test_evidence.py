@@ -1,7 +1,6 @@
 """Synthetic intake witnesses; no device output or external services."""
 import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
