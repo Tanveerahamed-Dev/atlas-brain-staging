@@ -82,9 +82,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
     rebound = {name(n) for n in ast.walk(tree) if isinstance(n, (ast.Name, ast.Attribute)) and isinstance(n.ctx, ast.Store)}
     for binding in ast.walk(tree):
-        identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else ''
-        if identifier in aliases:
-            rebound.add(aliases[identifier])
+        identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)) else ''
+        if identifier:
+            rebound.add(name(ast.Name(id=identifier, ctx=ast.Load())))
 
     def ascii_flag(node: ast.AST) -> bool:
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
@@ -102,6 +102,18 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
     broad_handlers = tuple(n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and
                            (n.type is None or contains(n.type, ('BaseException',))))
+
+    def aborts(handler: ast.ExceptHandler) -> bool:
+        # Deliberately narrow: re-raising SystemExit(0) would still exit zero.
+        if len(handler.body) != 1 or not isinstance(handler.body[0], ast.Raise) or handler.body[0].cause is not None:
+            return False
+        exception = handler.body[0].exc
+        if not isinstance(exception, ast.Call) or name(exception.func) not in ('SystemExit', 'builtins.SystemExit'):
+            return False
+        if any(n in rebound for n in ('SystemExit', 'builtins.SystemExit', 'builtins')):
+            return False
+        return len(exception.args) == 1 and not exception.keywords and isinstance(exception.args[0], ast.Constant) and type(exception.args[0].value) is int and 1 <= exception.args[0].value <= 255
+
     findings: set[tuple[int, int]] = set()
 
     def hit(rule: int, node: ast.AST) -> None:
@@ -144,7 +156,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 owner = parents[parents[node]]
                 top = isinstance(owner, ast.Module) or (isinstance(owner, ast.FunctionDef) and
                       owner.name == 'main' and isinstance(parents[owner], ast.Module))
-                if path != 'atlas_brain/runner/__main__.py' or len(broad_handlers) != 1 or not top:
+                if path != 'atlas_brain/runner/__main__.py' or len(broad_handlers) != 1 or not top or not aborts(node):
                     hit(5, node)
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or '', *[f'{node.module}.{a.name}' for a in node.names]]
