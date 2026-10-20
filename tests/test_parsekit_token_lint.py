@@ -34,3 +34,20 @@ def test_explicit_unknown_branch_is_admitted():
 def test_token_map_refuses_subclasses():
     with pytest.raises(TypeError):
         type("FallbackMap", (TokenMap,), {})
+
+
+@pytest.mark.parametrize("source", [
+    "def map(token, default='full'): return default",
+    "def map(token, *, default='full'): return default",
+    "def map(token):\n match token:\n  case value: return value",
+])
+def test_parameter_and_pattern_defaults_are_refused(source):
+    assert lint_token_handler(source)
+
+
+def test_explicit_raise_is_admitted_and_diagnostics_are_stable():
+    source = "def map(token):\n if token == 'half': return 'half'\n else: raise ValueError()"
+    assert lint_token_handler(source) == ()
+    assert lint_token_handler("def map(token): return rows.get(token, 0)") == (
+        (1, "token_convenience_lookup"),
+    )

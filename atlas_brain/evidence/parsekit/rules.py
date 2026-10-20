@@ -121,6 +121,8 @@ def run_rules(raw: bytes, capture: CaptureId, rules: tuple[Rule, ...],
     """LF-only physical lines; first full matching rule in the current state wins."""
     if len({r.rule_id for r in rules}) != len(rules) or not capture:
         raise ValueError("duplicate rule id or missing capture")
+    if any(type(mapping) is not TokenMap for _, mapping in token_maps):
+        raise ValueError("only closed token maps are admitted")
     maps = dict(token_maps)
     if len(maps) != len(token_maps) or not set(maps) <= {f for r in rules for f in r.fields}:
         raise ValueError("duplicate token map")

@@ -38,6 +38,10 @@ def lint_token_handler(source: str) -> tuple[tuple[int, str], ...]:
     )}
     failures: set[tuple[int, str]] = set()
     for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
+            node.args.defaults or any(value is not None for value in node.args.kw_defaults)
+        ):
+            failures.add((node.lineno, "token_parameter_default"))
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and node.func.attr in ("get", "setdefault", "startswith", "endswith", "find", "index")):
             failures.add((node.lineno, "token_convenience_lookup"))
@@ -54,7 +58,8 @@ def lint_token_handler(source: str) -> tuple[tuple[int, str], ...]:
             branches.append(node.body)
         if isinstance(node, ast.Match):
             for case in node.cases:
-                if isinstance(case.pattern, ast.MatchAs) and case.pattern.pattern is None:
+                if any(isinstance(pattern, ast.MatchAs) and pattern.pattern is None
+                       for pattern in ast.walk(case.pattern)):
                     branches.append(case.body)
         if any(not _unknown_only(branch) for branch in branches):
             failures.add((node.lineno, "token_catchall"))
