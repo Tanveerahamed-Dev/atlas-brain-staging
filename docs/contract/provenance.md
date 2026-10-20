@@ -8,10 +8,10 @@ Links, duplicate fixture IDs, orphan records and unrecorded files are refused.
 Git attributes keep fixture bytes unchanged; hashes include original line endings.
 
 The exact YAML subset is UTF-8, LF or CRLF, blank lines, two-space-indented block mappings,
-lowercase snake_case keys, and string scalars only. Strings are JSON double-quoted
+lowercase snake_case keys, and scalar strings, `null`, `true`, `false`, or nonnegative decimal integers. Strings are JSON double-quoted
 strings or bare ASCII tokens matching `[A-Za-z][A-Za-z0-9_.-]*`. No comments,
-single quotes, flow collections, lists, tags, anchors, aliases, nulls, booleans,
-document markers, duplicate/unknown keys or implicit numeric scalars are accepted.
+single quotes, flow collections, lists, tags, anchors, aliases,
+document markers, duplicate/unknown keys, floats or negative integers are accepted.
 All fields below are required. `file` names one sibling raw file. Repository
 commits are full lowercase 40/64-character hashes; paths are relative POSIX paths.
 
@@ -39,10 +39,15 @@ sha256: "<SHA-256 of raw output.txt bytes>"
 
 The public M0 subset accepts P/library_testdata and S/synthetic. H and L belong
 in the private truth repository. M is refused until parent/mutation/token-witness
-validation exists. Excluded sources are never accepted. Other S6 record extensions
-(capture, privacy, truth) require an explicit schema extension before import.
-Unknown platform/version uses `unstated` for all three and `version_basis: unknown`;
+validation exists. Excluded sources are never accepted. Optional S6 `capture` and `privacy` mappings use their exact section 6.3 keys;
+`source.archive_sha256`, `line_count` and `format_floor` are also validated.
+Truth records require a future explicit schema extension before import.
+Unknown version uses `version: unstated` and `version_basis: unknown`; family/model may be known;
 this can test robustness, never a train's format floor. S may also use `observed`.
 P requires `source_stated` for a stated platform/version; P never proves accuracy.
 This gate checks declared provenance and byte integrity, not upstream authenticity,
 licence correctness, privacy clearance or parser-census qualification.
+
+Q import: add `file: raw.txt` to each record. Move inventories, README and licence
+files outside fixtures/; preserve required notice text in the record's licence.notice
+and keep upstream licence files under docs/contract/. No ancillary file bypass exists.

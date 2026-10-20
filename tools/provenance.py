@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
@@ -33,13 +34,14 @@ def parse(text):
         require(key not in parent, f"line {number}: duplicate key")
         if raw is None:
             value = {}
+        elif raw in {"null", "true", "false"} or re.fullmatch(r"0|[1-9][0-9]*", raw, re.ASCII):
+            value = json.loads(raw)
         elif raw.startswith('"'):
             value = json.loads(raw)
             require(isinstance(value, str), "scalar must be a string")
         else:
             require(re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", raw, re.ASCII) is not None,
                     f"line {number}: unsupported scalar")
-            require(raw not in {"null", "true", "false"}, "reserved scalar")
             value = raw
         parent[key] = value
         if isinstance(value, dict):
@@ -47,8 +49,9 @@ def parse(text):
     return root
 
 
-def fields(value, keys):
-    require(isinstance(value, dict) and set(value) == set(keys.split()), "missing or unknown fields")
+def fields(value, keys, optional=""):
+    require(isinstance(value, dict) and set(keys.split()) <= set(value)
+            and set(value) <= set((keys + " " + optional).split()), "missing or unknown fields")
     return value
 
 
@@ -67,14 +70,17 @@ def relative(value):
 
 def record(path):
     data = fields(parse(path.read_bytes().decode("utf-8").replace("\r\n", "\n")),
-                  "fixture_id file tier source platform licence sha256")
+                  "fixture_id file tier source platform licence sha256",
+                  "capture privacy line_count format_floor")
     require(re.fullmatch(r"[a-z0-9]+(?:[-_][a-z0-9]+)*", string(data["fixture_id"])), "invalid fixture id")
     name = relative(data["file"])
     require(len(PurePosixPath(name).parts) == 1 and name != "provenance.yaml", "file must be a sibling raw file")
     tier = string(data["tier"])
     require(tier in {"P", "S"}, "public M0 fixtures support P and S only; H/L are private, M needs witness support")
-    source = fields(data["source"], "kind repository")
+    source = fields(data["source"], "kind repository", "archive_sha256")
     require(source["kind"] == {"P": "library_testdata", "S": "synthetic"}[tier], "tier/kind mismatch")
+    if "archive_sha256" in source:
+        require(re.fullmatch(r"[0-9a-f]{64}", string(source["archive_sha256"])), "invalid archive digest")
     repo = fields(source["repository"], "url commit path")
     url = urlsplit(string(repo["url"]))
     require(url.scheme == "https" and url.hostname and not url.username and not url.password
@@ -88,18 +94,37 @@ def record(path):
     basis = platform["version_basis"]
     require(basis in {"unknown", "source_stated", "observed"}, "invalid version basis")
     values = [platform[k] for k in ("family", "model", "version")]
-    require(all(v == "unstated" for v in values) if basis == "unknown"
+    require(platform["version"] == "unstated" if basis == "unknown"
             else all(v != "unstated" for v in values), "platform/version must be stated or explicitly unstated")
     require(tier != "P" or basis != "observed", "public samples use source_stated or unknown")
     licence = fields(data["licence"], "name redistribution notice")
     string(licence["name"])
     string(licence["notice"])
     require(licence["redistribution"] == "public", "raw bytes require public redistribution permission")
+    if "capture" in data:
+        capture = fields(data["capture"], "tool form utc attempted succeeded read_scope")
+        for key in ("tool", "form", "read_scope"):
+            string(capture[key])
+        if capture["utc"] is not None:
+            require(datetime.fromisoformat(string(capture["utc"])).tzinfo is not None, "capture time requires timezone")
+        require(all(v is None or type(v) is bool for v in (capture["attempted"], capture["succeeded"]))
+                and (capture["succeeded"] is not True or capture["attempted"] is True), "invalid capture outcome")
+    if "privacy" in data:
+        privacy = fields(data["privacy"], "scanner_version result exemption")
+        string(privacy["scanner_version"])
+        require(privacy["result"] == "pass" and privacy["exemption"] is None, "privacy declaration refused")
+    if "line_count" in data:
+        require(type(data["line_count"]) is int and data["line_count"] >= 0, "invalid line count")
+    if "format_floor" in data:
+        require(type(data["format_floor"]) is bool and (not data["format_floor"] or
+                (tier == "P" and basis == "source_stated")), "invalid format-floor declaration")
     digest = string(data["sha256"])
     require(re.fullmatch(r"[0-9a-f]{64}", digest), "invalid raw-byte SHA-256")
     raw = path.parent / name
     require(not raw.is_symlink() and raw.is_file(), "raw file missing or linked")
-    require(hashlib.sha256(raw.read_bytes()).hexdigest() == digest, "raw-byte SHA-256 mismatch")
+    payload = raw.read_bytes()
+    require(hashlib.sha256(payload).hexdigest() == digest, "raw-byte SHA-256 mismatch")
+    require("line_count" not in data or data["line_count"] == payload.count(b"\n") + int(bool(payload) and not payload.endswith(b"\n")), "line count mismatch")
     return raw, data["fixture_id"]
 
 
