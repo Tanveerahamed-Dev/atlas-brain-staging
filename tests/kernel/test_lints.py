@@ -71,3 +71,17 @@ def test_product_tree_passes_all_fifteen_lints():
     failures = [(p.as_posix(), lint(p.read_text(encoding='utf-8'), p.as_posix()))
                 for p in sorted(Path('atlas_brain').rglob('*.py'))]
     assert not [(p, hits) for p, hits in failures if hits]
+
+
+def test_result_constructor_exception_is_only_inside_verdict_function():
+    path = 'atlas_brain/kernel/verdict.py'
+    assert (4, 2) in lint('def helper():\n return CheckResult()', path)
+    assert not lint('def verdict():\n def result():\n  return CheckResult()', path)
+
+
+def test_runner_has_only_one_top_level_broad_handler():
+    path = 'atlas_brain/runner/__main__.py'
+    handler = 'try:\n pass\nexcept BaseException:\n pass\n'
+    assert not lint(handler, path)
+    assert 5 in {r for r, _ in lint(handler + handler, path)}
+    assert 5 in {r for r, _ in lint('def unrelated():\n try:\n  pass\n except BaseException:\n  pass', path)}

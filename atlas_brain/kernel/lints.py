@@ -80,6 +80,17 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     def contains(node: ast.AST, names: tuple[str, ...]) -> bool:
         return any(tail(n) in names for n in ast.walk(node))
 
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+
+    def inside_verdict(node: ast.AST) -> bool:
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, ast.FunctionDef) and node.name == 'verdict' and isinstance(parents[node], ast.Module):
+                return True
+        return False
+
+    broad_handlers = tuple(n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and
+                           (n.type is None or contains(n.type, ('BaseException',))))
     findings: set[tuple[int, int]] = set()
 
     def hit(rule: int, node: ast.AST) -> None:
@@ -118,8 +129,12 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 hit(3, node)
         if isinstance(node, ast.ExceptHandler):
             broad = node.type is None or contains(node.type, ('BaseException',))
-            if broad and path != 'atlas_brain/runner/__main__.py':
-                hit(5, node)
+            if broad:
+                owner = parents[parents[node]]
+                top = isinstance(owner, ast.Module) or (isinstance(owner, ast.FunctionDef) and
+                      owner.name == 'main' and isinstance(parents[owner], ast.Module))
+                if path != 'atlas_brain/runner/__main__.py' or len(broad_handlers) != 1 or not top:
+                    hit(5, node)
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or '', *[f'{node.module}.{a.name}' for a in node.names]]
             for module in modules:
@@ -129,7 +144,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                     hit(8, node)
                 if path not in RUNNER and any(module == d or module.startswith(d + '.') for d in DENIED):
                     hit(14, node)
-        if isinstance(node, (ast.For, ast.comprehension)):
+        if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             iterator = node.iter
             if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and tail(iterator.func) in ('set', 'frozenset')):
                 hit(11, node)
@@ -141,7 +156,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
         short = tail(node.func)
         if short == 'get' and (len(node.args) > 1 or node.keywords):
             hit(3, node)
-        if short == 'CheckResult' and path != 'atlas_brain/kernel/verdict.py':
+        if short == 'CheckResult' and (path != 'atlas_brain/kernel/verdict.py' or not inside_verdict(node)):
             hit(4, node)
         if fact_path and (short == 'float' or called.startswith('math.')):
             hit(7, node)
