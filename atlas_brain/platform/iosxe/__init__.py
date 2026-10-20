@@ -123,12 +123,19 @@ def _version(raw: bytes, capture: CaptureId, parsed: ParseResult) -> Known[str] 
                  evidence=tuple(_reference(raw, capture, field.span) for field in fields), raw=text)
 
 
+def _mixed_families(parsed: ParseResult) -> bool:
+    xe, ios, other = (_fields(parsed, name) for name in ("xe_banner", "ios_banner", "other_banner"))
+    return bool((xe and ios) or (other and (xe or ios)))
+
 def detection_version(raw: bytes, capture: CaptureId) -> Known[str] | Unknown:
     """Keep the printed XE token; a build token is never a release/train attestation."""
     hazard = _hazard(raw, capture)
     if hazard is not None:
         return hazard
-    return _version(raw, capture, run_rules(raw, capture, _RULES, ()))
+    parsed = run_rules(raw, capture, _RULES, ())
+    if _mixed_families(parsed):
+        return _unknown(raw, capture, UnknownReason.IDENTITY_AMBIGUOUS, "conflicting_family_markers")
+    return _version(raw, capture, parsed)
 
 
 def detect(raw: bytes, capture: CaptureId) -> Known[str] | Unknown:
@@ -140,7 +147,7 @@ def detect(raw: bytes, capture: CaptureId) -> Known[str] | Unknown:
     xe = _fields(parsed, "xe_banner")
     ios = _fields(parsed, "ios_banner")
     other = _fields(parsed, "other_banner")
-    if other and (xe or ios):
+    if _mixed_families(parsed):
         return _unknown(raw, capture, UnknownReason.IDENTITY_AMBIGUOUS, "conflicting_family_markers")
     family: Literal["ios", "iosxe"]
     if xe and not other:
