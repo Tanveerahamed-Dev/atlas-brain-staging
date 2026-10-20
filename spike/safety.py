@@ -111,7 +111,12 @@ def census(directories=None):
         import site
         directories = [Path(p) for p in site.getsitepackages()] + [Path(p) for p in sys.path if Path(p).exists()]
     rows = []
-    for directory in sorted(set(directories)):
+    pending, visited = list(sorted(set(directories))), set()
+    while pending:
+        directory = pending.pop(0).resolve()
+        if directory in visited:
+            continue
+        visited.add(directory)
         if directory.is_file():
             import zipfile
             if zipfile.is_zipfile(directory):
@@ -135,6 +140,13 @@ def census(directories=None):
             rows.append({"name": path.name, "sha256": hashlib.sha256(raw).hexdigest(), "class": "executable" if executable else "path_only"})
             if executable:
                 raise ValueError("startup_code_unadmitted:" + path.name)
+            if name.endswith(".pth"):
+                for line in lines:
+                    line = line.rstrip()
+                    if line and not line.startswith("#"):
+                        candidate = directory / line
+                        if candidate.exists():
+                            pending.append(candidate)
     return rows
 
 

@@ -35,13 +35,35 @@ def baseline_path():
     return ROOT / ".s0" / f"startup-{sys.platform}-{version}-{environment}-{sys.flags.no_site}.json"
 
 
-def allowed_origin(name, origin, stdlib, catalogue, excluded):
+def stdlib_roots():
+    return [Path(sysconfig.get_path("stdlib")), Path(sysconfig.get_path("platstdlib")),
+            Path(sys.base_prefix) / "DLLs", Path(sys.base_prefix) / f"python{sys.version_info.major}{sys.version_info.minor}.zip"]
+
+
+def stdlib_names(roots):
+    names = set(sys.stdlib_module_names) | set(sys.builtin_module_names)
+    suffixes = sorted(importlib.machinery.all_suffixes(), key=len, reverse=True)
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for entry in root.iterdir():
+            if entry.is_dir() and (entry / "__init__.py").is_file():
+                names.add(entry.name)
+            elif entry.is_file():
+                for suffix in suffixes:
+                    if entry.name.endswith(suffix):
+                        names.add(entry.name[:-len(suffix)])
+                        break
+    return names
+
+
+def allowed_origin(name, origin, stdlib, catalogue, excluded, names=None):
     if name in catalogue:
         row = catalogue[name]
         path = Path(origin).resolve() if origin not in (None, "built-in", "frozen") else None
         return path == Path(row["path"]).resolve() and not Path(origin).is_symlink() and hashlib.sha256(path.read_bytes()).hexdigest() == row["sha256"]
-    generated = sysconfig._get_sysconfigdata_name() if sys.platform != "win32" and hasattr(sysconfig, "_get_sysconfigdata_name") else None
-    if name.split(".")[0] not in sys.stdlib_module_names and name not in sys.builtin_module_names and name != generated:
+    names = stdlib_names(stdlib) if names is None else names
+    if name.split(".")[0] not in names:
         return False
     if origin in ("built-in", "frozen"):
         return True
@@ -73,8 +95,8 @@ def install(snapshot, role):
     closure = json.loads((ROOT / ".s0" / "import-closure.json").read_bytes())
     for name, row in closure.items():
         catalogue[name] = {"path": str(ROOT / row["path"]), "sha256": row["sha256"]}
-    stdlib = [Path(sysconfig.get_path("stdlib")), Path(sysconfig.get_path("platstdlib")),
-              Path(sys.base_prefix) / "DLLs", Path(sys.base_prefix) / f"python{sys.version_info.major}{sys.version_info.minor}.zip"]
+    stdlib = stdlib_roots()
+    names = set(reference["stdlib_names"])
     excluded = [Path(p) for p in site.getsitepackages()]
     def validate(name, origin):
         if name in ("__main__", "__mp_main__"):
@@ -87,7 +109,7 @@ def install(snapshot, role):
                 name = "spike." + Path(origin).stem
             else:
                 raise ValueError("unadmitted_main")
-        if not allowed_origin(name, origin, stdlib, catalogue, excluded):
+        if not allowed_origin(name, origin, stdlib, catalogue, excluded, names):
             raise ValueError("import_unadmitted:" + name)
     for name, module in tuple(sys.modules.items()):
         if module is None:
@@ -101,7 +123,7 @@ def install(snapshot, role):
                     or importlib.machinery.FrozenImporter.find_spec(fullname, path)
                     or importlib.machinery.PathFinder.find_spec(fullname, path))
             if spec is None:
-                if fullname.split(".")[0] in sys.stdlib_module_names:
+                if fullname.split(".")[0] in names:
                     # Portable stdlib code probes platform-specific modules using
                     # try/import/except ImportError (for example fcntl on Windows).
                     return None

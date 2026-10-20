@@ -32,6 +32,13 @@ class StartupTests(unittest.TestCase):
             self.assertFalse(allowed_origin("json", str(directory / "json.py"), [stdlib], {}, []))
             self.assertFalse(allowed_origin("json", str(stdlib / "site-packages" / "json.py"), [stdlib], {}, [stdlib / "site-packages"]))
 
+    def test_generated_stdlib_inventory_covers_new_interpreter_modules(self):
+        from spike.admission import stdlib_names
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            (directory / "_generated_interpreter_metadata.py").write_bytes(b"data = {}\n")
+            self.assertIn("_generated_interpreter_metadata", stdlib_names([directory]))
+
     def test_unlisted_or_modified_engine_module_is_refused(self):
         from spike.admission import allowed_origin
         import hashlib
@@ -66,6 +73,17 @@ class StartupTests(unittest.TestCase):
                 archive.writestr("sitecustomize/__init__.py", "import os\n")
             with self.assertRaisesRegex(ValueError, "startup_code_unadmitted"):
                 census([path])
+
+    def test_prestart_census_follows_path_only_pth_without_running_it(self):
+        from spike.safety import census
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            extra = directory / "extra"
+            extra.mkdir()
+            (extra / "sitecustomize.py").write_bytes(b"import os\n")
+            (directory / "paths.pth").write_bytes(b"extra\n")
+            with self.assertRaisesRegex(ValueError, "startup_code_unadmitted"):
+                census([directory])
 
 
 if __name__ == "__main__":

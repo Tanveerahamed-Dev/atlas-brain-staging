@@ -30,9 +30,12 @@ def main():
         first = subprocess.check_output(command)
         if first != subprocess.check_output(command):
             raise ValueError("unstable_clean_startup_reference")
+        from spike.admission import stdlib_names, stdlib_roots
+        reference = json.loads(first)
+        reference["stdlib_names"] = sorted(stdlib_names(stdlib_roots()))
         environment = "venv" if sys.prefix != sys.base_prefix else "base"
         path = ROOT / ".s0" / f"startup-{sys.platform}-{'.'.join(str(i) for i in sys.version_info[:3])}-{environment}-{no_site}.json"
-        path.write_bytes(first)
+        path.write_text(json.dumps(reference, sort_keys=True) + "\n", encoding="ascii")
 
 
 if __name__ == "__main__":
