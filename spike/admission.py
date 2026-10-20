@@ -1,5 +1,6 @@
 """Runtime-only startup baseline and origin/hash-bound import admission."""
 import hashlib
+import _imp
 import importlib.machinery
 import json
 from pathlib import Path
@@ -22,6 +23,12 @@ def deny_import(name):
     raise ImportDenied("import_unadmitted:" + name)
 
 
+def require():
+    if not INSTALLED:
+        raise ValueError("runtime_admission_required")
+    return RECEIPT
+
+
 def compare_startup(actual, expected):
     if set(actual) != set(expected):
         raise ValueError("startup_module_baseline:" + json.dumps({"extra": sorted(set(actual) - set(expected)),
@@ -41,9 +48,17 @@ def stdlib_roots():
 
 
 def stdlib_names(roots):
-    names = set(sys.stdlib_module_names) | set(sys.builtin_module_names)
+    names = set(sys.stdlib_module_names) | set(sys.builtin_module_names) | set(_imp._frozen_module_names())
     suffixes = sorted(importlib.machinery.all_suffixes(), key=len, reverse=True)
     for root in roots:
+        if root.is_file():
+            import zipfile
+            if zipfile.is_zipfile(root):
+                with zipfile.ZipFile(root) as archive:
+                    for entry in archive.namelist():
+                        if entry.endswith((".py", ".pyc")) and ("/" not in entry or entry.endswith(("/__init__.py", "/__init__.pyc"))):
+                            names.add(entry.split("/")[0].removesuffix(".pyc").removesuffix(".py"))
+            continue
         if not root.is_dir():
             continue
         for entry in root.iterdir():
@@ -84,7 +99,7 @@ def install(snapshot, role):
     reference_path = baseline_path()
     raw = reference_path.read_bytes()
     reference = json.loads(raw)
-    if reference["version"] != sys.version or reference["no_site"] != sys.flags.no_site:
+    if reference["version"] != sys.version or reference["no_site"] != sys.flags.no_site or reference["venv"] != (sys.prefix != sys.base_prefix):
         raise ValueError("startup_interpreter_baseline")
     compare_startup(snapshot, reference[role])
     census = safety.census()

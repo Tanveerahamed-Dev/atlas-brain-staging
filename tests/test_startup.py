@@ -5,6 +5,12 @@ import unittest
 
 
 class StartupTests(unittest.TestCase):
+    def test_direct_runtime_entry_cannot_claim_uninstalled_admission(self):
+        from types import SimpleNamespace
+        from spike.runtime import execute
+        with self.assertRaisesRegex(ValueError, "runtime_admission_required"):
+            execute(SimpleNamespace(), ())
+
     def test_swallowed_import_denial_still_counts(self):
         from spike import admission, safety
         before = safety.VIOLATIONS
@@ -38,6 +44,18 @@ class StartupTests(unittest.TestCase):
             directory = Path(root)
             (directory / "_generated_interpreter_metadata.py").write_bytes(b"data = {}\n")
             self.assertIn("_generated_interpreter_metadata", stdlib_names([directory]))
+
+    def test_stdlib_inventory_covers_frozen_and_zip_classes(self):
+        from spike.admission import stdlib_names
+        import _imp
+        import zipfile
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "stdlib.zip"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("_generated_zip_metadata.py", "data = {}\n")
+            names = stdlib_names([path])
+            self.assertIn("_generated_zip_metadata", names)
+            self.assertTrue(set(_imp._frozen_module_names()) <= names)
 
     def test_unlisted_or_modified_engine_module_is_refused(self):
         from spike.admission import allowed_origin

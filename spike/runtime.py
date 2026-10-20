@@ -41,6 +41,8 @@ def verify_manual_isolation(args):
 
 def initialize(expected, expected_census, expected_catalogue, control=None):
     global _PARENT, _START
+    from spike.admission import require
+    require()
     safety.install(worker=True)
     _START = time.perf_counter_ns()
     _PARENT = expected
@@ -182,6 +184,8 @@ def pool_run(payloads, workers, recycle, expected, census, catalogue, progress, 
 
 
 def execute(args, startup_modules):
+    from spike import admission
+    admission.require()
     from spike.estate import estate_stages, CHECKS
     if sys.version_info[:3] not in ((3, 14, 8), (3, 15, 0)):
         raise ValueError("interpreter_pin")
@@ -275,8 +279,11 @@ def execute(args, startup_modules):
                                "requested_hash_seed": os.environ.get("PYTHONHASHSEED"), "hash_seed_effective": args.expected_seed if args.manual_isolation else "random (-I ignores PYTHONHASHSEED)",
                                "startup_modules": startup_modules, "startup_census": census,
                                "catalogue": catalogue, "imports": sorted(safety.IMPORTS), "creations": safety.CREATIONS,
-                               "startup_baseline_enforced": True,
-                               "admission": __import__("spike.admission", fromlist=["RECEIPT"]).RECEIPT},
+                               "startup_baseline_enforced": admission.INSTALLED,
+                               "interpreter": {"executable": sys.executable, "prefix": sys.prefix, "base_prefix": sys.base_prefix,
+                                               "venv": sys.prefix != sys.base_prefix},
+                               "worker_imports": sorted({name for n in nodes for name in n.get("imports", [])}),
+                               "admission": admission.RECEIPT},
                    "workers": [{k: v for k, v in n.items() if k not in ("estate_rows", "route_summary")} for n in nodes]}
         if sys.platform == "linux":
             peak = Path("/sys/fs/cgroup/memory.peak")
