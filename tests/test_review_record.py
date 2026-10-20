@@ -18,7 +18,7 @@ def test_bound_independent_record_passes():
 
 
 @pytest.mark.parametrize("plant", ["stale_head", "stale_base", "stale_diff", "wrong_author",
-                                   "same_model", "same_session", "same_family", "blocked", "empty_authors"])
+                                   "same_model", "same_session", "same_family", "blocked", "empty_authors", "missing_family"])
 def test_planted_review_violations_fail(plant):
     record, summary, authors = evidence()
     if plant.startswith("stale_"):
@@ -34,6 +34,8 @@ def test_planted_review_violations_fail(plant):
         record["reviewer"]["model_family"] = authors[0]["model_family"]
     elif plant == "blocked":
         record["verdict"] = "block"
+    elif plant == "missing_family":
+        del authors[0]["model_family"]
     else:
         record["authors"] = []
     with pytest.raises(ValueError, match="AD-06"):
@@ -46,10 +48,3 @@ def test_same_family_requires_exact_approved_model_pair():
     verify(record, summary, authors, [["synthetic-author", "synthetic-reviewer"]])
     with pytest.raises(ValueError, match="AD-06"):
         verify(record, summary, authors, [["other-author", "synthetic-reviewer"]])
-
-
-def test_missing_author_family_evidence_fails():
-    record, summary, authors = evidence()
-    del authors[0]["model_family"]
-    with pytest.raises(ValueError, match="AD-06"):
-        verify(record, summary, authors, [])

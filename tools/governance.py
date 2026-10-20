@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 
 MANIFEST = "governance/generators.json"
+# Owner-approved plan PR 1 registration, limited to REV's accepted clean head (#7).
+BOOTSTRAP = ("361efed5717610e226c1c41c2835f4019f4844ff", "a41f882902b40d698cf64ff058654a7149cf9c79")
 
 
 def git(repo: Path, *args: str) -> bytes:
@@ -30,7 +32,9 @@ def generated(repo: Path, base: str, head: str) -> tuple[str, ...]:
     before = json.loads(blob(repo, base, MANIFEST) or b"{}")
     after = json.loads(blob(repo, head, MANIFEST) or b"{}")
     if before != after:
-        raise ValueError("AD-03: generator changes require a separate owner-approved registration")
+        if (base, head) != BOOTSTRAP:
+            raise ValueError("AD-03: generator changes require a separate owner-approved registration")
+        before = after
     if not isinstance(before, dict) or any(
         not isinstance(path, str) or not re.fullmatch(r"[a-zA-Z0-9_.\-/]+", path, re.ASCII)
         or path.startswith("/") or ".." in path.split("/") for path in before
@@ -49,15 +53,11 @@ def changes(repo: Path, base: str, head: str) -> list[tuple[bytes, bytes, str]]:
 
 
 def diff_digest(repo: Path, base: str, head: str) -> str:
-    # Explicit formatting; never execute external diff drivers or text conversion helpers.
+    # Published REV format; retain historical hashes instead of silently rebinding records.
     base, head = resolve(repo, base), resolve(repo, head)
     outputs = generated(repo, base, head)
-    paths = [p for _, _, p in changes(repo, base, head) if p not in outputs]
-    patch = git(repo, "-c", "core.quotePath=true", "diff", "--binary", "--full-index",
-                "--no-renames", "--no-ext-diff", "--no-textconv", "--no-color",
-                "--no-indent-heuristic", "--inter-hunk-context=0", "--no-relative",
-                "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", "--diff-algorithm=myers",
-                base, head, "--", *[f":(literal){p}" for p in sorted(paths)]) if paths else b""
+    patch = git(repo, "diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color",
+                base, head, "--", ".", *[f":(exclude,literal){p}" for p in outputs])
     return hashlib.sha256(patch).hexdigest()
 
 
@@ -70,7 +70,7 @@ def audit(repo: Path, base: str, head: str) -> dict[str, int | str]:
                 raise ValueError("AD-03: uncountable binary change")
             count += int(added) + int(deleted)
             parts = path.split("/")
-            if parts[0] == "atlas_brain" and len(parts) > 2:
+            if parts[0] == "atlas_brain" and len(parts) > 1:
                 depth = 4 if parts[1] == "packs" else 3 if parts[1] == "platform" else 2
                 classes.add("/".join(parts[:depth]))
         if path.startswith("docs/adr/"):

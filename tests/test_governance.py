@@ -1,5 +1,6 @@
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -48,7 +49,7 @@ def test_size_boundary_and_generated_diff(repo):
         audit(repo, base, "HEAD")
 
 
-@pytest.mark.parametrize("plant", ["self_exemption", "binary", "two_modules"])
+@pytest.mark.parametrize("plant", ["self_exemption", "binary", "two_modules", "root_modules"])
 def test_size_refuses_planted_bypasses(repo, plant):
     base = git(repo, "rev-parse", "HEAD")
     if plant == "self_exemption":
@@ -56,8 +57,9 @@ def test_size_refuses_planted_bypasses(repo, plant):
     elif plant == "binary":
         (repo / "blob.bin").write_bytes(bytes([0, 1, 2]))
     else:
-        write(repo, "atlas_brain/kernel/a.py", "# synthetic\n")
-        write(repo, "atlas_brain/model/b.py", "# synthetic\n")
+        prefixes = ("kernel/", "model/") if plant == "two_modules" else ("", "")
+        write(repo, f"atlas_brain/{prefixes[0]}a.py", "# synthetic\n")
+        write(repo, f"atlas_brain/{prefixes[1]}b.py", "# synthetic\n")
     commit(repo)
     with pytest.raises(ValueError, match="AD-03"):
         audit(repo, base, "HEAD")
@@ -123,3 +125,8 @@ def test_review_cli_replays_complete_corpus_and_refuses_missing_item(repo, monke
     assert main() == 0
     write(repo, "evidence.json", json.dumps(cases[:-1]))
     assert main() == 1
+
+
+@pytest.mark.parametrize("case", json.loads(Path("fixtures/governance/historical-reviews.json").read_text(encoding="utf-8")))
+def test_real_review_hashes_including_bootstrap(case):
+    assert diff_digest(Path.cwd(), case["base_sha"], case["head_sha"]) == case["diff_sha256"]
