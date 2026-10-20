@@ -7,6 +7,8 @@ import ast
 import re
 from hashlib import sha256
 
+from .token_lints import fallback_node
+
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
           'atlas_brain/runner/coordinator.py')
@@ -41,7 +43,7 @@ def nested_unbounded(pattern: str) -> bool:
             last_group = stack.pop() if len(stack) > 1 else False
             stack[-1] |= last_group
             continue
-        elif char in '*+' or (char == '{' and re.match(r'\{\d+,\}', pattern[index:], re.ASCII)):
+        elif char in '*+' or (char == '{' and re.search(r'^\{\d+,\}', pattern[index:], re.ASCII)):
             if last_group:
                 return True
             stack[-1] = True
@@ -119,11 +121,11 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     findings: set[tuple[int, int]] = set()
 
     def hit(rule: int, node: ast.AST) -> None:
-        findings.add((rule, getattr(node, 'lineno', 1)))
+        findings.add((rule, node.lineno if isinstance(node, (ast.stmt, ast.expr, ast.ExceptHandler)) else 1))
 
     sets: set[str] = set()
     for node in ast.walk(tree):
-        if fact_path and ((isinstance(node, ast.Constant) and type(node.value).__name__ == 'float') or
+        if fact_path and ((isinstance(node, ast.Constant) and not isinstance(node.value, (str, bytes, int, type(None), type(Ellipsis)))) or
                           (isinstance(node, ast.Name) and node.id == 'float')):
             hit(7, node)
         if isinstance(node, ast.AnnAssign) and contains(node.annotation, ('set', 'frozenset')) and isinstance(node.target, ast.Name):
@@ -148,11 +150,8 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 for field in node.body:
                     if isinstance(field, ast.AnnAssign) and field.value is not None and not contains(field.annotation, ('ClassVar',)):
                         hit(2, field)
-        if isinstance(node, (ast.If, ast.IfExp, ast.Match)):
-            test = node.subject if isinstance(node, ast.Match) else node.test
-            fallback = any(isinstance(p, ast.MatchAs) for case in node.cases for p in ast.walk(case.pattern)) if isinstance(node, ast.Match) else bool(node.orelse)
-            if fallback and any(isinstance(n, ast.Name) and 'token' in n.id.lower() for n in ast.walk(test)):
-                hit(3, node)
+        if fallback_node(node, name(node.func) if isinstance(node, ast.Call) else ''):
+            hit(3, node)
         if isinstance(node, ast.ExceptHandler) and (node.type is None or contains(node.type, ('BaseException',))):
             hit(5, node)
         if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -174,8 +173,6 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             continue
         called = name(node.func)
         short = tail(node.func)
-        if short == 'setdefault' or (short == 'get' and (len(node.args) > 1 or node.keywords)):
-            hit(3, node)
         if short == 'CheckResult' and (path != 'atlas_brain/kernel/verdict.py' or not inside_verdict(node)):
             hit(4, node)
         if fact_path and (short == 'float' or called.startswith('math.')):
