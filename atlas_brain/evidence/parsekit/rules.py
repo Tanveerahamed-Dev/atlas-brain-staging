@@ -35,6 +35,7 @@ class TokenMap:
 
     def __post_init__(self) -> None:
         if (type(self.entries) is not tuple or not self.entries
+                or any(type(row) is not tuple for row in self.entries)
                 or any(type(k) is not str for k, _ in self.entries)
                 or len(dict(self.entries)) != len(self.entries)
                 or any(not _is_enum(v) for _, v in self.entries)
