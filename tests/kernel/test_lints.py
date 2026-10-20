@@ -41,6 +41,7 @@ def test_every_lint_fires_on_its_plant(rule, source):
     ('x = 1 #pyright:ignore[reportAssignmentType]', 6),
     ('x = 1 # pyright: ignore[reportAssignmentType] reviewer:', 6),
     ('value = 1.5', 7),
+    ('value = 1j', 7),
     ('class R:\n value: float', 7),
     ('from zoneinfo import ZoneInfo as Z\nz = Z("UTC")', 8),
     ('import time\nx = time.localtime()', 8),
@@ -62,6 +63,7 @@ def test_alias_and_alternate_plants(source, rule):
 @pytest.mark.parametrize('source', [
     '@dataclass(frozen=True)\nclass Record:\n value: int',
     'value = tokens[token]',
+    'values = (1, True, None, Ellipsis, "token", b"bytes")',
     'match token:\n case "up": value = 1\n case "down": value = 0',
     'match fact:\n case Known(): pass\n case _ as impossible: assert_never(impossible)',
     'x = 1 # pyright: ignore[reportAssignmentType] reviewer: REV',
@@ -81,13 +83,10 @@ def test_product_tree_passes_all_fifteen_lints():
     assert not [(p, hits) for p, hits in failures if hits]
 
 
-def test_result_constructor_exception_is_only_inside_verdict_function():
+def test_constructor_boundary_and_finding_locations():
     path = 'atlas_brain/kernel/verdict.py'
     assert (4, 2) in lint('def helper():\n return CheckResult()', path)
     assert not lint('def verdict():\n def result():\n  return CheckResult()', path)
-
-
-def test_findings_keep_source_line_numbers():
     assert lint('x = 1\nvalue = tokens.get(token, "up")', 'atlas_brain/packs/example/parser.py') == ((3, 2),)
 
 
