@@ -108,6 +108,8 @@ class Attempt:
     transport_defect: str
 
     def __post_init__(self) -> None:
+        if any(type(value) is not str or not value.strip() for value in (self.source, self.operation)):
+            raise AdmissionRefused("invalid_operation_identity")
         if self.attempted not in ("yes", "no", "unknown") or self.succeeded not in ("yes", "no", "unknown"):
             raise AdmissionRefused("invalid_attempt")
         if self.succeeded != "unknown" and self.attempted != "yes":
@@ -191,6 +193,8 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
         row = record(value, ("path", "source", "operation", "rendered", "codec", "sha256", "prompt_verified"))
         path, source, operation, rendered, codec, digest = (string(row, f) for f in ("path", "source", "operation", "rendered", "codec", "sha256"))
         member_names([path])
+        if PurePosixPath(path).parts[:-1] != ("devices", source, "captures"):
+            raise AdmissionRefused("capture_source_path_mismatch")
         paths.append(path)
         if path not in members or sha256(members[path]).hexdigest() != digest or path == "manifest.json":
             raise AdmissionRefused("capture_hash_mismatch")
@@ -205,9 +209,15 @@ def import_folder(root: Path, budgets: Budgets) -> Bundle:
             lines = text_lines(raw, codec)
         except (ValueError, LookupError) as error:
             raise AdmissionRefused("unsupported_capture_codec") from error
-        captures.append(Capture(CaptureId("cap:" + sha256(json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode() + b"\0" + raw).hexdigest()), EntityKey("node:" + source),
+        captures.append(Capture(capture_identity(row, attempt, raw), EntityKey("node:" + source),
                                 operation, rendered, codec, raw, classify_cli(raw, attempt.succeeded, row["prompt_verified"]),
                                 lines, ReadScope.UNKNOWN, ViewConsistency.UNKNOWN))
     member_names(paths)
     return Bundle(string(manifest, "bundle_id"), string(manifest, "importer"), sha256(members["manifest.json"]).hexdigest(),
                   budgets.sha256, tuple(attempts), tuple(captures))
+
+
+def capture_identity(row: dict[str, object], attempt: Attempt, raw: bytes) -> CaptureId:
+    metadata = {"capture": row, "attempt": asdict(attempt)}
+    canonical = json.dumps(metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return CaptureId("cap:" + sha256(canonical + b"\0" + raw).hexdigest())
