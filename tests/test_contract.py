@@ -120,3 +120,35 @@ def test_canonical_recursive_roundtrip_property():
         encoded = canonical(value)
         assert canonical(json.loads(encoded)) == encoded
     roundtrip()
+
+
+@pytest.mark.parametrize("operation", ["add", "sub", "mul", "matmul", "truediv",
+    "floordiv", "mod", "pow", "lshift", "rshift", "and", "or", "xor"])
+@pytest.mark.parametrize("prefix", ["", "r", "i"])
+def test_arithmetic_protocol_family_is_refused(operation, prefix):
+    assert violations(f"result = left.__{prefix}{operation}__(right)")
+    assert violations(f"operation = left.__{prefix}{operation}__")
+
+
+@pytest.mark.parametrize("operation", ["neg", "pos", "invert", "abs", "round", "divmod"])
+def test_unary_and_numeric_protocol_calls_are_refused(operation):
+    assert violations(f"result = value.__{operation}__()")
+
+
+def test_workflow_concurrency_separates_main_pr_and_merge_group_heads():
+    import re
+    from pathlib import Path
+    source = Path(".github/workflows/contract.yml").read_text(encoding="utf-8")
+    group = re.search(r"^  group: (.+)$", source, re.MULTILINE).group(1)
+
+    def distinct_heads(template):
+        keys = {template.replace("${{ github.event_name }}", event).replace("${{ github.sha }}", sha)
+            for event in ("push", "pull_request", "merge_group") for sha in ("head-a", "head-b")}
+        return len(keys) == 6
+
+    assert distinct_heads(group)
+    assert not distinct_heads("ct-${{ github.workflow }}")  # Planted shared main key.
+    assert not distinct_heads("ct-${{ github.sha }}")  # Planted cross-event collision.
+    assert "  cancel-in-progress: false" in source
+    assert "  pull_request:" in source and "  merge_group:" in source
+    assert "  push:\n    branches: [main]" in source
