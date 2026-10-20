@@ -34,6 +34,7 @@ from atlas_brain.kernel.lints import lint
     ('def mapped(raw):\n if raw == "up": return "up"\n else: return "up" + ""', 3),
     ('def assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
     ('from typing import assert_never\ndef assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
+    ('from typing import assert_never\ndef mapped(fact, raw):\n match fact:\n  case Known(value=assert_never): pass\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
     ('match fact:\n case Known(): pass\n case _ as impossible: assert_never(impossible)', 3),
     ('from collections import defaultdict as DD\nvalues = DD(lambda: "up")', 3),
     ('value = tokens.get(token) or "up"', 3),
@@ -99,9 +100,8 @@ def test_product_tree_passes_all_fifteen_lints():
 
 
 def test_constructor_boundary_and_finding_locations():
-    path = 'atlas_brain/kernel/verdict.py'
-    assert (4, 2) in lint('def helper():\n return CheckResult()', path)
-    assert not lint('def verdict():\n def result():\n  return CheckResult()', path)
+    assert (4, 2) in lint('def helper():\n return CheckResult()', 'atlas_brain/kernel/verdict.py')
+    assert not lint('def verdict():\n def result():\n  return CheckResult()', 'atlas_brain/kernel/verdict.py')
     assert lint('x = 1\nvalue = tokens.get(token, "up")', 'atlas_brain/packs/example/parser.py') == ((3, 2),)
 
 
