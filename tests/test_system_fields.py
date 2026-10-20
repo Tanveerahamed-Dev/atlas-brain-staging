@@ -1,8 +1,15 @@
 """Synthetic field-extraction cases; these do not establish a platform floor."""
 from hashlib import sha256
 
-from atlas_brain.kernel.states import CaptureId, EvidenceRef, Known, Unknown, UnknownReason
 from atlas_brain.packs.platform.system.parsers.show_version import Unit, extract_fields
+
+from atlas_brain.kernel.states import (
+    CaptureId,
+    EvidenceRef,
+    Known,
+    Unknown,
+    UnknownReason,
+)
 
 CAPTURE = CaptureId("synthetic-cap-a")
 RAW = (b'sw-a uptime is 1 day, 2 hours, 3 minutes\r\n'
@@ -48,7 +55,7 @@ def test_unmapped_unit_keeps_raw_and_is_partial():
 
 
 def test_duplicate_and_reversed_units_are_refused():
-    for value in (b"1 day, 2 days", b"1 minute, 2 hours", b"one day", b"9007199254740992 seconds"):
+    for value in (b"1 day, 2 days", b"1 minute, 2 hours", b"one day", b"9007199254740992 seconds", b"9" * 5000 + b" seconds"):
         result = extract_fields(b"sw-a uptime is " + value + b"\n", CAPTURE)
         assert isinstance(result.uptime, Unknown)
         assert result.parse.quality == "partial"
