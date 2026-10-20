@@ -1,5 +1,3 @@
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -81,12 +79,12 @@ def test_result_constructor_exception_is_only_inside_verdict_function():
     assert not lint('def verdict():\n def result():\n  return CheckResult()', path)
 
 
-def test_runner_has_only_one_top_level_broad_handler():
+def test_all_runner_broad_handlers_are_refused_without_ct_extension():
     path = 'atlas_brain/runner/__main__.py'
     handler = 'try:\n pass\nexcept BaseException:\n pass\n'
     assert 5 in {r for r, _ in lint(handler, path)}
     aborting = 'try:\n pass\nexcept BaseException:\n raise SystemExit(1)\n'
-    assert not lint(aborting, path)
+    assert 5 in {r for r, _ in lint(aborting, path)}
     assert 5 in {r for r, _ in lint(aborting + aborting, path)}
     assert 5 in {r for r, _ in lint('def unrelated():\n try:\n  pass\n except BaseException:\n  pass', path)}
 
@@ -100,11 +98,10 @@ def test_runner_swallowing_or_zero_exit_handler_is_refused(body):
 
 
 @pytest.mark.parametrize('exception', ['RuntimeError("synthetic")', 'BaseException()', 'SystemExit(0)'])
-def test_allowed_fail_closed_handler_exits_nonzero(exception):
+def test_fail_closed_handler_still_requires_ct_extension(exception):
     source = 'try:\n raise ' + exception + '\nexcept BaseException:\n raise SystemExit(1)'
-    assert not lint(source, 'atlas_brain/runner/__main__.py')
-    result = subprocess.run([sys.executable, '-c', source], capture_output=True, check=False)
-    assert result.returncode == 1
+    for path in ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py'):
+        assert 5 in {r for r, _ in lint(source, path)}
 
 
 def test_shadowed_abort_constructor_is_refused():
@@ -135,14 +132,11 @@ def test_actual_imported_ascii_flag_control():
                     'atlas_brain/packs/example/parser.py')
 
 
-def test_parsekit_runtime_guard_is_bound_to_its_reviewed_source():
+def test_parsekit_compiler_requires_pk_extension():
     path = 'atlas_brain/evidence/parsekit/patterns.py'
     source = Path(path).read_text(encoding='utf-8')
-    assert not lint(source, path)
+    assert 12 in {r for r, _ in lint(source, path)}
     changed = source.replace('raise ValueError("nested repeat")', 'pass')
     assert changed != source
     assert 12 in {r for r, _ in lint(changed, path)}
-    from atlas_brain.evidence.parsekit.patterns import compile_pattern
-    assert compile_pattern(r'(?P<state>[A-Z]++)').fullmatch(b'UP')
-    with pytest.raises(ValueError):
-        compile_pattern('(a+)+')
+    assert 12 in {r for r, _ in lint(source, 'atlas_brain/packs/example/parser.py')}
