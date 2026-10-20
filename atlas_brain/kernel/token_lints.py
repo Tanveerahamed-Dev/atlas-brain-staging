@@ -20,12 +20,12 @@ def _lookup_value(node: ast.AST) -> bool:
         for part in ast.walk(node))
 
 
-def _terminal_assertion(pattern: ast.pattern, body: list[ast.stmt]) -> bool:
+def _terminal_assertion(pattern: ast.pattern, body: list[ast.stmt], assertions: frozenset[ast.Call]) -> bool:
     bound = {part.name for part in ast.walk(pattern) if isinstance(part, ast.MatchAs) and part.name}
     if len(body) != 1 or not isinstance(body[0], ast.Expr):
         return False
     call = body[0].value
-    return (isinstance(call, ast.Call) and _tail(call.func) == 'assert_never' and
+    return (isinstance(call, ast.Call) and call in assertions and
             len(call.args) == 1 and not call.keywords and
             isinstance(call.args[0], ast.Name) and call.args[0].id in bound)
 
@@ -43,21 +43,21 @@ def _enum_comparison(node: ast.AST) -> bool:
         for value in ast.walk(part)) for part in ast.walk(node))
 
 
-def _literal_branch(body: list[ast.stmt]) -> bool:
-    return bool(body) and isinstance(body[-1], (ast.Assign, ast.AnnAssign, ast.Return)) and isinstance(body[-1].value, ast.Constant)
+def _value_branch(body: list[ast.stmt]) -> bool:
+    return bool(body) and isinstance(body[-1], (ast.Assign, ast.AnnAssign, ast.Return))
 
 
-def fallback_node(node: ast.AST, called: str = '') -> bool:
-    """True means rule 3 must refuse this node; no code under scan executes."""
+def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset()) -> bool:
+    """Refuse defaults; assertion call witnesses require whole-module binding proof."""
     if isinstance(node, ast.Call):
         short = (called or _tail(node.func)).rsplit('.', 1)[-1]
         return short in ('get', 'setdefault', 'defaultdict') or (
             short == 'pop' and (len(node.args) > 1 or bool(node.keywords)))
     if isinstance(node, ast.IfExp):
         return (_lookup_value(node.body) or _lookup_value(node.orelse) or
-                (_enum_comparison(node.test) and isinstance(node.body, ast.Constant) and isinstance(node.orelse, ast.Constant)))
+                _enum_comparison(node.test))
     if isinstance(node, ast.If) and node.orelse:
-        return (_enum_comparison(node.test) and _literal_branch(node.body) and _literal_branch(node.orelse)) or any(_lookup_value(part.value)
+        return (_enum_comparison(node.test) and _value_branch(node.body) and _value_branch(node.orelse)) or any(_lookup_value(part.value)
                    for statement in node.body + node.orelse for part in ast.walk(statement)
                    if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
     if isinstance(node, ast.Match):
@@ -69,6 +69,6 @@ def fallback_node(node: ast.AST, called: str = '') -> bool:
         return any(not _literal_pattern(case.pattern) and
                    not (isinstance(case.pattern, ast.MatchClass) and
                         _tail(case.pattern.cls) in ('Known', 'Absent', 'Unknown', 'NotApplicable')) and
-                   not _terminal_assertion(case.pattern, case.body)
+                   not _terminal_assertion(case.pattern, case.body, assertions)
                    for case in node.cases)
     return False

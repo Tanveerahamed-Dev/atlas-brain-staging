@@ -21,6 +21,11 @@ from atlas_brain.kernel.token_lints import fallback_node
     'value = fields["state"] if "state" in fields else "up"',
     'def mapped(raw):\n if raw == "up": return 1\n else: return 2',
     'value = 1 if raw == "up" else 2',
+    'def mapped(raw):\n if raw == "up": return "up"\n else: return "up" + ""',
+    'if raw == "up": value = "up"\nelse: value = "up" + ""',
+    'value = "up" if raw == "up" else "up" + ""',
+    'def assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"',
+    'match raw:\n case _ as missing: assert_never(missing)',
     'match raw:\n case _: value = "up"',
     'match raw:\n case other: value = "up"',
     'match raw:\n case str(): value = "up"',
@@ -57,7 +62,12 @@ def test_fallback_shapes_are_refused(source):
     'if valid:\n value = 1\nelse:\n value = 2',
 ])
 def test_explicit_mapping_and_fact_dispatch_remain_valid(source):
-    assert not any(fallback_node(node) for node in ast.walk(ast.parse(source)))
+    tree = ast.parse(source)
+    # These structural fragments have a test-declared real assertion binding;
+    # the public lint entry point separately proves actual source bindings.
+    assertions = frozenset(node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                           and isinstance(node.func, ast.Name) and node.func.id == 'assert_never')
+    assert not any(fallback_node(node, assertions=assertions) for node in ast.walk(tree))
 
 
 def test_import_resolved_factory_alias_is_refused():

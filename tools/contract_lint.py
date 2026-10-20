@@ -24,6 +24,7 @@ OPTIONS = {"json.dumps": {"ensure_ascii", "separators"}, "dataclasses.dataclass"
 DECLARATIVE = {"collections.abc", "__future__"}
 BUILTIN_CALLS = {"type", "isinstance", "str", "range", "map", "sorted", "all", "tuple", "list", "dict"}
 EXCEPTIONS = {"ValueError", "TypeError"}
+TYPE_NAMES = {"str", "int", "bool", "bytes", "list", "tuple", "dict", "object", "type"}
 METHOD_CALLS = {"encode", "join", "fullmatch", "hexdigest", "items", "keys", "values"}
 STRUCTURAL = {ast.dump(ast.parse(text, mode="eval").body) for text in (
     "type(value) not in (type(None), bool, int, str, list, tuple, dict)",
@@ -80,7 +81,7 @@ def violations(source: str) -> list[int]:
             for target in ([member.target] if isinstance(member, ast.AnnAssign) else member.targets if isinstance(member, ast.Assign) else []):
                 members.update((n, n.id) for n in ast.walk(target) if isinstance(n, ast.Name))
     safe_names = BUILTIN_CALLS | trusted | local
-    protected = safe_names | set(aliases) | EXCEPTIONS
+    protected = safe_names | set(aliases) | EXCEPTIONS | TYPE_NAMES
     raises = {n.exc for n in ast.walk(tree) if isinstance(n, ast.Raise)}
 
     def qualified(node):
@@ -120,9 +121,21 @@ def violations(source: str) -> list[int]:
             return True  # Its body and bindings are inspected by the same walk.
         return admitted_call(callback) and not (isinstance(callback, ast.Name) and callback.id in {*VALIDATORS, "map", "sorted"})
 
+    def structural_type(node):
+        if isinstance(node, ast.Name):
+            return node.id in TYPE_NAMES
+        if isinstance(node, ast.Constant):
+            return node.value is None
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return structural_type(node.left) and structural_type(node.right)
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in {"list", "tuple", "dict"}:
+            parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            return all(structural_type(part) or (node.value.id == "tuple" and isinstance(part, ast.Constant) and part.value is Ellipsis) for part in parts)
+        return False  # Unknown names and literal operands cannot prove a type union.
+
     bad = []
     for node in ast.walk(tree):
-        if node in annotations and isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        if node in annotations and isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr) and structural_type(node):
             continue
         arithmetic = isinstance(node, (ast.BinOp, ast.AugAssign))
         unary = isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd, ast.Invert))
@@ -143,16 +156,16 @@ def violations(source: str) -> list[int]:
         shadow = (isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in protected) or (isinstance(node, ast.arg) and node.arg in protected)
         if isinstance(node, ast.alias):
             alias = node.asname or node.name.split(".")[0]
-            shadow = bindings[alias] > 1 or alias in BUILTIN_CALLS | EXCEPTIONS or alias in local
+            shadow = bindings[alias] > 1 or alias in BUILTIN_CALLS | EXCEPTIONS | TYPE_NAMES or alias in local
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            shadow = node.name in BUILTIN_CALLS | EXCEPTIONS or node.name in aliases
+            shadow = node.name in BUILTIN_CALLS | EXCEPTIONS | TYPE_NAMES or node.name in aliases
             call = any(not admitted_call(d.func if isinstance(d, ast.Call) else d) for d in node.decorator_list)
         if isinstance(node, ast.ExceptHandler):
             shadow = node.name in protected
         if isinstance(node, (ast.MatchAs, ast.MatchStar)):
-            shadow = node.name in EXCEPTIONS
+            shadow = node.name in EXCEPTIONS | TYPE_NAMES
         if isinstance(node, ast.MatchMapping):
-            shadow = node.rest in EXCEPTIONS
+            shadow = node.rest in EXCEPTIONS | TYPE_NAMES
         protocol_binding = node in members and (members[node].startswith("__") or members[node] in METHOD_CALLS)
         class_hook = isinstance(node, ast.ClassDef) and (bool(node.keywords) or any(not isinstance(base, ast.Name) or base.id != "object" for base in node.bases))
         if arithmetic or (unary and not literal) or compare or name in DENIED or imported or imported_from or private_or_write or call or shadow or class_hook or protocol_binding:
