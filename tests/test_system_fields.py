@@ -131,3 +131,21 @@ def test_non_admitted_integrity_is_refused_without_fact_promotion():
             extract_fields(RAW, CAPTURE, integrity=state)
     with pytest.raises(TypeError, match="capture_integrity_required"):
         extract_fields(RAW, CAPTURE, integrity="complete")
+
+def test_partial_record_cannot_claim_a_field_was_not_printed():
+    raw = b'System image file is "bootflash:packages.conf"\nnew uptime format\n'
+    result = extract_fields(raw, CAPTURE, integrity=IntegrityState.COMPLETE)
+    assert isinstance(result.image, Known)
+    assert result.parse.quality == "partial"
+    for fact in (result.uptime, result.reload_reason):
+        assert isinstance(fact, Unknown)
+        assert fact.reason is UnknownReason.PARSE_PARTIAL
+
+
+def test_malformed_field_prevents_omission_claims_for_other_fields():
+    raw = b'System image file is "bootflash:packages.conf"\nsw-a uptime is not a duration\n'
+    result = extract_fields(raw, CAPTURE, integrity=IntegrityState.COMPLETE)
+    assert isinstance(result.image, Known)
+    assert isinstance(result.reload_reason, Unknown)
+    assert result.reload_reason.reason is UnknownReason.PARSE_PARTIAL
+    assert result.parse.quality == "partial"
