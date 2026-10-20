@@ -45,8 +45,8 @@ def test_closed_map_preserves_each_mapped_enum(member):
     assert result.records[0].fields[0][1].value is member
 
 
-@given(st.sampled_from(("*", "+", "?", "{2}", "{,3}", "{1,}")),
-       st.sampled_from(("*", "+", "?", "{2}", "{,3}", "{1,}")))
+@given(st.sampled_from(("*+", "++", "?+", "{2}+", "{,3}+", "{1,}+")),
+       st.sampled_from(("*+", "++", "?+", "{2}+", "{,3}+", "{1,}+")))
 def test_generated_nested_quantifiers_are_always_refused(inner, outer):
     import pytest
 
