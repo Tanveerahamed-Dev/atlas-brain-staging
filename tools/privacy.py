@@ -12,14 +12,17 @@ HOME = re.compile(rb"(?i:[a-z]:[\\/]+Users[\\/]+[^\\/\s\"'<>]+|/(?:home|Users)/[
 SERIAL = re.compile(rb"\b[A-Z]{3}[0-9]{4}[A-Z0-9]{4}\b", re.ASCII | re.IGNORECASE)
 IP = re.compile(rb"(?<![\w:.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![\w.])|(?<![\w:])[0-9a-fA-F:.]*:[0-9a-fA-F:.]*:[0-9a-fA-F:.]*(?![\w:])", re.ASCII)
 DOCS = tuple(map(ipaddress.ip_network, ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32")))
-LITERAL = re.compile(rb"(?i:br|rb|[bru])?(?:" + rb'"(?:\\.|[^"\\])*"' + rb"|'(?:\\.|[^'\\])*')", re.ASCII | re.DOTALL)
+COMMENT = rb"\#[^\n]*|//[^\n]*|/\*.*?\*/"
+LITERAL = re.compile(rb"(?P<comment>" + COMMENT + rb")|(?i:br|rb|fr|rf|tr|rt|[bruft])?(?:" + rb'"(?:\\.|[^"\\])*"' + rb"|'(?:\\.|[^'\\])*')", re.ASCII | re.DOTALL)
 PIECE = re.compile(rb"\\(?:U[0-9a-fA-F]{8}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0-7]{1,3}|.)|[^\\]", re.ASCII | re.DOTALL)
 
 
 def literal_runs(data: bytes):
     chunks, offsets, previous = [], [], 0
     for match in LITERAL.finditer(data):
-        if re.fullmatch(rb"[\s+()]*", data[previous:match.start()], re.ASCII) is None:
+        if match["comment"] is not None:
+            continue
+        if re.fullmatch(rb"(?:[\s+()]|" + COMMENT + rb")*", data[previous:match.start()], re.ASCII | re.DOTALL) is None:
             yield b"".join(chunks), offsets
             chunks, offsets = [], []
         quote = next(i for i, char in enumerate(match[0]) if char in (34, 39))
