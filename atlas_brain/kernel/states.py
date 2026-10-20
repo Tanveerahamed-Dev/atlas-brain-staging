@@ -3,16 +3,15 @@
 Constructors enforce structural invariants. Capture admissibility and evidence
 resolution are enforced by the kernel admission and fact-writer boundaries.
 """
+import re
 from dataclasses import dataclass
 from enum import StrEnum
-import re
-from typing import Generic, Literal, NewType, TypeAlias, TypeVar, final
+from typing import Literal, NewType, final
 
 CaptureId = NewType('CaptureId', str)
 EntityKey = NewType('EntityKey', str)
 PackId = NewType('PackId', str)
 FactId = NewType('FactId', str)
-T = TypeVar('T')
 
 
 def require(condition: bool, code: str) -> None:
@@ -98,7 +97,7 @@ class RegistryRef:
         digest(self.table_digest)
 
 
-Evidence: TypeAlias = EvidenceRef | FactRef | RegistryRef
+type Evidence = EvidenceRef | FactRef | RegistryRef
 
 
 def evidence_tuple(evidence: tuple[Evidence, ...], *, nonempty: bool) -> None:
@@ -180,7 +179,7 @@ class EvidenceNeed:
 
 @final
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Known(Generic[T]):
+class Known[T]:
     value: T
     basis: Basis
     evidence: tuple[Evidence, ...]
@@ -189,7 +188,8 @@ class Known(Generic[T]):
     def __post_init__(self) -> None:
         require(type(self.basis) is Basis, 'invalid_basis')
         evidence_tuple(self.evidence, nonempty=True)
-        if isinstance(self.value, (tuple, list, dict, set, frozenset)) and not self.value:
+        require(type(self.value) not in (list, dict, set, frozenset), 'mutable_or_unordered_value')
+        if self.value == ():
             absence_witness(self.evidence)
         require(self.raw is None or type(self.raw) is str, 'invalid_raw')
 
@@ -250,4 +250,4 @@ class NotApplicable:
         raise TypeError('closed_fact_state')
 
 
-Fact: TypeAlias = Known[T] | Absent | Unknown | NotApplicable
+type Fact[T] = Known[T] | Absent | Unknown | NotApplicable
