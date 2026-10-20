@@ -18,11 +18,19 @@ class GrowthTests(unittest.TestCase):
         rows[-1]["sampled_peak_rss"] = 125
         self.assertFalse(decide(rows, 4, 75)["recycling_required"])
 
-    def test_live_task_peak_also_counts_as_resident_growth(self):
+    def test_transient_peak_is_retained_but_does_not_count_as_accumulation(self):
         from tools.scale.growth import decide
         row = {"pid": 1, "tasks": 75, "baseline_rss": 100,
                "plateau_peak_rss": 100, "sampled_peak_rss": 130}
-        self.assertTrue(decide([row], 1, 75)["recycling_required"])
+        result = decide([row], 1, 75)
+        self.assertFalse(result["recycling_required"])
+        self.assertEqual(result["max_transient_growth_fraction"], 0.3)
+
+    def test_reused_pid_with_distinct_birth_identity_is_two_workers(self):
+        from tools.scale.growth import decide
+        rows = [{"pid": 1, "identity": generation, "tasks": 3, "baseline_rss": 100,
+                 "plateau_peak_rss": 110, "sampled_peak_rss": 140} for generation in ("1", "2")]
+        self.assertFalse(decide(rows, 2, 3)["recycling_required"])
 
     def test_incomplete_worker_is_refused(self):
         from tools.scale.growth import decide

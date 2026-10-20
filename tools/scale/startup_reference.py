@@ -15,4 +15,5 @@ if __name__ == "__main__":
         child = pool.submit(worker).result(timeout=120)
     print(json.dumps({"coordinator": STARTUP, "worker": child, "version": sys.version,
                       "no_site": sys.flags.no_site, "isolated": sys.flags.isolated,
+                      "flags": list(sys.flags),
                       "venv": sys.prefix != sys.base_prefix}, sort_keys=True))

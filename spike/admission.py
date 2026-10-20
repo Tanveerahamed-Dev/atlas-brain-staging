@@ -3,6 +3,7 @@ import hashlib
 import _imp
 import importlib.machinery
 import json
+import os
 from pathlib import Path
 import site
 import sys
@@ -11,6 +12,7 @@ import sysconfig
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLED = False
 RECEIPT = {}
+ABSENT_IMPORTS = set()
 
 
 class ImportDenied(BaseException):
@@ -29,6 +31,13 @@ def require():
     return RECEIPT
 
 
+def absent_import(name):
+    ABSENT_IMPORTS.add(name)
+    # No loader exists. Preserve normal optional-import semantics but stop the
+    # meta-path search here, so a later plugin finder cannot supply the name.
+    raise ModuleNotFoundError("No module named " + repr(name), name=name)
+
+
 def compare_startup(actual, expected):
     if set(actual) != set(expected):
         raise ValueError("startup_module_baseline:" + json.dumps({"extra": sorted(set(actual) - set(expected)),
@@ -39,7 +48,8 @@ def compare_startup(actual, expected):
 def baseline_path():
     environment = "venv" if sys.prefix != sys.base_prefix else "base"
     version = ".".join(str(i) for i in sys.version_info[:3])
-    return ROOT / ".s0" / f"startup-{sys.platform}-{version}-{environment}-{sys.flags.no_site}.json"
+    profile = str(sys.flags.no_site) if sys.flags.isolated else "manual-" + os.environ.get("PYTHONHASHSEED", "unattested")
+    return ROOT / ".s0" / f"startup-{sys.platform}-{version}-{environment}-{profile}.json"
 
 
 def stdlib_roots():
@@ -99,7 +109,7 @@ def install(snapshot, role):
     reference_path = baseline_path()
     raw = reference_path.read_bytes()
     reference = json.loads(raw)
-    if reference["version"] != sys.version or reference["no_site"] != sys.flags.no_site or reference["venv"] != (sys.prefix != sys.base_prefix):
+    if reference["version"] != sys.version or reference["flags"] != list(sys.flags) or reference["venv"] != (sys.prefix != sys.base_prefix):
         raise ValueError("startup_interpreter_baseline")
     compare_startup(snapshot, reference[role])
     census = safety.census()
@@ -138,11 +148,7 @@ def install(snapshot, role):
                     or importlib.machinery.FrozenImporter.find_spec(fullname, path)
                     or importlib.machinery.PathFinder.find_spec(fullname, path))
             if spec is None:
-                if fullname.split(".")[0] in names:
-                    # Portable stdlib code probes platform-specific modules using
-                    # try/import/except ImportError (for example fcntl on Windows).
-                    return None
-                deny_import(fullname)
+                absent_import(fullname)
             try:
                 validate(fullname, spec.origin)
             except ValueError:

@@ -5,6 +5,14 @@ import unittest
 
 
 class StartupTests(unittest.TestCase):
+    def test_absent_optional_import_raises_import_error_without_executing_a_loader(self):
+        from spike import admission, safety
+        before = safety.VIOLATIONS
+        with self.assertRaises(ModuleNotFoundError):
+            admission.absent_import("planted_absent_optional")
+        self.assertEqual(safety.VIOLATIONS, before)
+        self.assertIn("planted_absent_optional", admission.ABSENT_IMPORTS)
+
     def test_direct_runtime_entry_cannot_claim_uninstalled_admission(self):
         from types import SimpleNamespace
         from spike.runtime import execute

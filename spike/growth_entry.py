@@ -26,10 +26,11 @@ def observed_task(payload):
     value = task(payload)
     TASKS += 1
     control = Path(payload["control"])
-    token = f"{os.getpid()}-{TASKS}"
+    identity = ".".join(str(i) for i in mp.current_process()._identity)
+    token = f"{os.getpid()}-{identity}-{TASKS}"
     marker = control / (token + ".ready")
     temporary = marker.with_suffix(".tmp")
-    temporary.write_bytes(canonical({"pid": os.getpid(), "ordinal": TASKS, "node": payload["node"]}))
+    temporary.write_bytes(canonical({"pid": os.getpid(), "identity": identity, "ordinal": TASKS, "node": payload["node"]}))
     temporary.replace(marker)
     # The external sampler takes three quiet 20 Hz samples before release.
     # No GC, allocator trim, synthetic allocation or in-worker psutil is used.
@@ -37,7 +38,7 @@ def observed_task(payload):
         time.sleep(0.01)
     if safety.VIOLATIONS:
         raise RuntimeError("growth_egress_violation")
-    return {"pid": value["pid"], "node": payload["node"], "facts": value["facts"]}
+    return {"pid": value["pid"], "identity": identity, "node": payload["node"], "facts": value["facts"]}
 
 
 def main():

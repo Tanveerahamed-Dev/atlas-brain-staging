@@ -143,6 +143,7 @@ def task(payload):
             "environment": environment(), "wall_ns": time.perf_counter_ns() - start, "cpu_ns": time.process_time_ns() - cpu,
             "process_cpu_ns": time.process_time_ns(), "initializer_to_task_ns": start - _START,
             "imports": sorted(safety.IMPORTS),
+            "absent_imports": sorted(__import__("spike.admission", fromlist=["ABSENT_IMPORTS"]).ABSENT_IMPORTS),
             "ready_latency_ns": start - payload["queued_ns"], "gc": gc.get_stats()}
 
 
@@ -283,6 +284,8 @@ def execute(args, startup_modules):
                                "interpreter": {"executable": sys.executable, "prefix": sys.prefix, "base_prefix": sys.base_prefix,
                                                "venv": sys.prefix != sys.base_prefix},
                                "worker_imports": sorted({name for n in nodes for name in n.get("imports", [])}),
+                               "absent_imports": sorted(admission.ABSENT_IMPORTS),
+                               "worker_absent_imports": sorted({name for n in nodes for name in n.get("absent_imports", [])}),
                                "admission": admission.RECEIPT},
                    "workers": [{k: v for k, v in n.items() if k not in ("estate_rows", "route_summary")} for n in nodes]}
         if sys.platform == "linux":

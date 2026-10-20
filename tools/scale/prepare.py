@@ -1,6 +1,7 @@
 """Hosted preparation; never installs anything on the author host."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import subprocess
@@ -24,17 +25,23 @@ def main():
         paths = {"tools": "tools/__init__.py", "tools.scale": "tools/scale/__init__.py", "tools.scale.workload": "tools/scale/workload.py"}
         closure = {name: {"path": path, "sha256": hashlib.sha256((ROOT / path).read_bytes()).hexdigest()} for name, path in paths.items()}
         (ROOT / ".s0" / "import-closure.json").write_text(json.dumps(closure, sort_keys=True) + "\n", encoding="ascii")
-    for no_site in (0, 1):
-        flags = ["-I", "-X", "utf8=1", "-X", "warn_default_encoding", "-W", "error::EncodingWarning"] + (["-S"] if no_site else [])
+    profiles = [(str(no_site), ["-I"] + (["-S"] if no_site else []), None) for no_site in (0, 1)]
+    for seed in ("0", "4242"):
+        clean = {"PYTHONHASHSEED": seed}
+        if os.name == "nt":
+            clean.update({k: os.environ[k] for k in ("SystemRoot", "WINDIR", "TEMP", "TMP") if k in os.environ})
+        profiles.append(("manual-" + seed, ["-P", "-s", "-B"], clean))
+    for profile, prefix, clean_env in profiles:
+        flags = prefix + ["-X", "utf8=1", "-X", "warn_default_encoding", "-W", "error::EncodingWarning"]
         command = [sys.executable] + flags + [str(ROOT / "tools" / "scale" / "startup_reference.py")]
-        first = subprocess.check_output(command)
-        if first != subprocess.check_output(command):
+        first = subprocess.check_output(command, env=clean_env)
+        if first != subprocess.check_output(command, env=clean_env):
             raise ValueError("unstable_clean_startup_reference")
         from spike.admission import stdlib_names, stdlib_roots
         reference = json.loads(first)
         reference["stdlib_names"] = sorted(stdlib_names(stdlib_roots()))
         environment = "venv" if sys.prefix != sys.base_prefix else "base"
-        path = ROOT / ".s0" / f"startup-{sys.platform}-{'.'.join(str(i) for i in sys.version_info[:3])}-{environment}-{no_site}.json"
+        path = ROOT / ".s0" / f"startup-{sys.platform}-{'.'.join(str(i) for i in sys.version_info[:3])}-{environment}-{profile}.json"
         path.write_text(json.dumps(reference, sort_keys=True) + "\n", encoding="ascii")
 
 

@@ -12,14 +12,15 @@ sys.path.insert(0, str(ROOT))
 
 
 def decide(rows, workers, tasks):
-    if len(rows) != workers or len({r["pid"] for r in rows}) != workers or any(
+    if len(rows) != workers or len({(r["pid"], r.get("identity")) for r in rows}) != workers or any(
             r["tasks"] != tasks or r["baseline_rss"] <= 0
             or r["sampled_peak_rss"] < r["plateau_peak_rss"]
             or r["plateau_peak_rss"] < r["baseline_rss"] for r in rows):
         raise ValueError("incomplete_growth")
-    ratios = [(r["sampled_peak_rss"] - r["baseline_rss"]) / r["baseline_rss"] for r in rows]
+    ratios = [(r["plateau_peak_rss"] - r["baseline_rss"]) / r["baseline_rss"] for r in rows]
+    transient = [(r["sampled_peak_rss"] - r["baseline_rss"]) / r["baseline_rss"] for r in rows]
     return {"recycling_required": any(ratio > 0.25 for ratio in ratios),
-            "max_growth_fraction": max(ratios), "threshold": 0.25}
+            "max_growth_fraction": max(ratios), "max_transient_growth_fraction": max(transient), "threshold": 0.25}
 
 
 def probe(runtime, source, raw, recycle):
@@ -52,9 +53,10 @@ def probe(runtime, source, raw, recycle):
                 if memory is None:
                     continue
                 tick[pid] = {"rss": memory.rss, "uss": memory.uss}
-                if pid in rows:
-                    rows[pid]["sampled_peak_rss"] = max(rows[pid]["sampled_peak_rss"], memory.rss)
-                    rows[pid]["sampled_peak_uss"] = max(rows[pid]["sampled_peak_uss"], memory.uss)
+                for row in rows.values():
+                    if row["pid"] == pid and row["process_create_time"] == child.create_time():
+                        row["sampled_peak_rss"] = max(row["sampled_peak_rss"], memory.rss)
+                        row["sampled_peak_uss"] = max(row["sampled_peak_uss"], memory.uss)
             samples.append({"t": stamp, "pids": tick})
             for marker in control.glob("*.ready"):
                 ack = marker.with_suffix(".ack")
@@ -70,7 +72,9 @@ def probe(runtime, source, raw, recycle):
                     continue
                 rss = statistics.median(v["rss"] for v in values)
                 uss = statistics.median(v["uss"] for v in values)
-                row = rows.setdefault(pid, {"pid": pid, "baseline_rss": rss, "baseline_uss": uss,
+                key = (pid, record["identity"])
+                row = rows.setdefault(key, {"pid": pid, "identity": record["identity"],
+                                           "process_create_time": known[pid].create_time(), "baseline_rss": rss, "baseline_uss": uss,
                                            "sampled_peak_rss": max(v["rss"] for v in values),
                                            "sampled_peak_uss": max(v["uss"] for v in values),
                                            "plateau_peak_rss": rss, "plateau_peak_uss": uss, "tasks": 0})
@@ -134,16 +138,18 @@ def main():
     required = decisions["none"]["recycling_required"]
     value = 3 if required and not decisions["3"]["recycling_required"] else None
     receipt = {"schema": 1, "runner": shape(), "decisions": decisions, "recycling_required": required,
-               "measured_candidate": value, "decision_closed": not required or value is not None,
+               "measured_candidate": value, "owner_selected_default": None,
+               "decision_closed": not required,
                "scope": "separate barrier diagnostic, four fixed lanes of 75 actual WL-1 device tasks; not speed/CV acceptance",
                "baseline": "median of three external 20 Hz quiet post-first-task samples; no forced GC or allocator trim",
-               "comparison": "max post-baseline sampled resident RSS versus first-task plateau; USS also recorded",
+               "comparison": "owner-clarified accumulation: maximum quiet post-task RSS versus first-task plateau; transient RSS/USS peaks retained separately",
+               "plan_clarification": "2026-10-20 owner: S3 line 222 measures post-task resident accumulation; per-task transient peaks are governed by the separate hard S0-a cap",
                "device_bytes_equal_normal_run": True}
     (args.raw / "decision.json").write_bytes(canonical(receipt))
     paths = [p for p in args.raw.rglob("*") if p.is_file()]
     (args.raw / "RAW.sha256").write_text("".join(f"{digest(p.read_bytes())}  {p.relative_to(args.raw).as_posix()}\n" for p in sorted(paths)), encoding="ascii")
     if not receipt["decision_closed"]:
-        raise ValueError("recycling_candidate_not_qualified")
+        raise ValueError("owner_selected_none_exceeds_post_task_growth_threshold")
 
 
 if __name__ == "__main__":
