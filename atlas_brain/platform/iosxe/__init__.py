@@ -4,6 +4,8 @@ Sources: S4 D-01 / R10 and Cisco's IOS/XE release-banner examples:
 https://sec.cloudapps.cisco.com/security/center/content/CiscoSecurityAdvisory/cisco-sa-20190327-ios-infoleak
 Error/prompt/pager starting points: R's error-signatures research, XE-01..03,
 PG-01 and PX-01..06; 17.18 CLI command reference and 17.x CLI-search guide.
+https://www.cisco.com/c/en/us/td/docs/switches/lan/catalyst9300/software/release/17-18/command_reference/b_1718_9300_cr/using_the_command_line_interface.html
+https://www.cisco.com/c/en/us/td/docs/routers/ios/config/17-x/syst-mgmt/b-system-management/m_cf-cli-search.html
 These are lexical primitives, not a substitute PlatformIdentity/CaptureView.
 Classic IOS is identified for R10; it does not gain IOS-XE parser support.
 """
@@ -69,14 +71,15 @@ def prompt_mode(line: bytes) -> str | None:
 def classify(raw: bytes) -> IntegrityState:
     """Hazards in one proven response segment; recognised text never proves complete."""
     pieces = raw.split(b"\n")
-    for index, piece in enumerate(pieces):
-        line = piece.removesuffix(b"\r") if index < len(pieces) - 1 else piece
+    lines = tuple(piece.removesuffix(b"\r") if index < len(pieces) - 1 else piece
+                  for index, piece in enumerate(pieces))
+    for line in lines:
         view = line.strip(b" \t").replace(b"\xe2\x80\x98", b"'").replace(b"\xe2\x80\x99", b"'")
         if view in ERROR_SIGNATURES or (view.startswith(b'% Ambiguous command: "') and view.endswith(b'"')):
             return IntegrityState.ERROR
     if any(marker in raw for marker in PAGER_SIGNATURES):
         return IntegrityState.PAGING_ARTIFACTS
-    if any(prompt_mode(piece) is not None for piece in pieces):
+    if any(prompt_mode(line) is not None for line in lines):
         return IntegrityState.UNVERIFIED_PROMPT
     if not raw:
         return IntegrityState.EMPTY
