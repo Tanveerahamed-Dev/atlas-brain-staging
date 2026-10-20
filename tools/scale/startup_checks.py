@@ -107,6 +107,25 @@ def main():
                 raise ValueError("startup_executable_positive_control_missing:" + name)
             records.append({"witness": name, "phase": phase, "exit": code, "refused": refusal,
                             "hook_ran_before_refusal": marker.exists(), "no_result": True})
+    case = args.raw / "unlisted-import"
+    case.mkdir()
+    unlisted = site / "startup_unlisted_probe.py"
+    sentinel = case / "module-body-ran"
+    if unlisted.exists():
+        raise ValueError("refuse_existing_unlisted_probe")
+    try:
+        unlisted.write_text("from pathlib import Path\nPath(" + repr(str(sentinel.resolve())) + ").write_text('ran', encoding='ascii')\n", encoding="utf-8")
+        command = [str(args.runtime)] + FLAGS + [str(ROOT / "spike" / "bootstrap.py"),
+                   "--root", str(source), "--out", str(case / "result"), "--receipt", str(case / "engine.json"),
+                   "--control", str(case / "control"), "--fault", "admission-probe"]
+        with (case / "console.log").open("wb") as log:
+            result = subprocess.run(command, timeout=120, stdout=log, stderr=subprocess.STDOUT)
+        if result.returncode == 0 or sentinel.exists() or (case / "result").exists() or "import_unadmitted:startup_unlisted_probe" not in (case / "console.log").read_text(encoding="utf-8"):
+            raise ValueError("unlisted_import_not_refused_before_execution")
+        records.append({"witness": "unlisted-import", "phase": "worker", "exit": result.returncode,
+                        "refused": True, "module_body_ran": False, "no_result": True})
+    finally:
+        unlisted.unlink()
     # Clean opt-in -S option: same runtime input, no site processing at all.
     hashes = []
     for no_site in (False, True):

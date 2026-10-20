@@ -296,7 +296,12 @@ jobs:
   windows-locked-install:
     needs: smoke
     if: contains(github.event.head_commit.message, '[locked]')
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.14.8', '3.15.0']
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 29
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -306,22 +311,22 @@ jobs:
           path: .s0/locked-subject
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: '3.14.8'
+          python-version: ${{ matrix.python }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: '0.13.1'
           enable-cache: false
-      - name: Install the full declared runtime and development lock on Windows
+      - name: Install the full declared runtime and development lock natively
         run: |
           New-Item -ItemType Directory -Force .s0/locked-install | Out-Null
           python -m pip install psutil==7.2.2
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           uv --version > .s0/locked-install/uv-version.txt
-          uv sync --locked --no-dev --project .s0/locked-subject *> .s0/locked-install/runtime-install.log
+          uv sync --locked --no-dev --python ${{ matrix.python }} --project .s0/locked-subject *> .s0/locked-install/runtime-install.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/scale/locked_install.py --subject .s0/locked-subject --profile runtime --out .s0/locked-install/runtime.json
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          uv sync --locked --project .s0/locked-subject *> .s0/locked-install/dev-install.log
+          uv sync --locked --python ${{ matrix.python }} --project .s0/locked-subject *> .s0/locked-install/dev-install.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/scale/locked_install.py --subject .s0/locked-subject --profile dev --out .s0/locked-install/dev.json
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -330,16 +335,16 @@ jobs:
       - name: Exercise installed development executables
         working-directory: .s0/locked-subject
         run: |
-          uv run --no-sync pytest --version > ../locked-install/pytest-version.txt
+          uv run --no-sync --python ${{ matrix.python }} pytest --version > ../locked-install/pytest-version.txt
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          uv run --no-sync ruff --version > ../locked-install/ruff-version.txt
+          uv run --no-sync --python ${{ matrix.python }} ruff --version > ../locked-install/ruff-version.txt
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          uv run --no-sync pyright --version > ../locked-install/pyright-version.txt
+          uv run --no-sync --python ${{ matrix.python }} pyright --version > ../locked-install/pyright-version.txt
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: windows-locked-install-${{ github.sha }}
+          name: locked-install-${{ matrix.os }}-${{ matrix.python }}-${{ github.sha }}
           path: .s0/locked-install/
           if-no-files-found: error
           retention-days: 90

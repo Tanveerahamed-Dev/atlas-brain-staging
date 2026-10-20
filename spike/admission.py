@@ -30,7 +30,7 @@ def allowed_origin(name, origin, stdlib, catalogue, excluded):
         row = catalogue[name]
         path = Path(origin).resolve() if origin not in (None, "built-in", "frozen") else None
         return path == Path(row["path"]).resolve() and not Path(origin).is_symlink() and hashlib.sha256(path.read_bytes()).hexdigest() == row["sha256"]
-    generated = sysconfig._get_sysconfigdata_name() if hasattr(sysconfig, "_get_sysconfigdata_name") else None
+    generated = sysconfig._get_sysconfigdata_name() if sys.platform != "win32" and hasattr(sysconfig, "_get_sysconfigdata_name") else None
     if name.split(".")[0] not in sys.stdlib_module_names and name not in sys.builtin_module_names and name != generated:
         return False
     if origin in ("built-in", "frozen"):

@@ -16,21 +16,36 @@ def normalized(value):
     return re.sub(r"[-_.]+", "-", value).lower()
 
 
-def validate(lock, project, installed, profile):
+def validate(lock, project, installed, profile, platform_name=None):
+    platform_name = platform_name or sys.platform
     if profile == "runtime":
         # The measured subject has a standard-library-only runtime closure.
         if project["project"]["dependencies"]:
             raise ValueError("runtime_dependency_closure_needs_resolution")
         expected = {}
     else:
-        # This Windows-only subject has no optional groups; all registry entries
-        # belong to the complete dev closure (including pytest's Windows colorama).
-        expected = {normalized(p["name"]): p["version"] for p in lock["package"]
-                    if "registry" in p.get("source", {})}
+        packages = {normalized(p["name"]): p for p in lock["package"]}
+        expected, pending = {}, []
         for requirement in project["dependency-groups"]["dev"]:
             name, version = requirement.split("==")
-            if expected.get(normalized(name)) != version:
+            if packages[normalized(name)]["version"] != version:
                 raise ValueError("declared_development_pin_mismatch")
+            pending.append(normalized(name))
+        while pending:
+            name = pending.pop()
+            if name in expected:
+                continue
+            package = packages[name]
+            expected[name] = package["version"]
+            for dependency in package.get("dependencies", []):
+                marker = dependency.get("marker")
+                if marker is not None:
+                    match = re.fullmatch(r"sys_platform == '([^']+)'", marker)
+                    if match is None:
+                        raise ValueError("unqualified_lock_marker:" + marker)
+                    if platform_name != match[1]:
+                        continue
+                pending.append(normalized(dependency["name"]))
     if installed != expected:
         raise ValueError("locked_install_mismatch:" + json.dumps({"expected": expected, "actual": installed}, sort_keys=True))
     return expected
@@ -63,10 +78,8 @@ def main():
     parser.add_argument("--profile", choices=("runtime", "dev"), required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    if sys.platform != "win32":
-        raise ValueError("native_windows_required")
     from tools.scale.measure import shape
-    runtime = args.subject / ".venv" / "Scripts" / "python.exe"
+    runtime = args.subject / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     observed = json.loads(subprocess.check_output([str(runtime), "-I", "-c", INSPECT], encoding="utf-8"))
     installed = {normalized(k): v for k, v in observed["installed"].items()}
     lock_path, project_path = args.subject / "uv.lock", args.subject / "pyproject.toml"
@@ -79,6 +92,20 @@ def main():
                      "project_sha256": hashlib.sha256(project_path.read_bytes()).hexdigest(),
                      "editable_install": "virtual project in authoritative lock; no editable install or project .pth",
                      "scope": "full currently declared product runtime/dev set; future dependency changes require requalification"})
+    references = {}
+    for no_site in (False, True):
+        flags = ["-I"] + (["-S"] if no_site else [])
+        command = [str(runtime.absolute())] + flags + [str(ROOT / "tools" / "scale" / "startup_reference.py")]
+        first = subprocess.check_output(command)
+        if first != subprocess.check_output(command):
+            raise ValueError("locked_environment_startup_baseline_unstable")
+        references["no_site" if no_site else "site"] = json.loads(first)
+    observed["clean_role_references"] = references
+    if args.profile == "dev":
+        # Optional -S launch: append the locked purelib/platlib directly, never
+        # invoke site.addsitedir or execute an editable .pth hook.
+        code = "import sys,sysconfig;sys.path.extend(dict.fromkeys([sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]));import pytest,hypothesis,grimp;assert sys.flags.no_site == 1;print('locked development imports succeeded under -S')"
+        observed["manual_no_site_development_imports"] = subprocess.check_output([str(runtime.absolute()), "-I", "-S", "-c", code], encoding="utf-8").strip()
     args.out.write_text(json.dumps(observed, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
