@@ -8,9 +8,9 @@ from atlas_brain.evidence import admission as a
 
 
 def test_depth_limit_runs_before_json_decoder():
-    with patch.object(a.json, "loads", side_effect=AssertionError("decoder reached")):
-        with pytest.raises(a.BudgetExceeded) as refused:
-            a.strict_json(b"[" * 65 + b"0" + b"]" * 65)
+    with (patch.object(a.json, "loads", side_effect=AssertionError("decoder reached")),
+          pytest.raises(a.BudgetExceeded) as refused):
+        a.strict_json(b"[" * 65 + b"0" + b"]" * 65)
     assert refused.value.member == "json"
 
 
@@ -28,9 +28,9 @@ def test_quoted_brackets_and_escaped_quotes_are_not_structure():
 @pytest.mark.parametrize("raw", [b"9" * 41, b"-" + b"9" * 41,
                                   b"0." + b"1" * 40, b"1e" + b"0" * 40])
 def test_numeric_digit_limit_runs_before_json_decoder(raw):
-    with patch.object(a.json, "loads", side_effect=AssertionError("decoder reached")):
-        with pytest.raises(a.AdmissionRefused, match="numeric_literal_too_long"):
-            a.strict_json(raw)
+    with (patch.object(a.json, "loads", side_effect=AssertionError("decoder reached")),
+          pytest.raises(a.AdmissionRefused, match="numeric_literal_too_long")):
+        a.strict_json(raw)
 
 
 @pytest.mark.parametrize("raw", [b"9" * 40, b"-" + b"9" * 40,
