@@ -98,6 +98,14 @@ def test_digest_changes_with_handwritten_diff(repo):
     assert diff_digest(repo, base, "HEAD") != digest
 
 
+def test_git_diff_helpers_are_never_executed(repo, monkeypatch):
+    base = git(repo, "rev-parse", "HEAD")
+    write(repo, "tools/example.py", "# synthetic\n")
+    commit(repo)
+    monkeypatch.setenv("GIT_EXTERNAL_DIFF", "helper-that-must-never-execute")
+    assert audit(repo, base, "HEAD")["counted_lines"] == 1
+
+
 def test_review_cli_replays_complete_corpus_and_refuses_missing_item(repo, monkeypatch):
     from tools.review_record import main
     base = git(repo, "rev-parse", "HEAD")

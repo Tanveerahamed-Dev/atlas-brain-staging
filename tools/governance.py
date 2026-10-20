@@ -44,7 +44,7 @@ def excluded(path: str, outputs: tuple[str, ...]) -> bool:
 
 
 def changes(repo: Path, base: str, head: str) -> list[tuple[bytes, bytes, str]]:
-    rows = git(repo, "diff", "--numstat", "--no-renames", "-z", base, head).split(b"\0")
+    rows = git(repo, "diff", "--numstat", "--no-renames", "--no-ext-diff", "--no-textconv", "-z", base, head).split(b"\0")
     return [(a, d, p.decode("utf-8")) for row in rows if row for a, d, p in [row.split(b"\t", 2)]]
 
 
