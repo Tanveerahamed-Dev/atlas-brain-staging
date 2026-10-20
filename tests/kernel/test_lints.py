@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -82,9 +84,32 @@ def test_result_constructor_exception_is_only_inside_verdict_function():
 def test_runner_has_only_one_top_level_broad_handler():
     path = 'atlas_brain/runner/__main__.py'
     handler = 'try:\n pass\nexcept BaseException:\n pass\n'
-    assert not lint(handler, path)
-    assert 5 in {r for r, _ in lint(handler + handler, path)}
+    assert 5 in {r for r, _ in lint(handler, path)}
+    aborting = 'try:\n pass\nexcept BaseException:\n raise SystemExit(1)\n'
+    assert not lint(aborting, path)
+    assert 5 in {r for r, _ in lint(aborting + aborting, path)}
     assert 5 in {r for r, _ in lint('def unrelated():\n try:\n  pass\n except BaseException:\n  pass', path)}
+
+
+@pytest.mark.parametrize('body', ['pass', 'return 0', 'raise', 'raise SystemExit(0)',
+                                  'raise SystemExit(256)', 'raise SystemExit(1) from sys.exit(0)',
+                                  'if False:\n   raise SystemExit(1)'])
+def test_runner_swallowing_or_zero_exit_handler_is_refused(body):
+    source = 'def main():\n try:\n  pass\n except BaseException:\n  ' + body
+    assert 5 in {r for r, _ in lint(source, 'atlas_brain/runner/__main__.py')}
+
+
+@pytest.mark.parametrize('exception', ['RuntimeError("synthetic")', 'BaseException()', 'SystemExit(0)'])
+def test_allowed_fail_closed_handler_exits_nonzero(exception):
+    source = 'try:\n raise ' + exception + '\nexcept BaseException:\n raise SystemExit(1)'
+    assert not lint(source, 'atlas_brain/runner/__main__.py')
+    result = subprocess.run([sys.executable, '-c', source], capture_output=True, check=False)
+    assert result.returncode == 1
+
+
+def test_shadowed_abort_constructor_is_refused():
+    source = 'def SystemExit(code):\n pass\ntry:\n pass\nexcept BaseException:\n raise SystemExit(1)'
+    assert 5 in {r for r, _ in lint(source, 'atlas_brain/runner/__main__.py')}
 
 
 @pytest.mark.parametrize('source', [
