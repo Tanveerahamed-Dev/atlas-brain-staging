@@ -1,10 +1,10 @@
 """Planted counterexamples; all in-memory attestations below are synthetic test doubles."""
+import unittest
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
-import unittest
 
-from tools.mutations import Capture, OPERATORS, apply_span, mutate
+from tools.mutations import OPERATORS, Capture, apply_span, mutate
 
 
 CASES = (
@@ -72,9 +72,8 @@ class MutationTests(unittest.TestCase):
             (b"1500", "mtu", 0, 4, b"0"),
             (b"192.0.2.1", "duplicate-address", 0, 9, b"8.8.8.8"),
         ):
-            with self.subTest(raw=raw, operator=operator, start=start):
-                with self.assertRaises(ValueError):
-                    apply_span(raw, operator, start, end, after)
+            with self.subTest(raw=raw, operator=operator, start=start), self.assertRaises(ValueError):
+                apply_span(raw, operator, start, end, after)
 
     def test_planted_wrong_witness_and_untrusted_capture_metadata_refused(self):
         parent, witness = capture(b"FULL"), capture(b"EXSTART")
@@ -91,9 +90,8 @@ class MutationTests(unittest.TestCase):
                         mutate(p, "ospf-state", 0, 4, b"EXSTART", w, 0, 7)
         for w, start, end in ((capture(b"EXCHANGE"), 0, 7), (witness, -1, 7),
                               (capture(b"EXSTARTED"), 0, 7), (witness, 0, 8)):
-            with self.subTest(witness=w.raw):
-                with self.assertRaises(ValueError):
-                    mutate(parent, "ospf-state", 0, 4, b"EXSTART", w, start, end)
+            with self.subTest(witness=w.raw), self.assertRaises(ValueError):
+                mutate(parent, "ospf-state", 0, 4, b"EXSTART", w, start, end)
 
     def test_pinned_q_inputs_refuse_unsupported_tier_m_claims(self):
         root = Path("fixtures/mutations/q")
@@ -111,7 +109,7 @@ class MutationTests(unittest.TestCase):
             with self.subTest(path=path):
                 raw = (root / path / "raw.txt").read_bytes()
                 self.assertEqual(sha256(raw).hexdigest(), digest)
-                start = raw.index(before)
+                start = raw.index(before) if operator != "native-vlan" else raw.index(b"not-trunking  1") + 14
                 source = Capture(path, family, train, "P", raw, digest,
                                  f"{root.as_posix()}/{path}/source-provenance.yaml")
                 with self.assertRaises(ValueError):
