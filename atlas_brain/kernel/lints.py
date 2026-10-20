@@ -65,7 +65,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
     def name(node: ast.AST) -> str:
         if isinstance(node, ast.Name):
-            return aliases[node.id] if node.id in aliases else node.id
+            if node.id not in aliases:
+                return node.id
+            return aliases[node.id]
         if isinstance(node, ast.Attribute):
             return name(node.value) + '.' + node.attr
         if isinstance(node, ast.Subscript):
@@ -88,9 +90,8 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
         if fact_path and ((isinstance(node, ast.Constant) and type(node.value).__name__ == 'float') or
                           (isinstance(node, ast.Name) and node.id == 'float')):
             hit(7, node)
-        if isinstance(node, ast.AnnAssign) and contains(node.annotation, ('set', 'frozenset')):
-            if isinstance(node.target, ast.Name):
-                sets.add(node.target.id)
+        if isinstance(node, ast.AnnAssign) and contains(node.annotation, ('set', 'frozenset')) and isinstance(node.target, ast.Name):
+            sets.add(node.target.id)
         if isinstance(node, ast.arg) and node.annotation and contains(node.annotation, ('set', 'frozenset')):
             sets.add(node.arg)
         if isinstance(node, (ast.Assign, ast.NamedExpr)):
@@ -100,10 +101,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 sets.update(t.id for t in targets if isinstance(t, ast.Name))
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.AnnAssign):
-            if fact_fields and (contains(node.annotation, ('Optional',)) or
-                                any(isinstance(n, ast.Constant) and n.value is None for n in ast.walk(node.annotation))):
-                hit(1, node)
+        if isinstance(node, ast.AnnAssign) and fact_fields and (contains(node.annotation, ('Optional',)) or
+                any(isinstance(n, ast.Constant) and n.value is None for n in ast.walk(node.annotation))):
+            hit(1, node)
         if isinstance(node, ast.ClassDef):
             if any(tail(b) in STATES for b in node.bases):
                 hit(13, node)
