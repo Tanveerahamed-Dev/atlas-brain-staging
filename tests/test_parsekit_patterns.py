@@ -58,3 +58,12 @@ def test_admission_syntax_obeys_its_own_policy():
 
     compile_pattern(_NAME.pattern)
     compile_pattern(_QUANTIFIER.pattern)
+
+
+def test_planted_concatenated_ambiguous_alternatives_are_refused():
+    with pytest.raises(ValueError):
+        compile_pattern("(?:a|aa)" * 30)
+
+
+def test_literal_pipe_is_not_an_alternative():
+    assert compile_pattern(r"a\|b").fullmatch(b"a|b")
