@@ -11,7 +11,7 @@ from tools.privacy import scan
 @pytest.mark.parametrize("data", [
     b"C:" + bytes([92]) + b"Users" + bytes([92]) + b"example/file",
     b"/" + b"home/example/file", b"/" + b"Users/example/file",
-    b".".join([b"10", b"1", b"2", b"3"]), b"fc" + b"00::1",
+    b".".join([b"10", b"1", b"2", b"3"]), bytes([102, 99, 48, 48, 58, 58, 49]),
     b"FOC" + b"1234ABCD",
 ])
 def test_planted_structural_shapes(data):
@@ -34,20 +34,29 @@ def test_gate_marker_and_split_receipts():
 
 
 @pytest.mark.parametrize("gate", [True, False])
-def test_cli_refuses_planted_blob(tmp_path, gate):
+@pytest.mark.parametrize("changed", [True, False])
+def test_cli_refuses_planted_blob(tmp_path, gate, changed):
     marker = os.environ["ATLAS_TEST_MARKER"]
     repo = tmp_path / "repo"
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    commit = ["git", "-C", str(repo), "-c", "user.name=Synthetic",
+              "-c", "user.email=synthetic@example.invalid", "commit", "-qm", "synthetic"]
+    subprocess.run([*commit, "--allow-empty"], check=True)
+    base = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"]).decode().strip()
     data = marker if gate else "/" + "home/example/file"
     (repo / "sample.txt").write_text(data, encoding="utf-8")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    blob = subprocess.check_output(["git", "-C", str(repo), "rev-parse", ":sample.txt"]).decode().strip()
+    if changed:
+        subprocess.run(commit, check=True)
     tool = os.path.abspath("tools/privacy.py")
-    result = subprocess.run([sys.executable, tool, *(["--gate"] if gate else [])], cwd=repo,
+    flags = (["--gate"] if gate else []) + (["--base", base] if changed else [])
+    result = subprocess.run([sys.executable, tool, *flags], cwd=repo,
                             env={**os.environ, "ATLAS_PRIVACY_MARKERS": json.dumps([marker])},
                             capture_output=True, check=False)
     assert result.returncode == 1
     assert marker.encode() not in result.stdout + result.stderr
-    assert json.loads(result.stdout)[0]["offset"] == 0
+    assert json.loads(result.stdout) == [{"blob": blob, "offset": 0}]
 
 
 def test_gate_without_markers_fails_closed():
