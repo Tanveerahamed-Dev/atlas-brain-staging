@@ -43,7 +43,7 @@ def nested_unbounded(pattern: str) -> bool:
             last_group = stack.pop() if len(stack) > 1 else False
             stack[-1] |= last_group
             continue
-        elif char in '*+' or (char == '{' and re.match(r'\{\d+,\}', pattern[index:], re.ASCII)):
+        elif char in '*+' or (char == '{' and re.search(r'^\{\d+,\}', pattern[index:], re.ASCII)):
             if last_group:
                 return True
             stack[-1] = True
@@ -121,7 +121,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     findings: set[tuple[int, int]] = set()
 
     def hit(rule: int, node: ast.AST) -> None:
-        findings.add((rule, getattr(node, 'lineno', 1)))
+        findings.add((rule, node.lineno if isinstance(node, (ast.stmt, ast.expr, ast.ExceptHandler)) else 1))
 
     sets: set[str] = set()
     for node in ast.walk(tree):
