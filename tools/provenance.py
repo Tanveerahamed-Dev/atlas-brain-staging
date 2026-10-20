@@ -78,7 +78,8 @@ def record(path):
     repo = fields(source["repository"], "url commit path")
     url = urlsplit(string(repo["url"]))
     require(url.scheme == "https" and url.hostname and not url.username and not url.password
-            and not url.query and not url.fragment and url.path not in {"", "/"}, "invalid repository URL")
+            and not url.query and not url.fragment and url.path not in {"", "/"}
+            and not any(c.isspace() for c in repo["url"]) and url.port in {None, 443}, "invalid repository URL")
     require(re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", string(repo["commit"])), "commit must be a full hash")
     relative(repo["path"])
     platform = fields(data["platform"], "family model version version_basis")
