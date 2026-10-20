@@ -119,7 +119,8 @@ def test_workflow_concurrency_separates_main_pr_and_merge_group_heads():
     'raise TypeError(value)',
     'raise ValueError(*options)',
     'raise ValueError(message="bad")',
-    'result = list(map(ValueError, values))',])
+    'result = list(map(ValueError, values))',
+])
 def test_reflected_arithmetic_fails_real_lint_entrypoint(tmp_path, plant):
     import subprocess
     import sys
