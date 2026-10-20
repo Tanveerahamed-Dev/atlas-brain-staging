@@ -1,5 +1,4 @@
 """Required source census plus planted foreign-pack and coverage failures."""
-import ast
 from pathlib import Path
 
 import pytest
