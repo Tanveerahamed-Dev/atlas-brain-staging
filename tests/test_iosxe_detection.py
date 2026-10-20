@@ -96,11 +96,17 @@ def test_special_build_is_kept_verbatim_never_relabelled_as_a_release():
     assert version.value == version.raw == "BLD_V1610_TEST"
 
 
-def test_conflicting_family_markers_are_unknown():
-    raw = XE16 + b"Cisco Nexus Operating System (NX-OS) Software\n"
-    result = detect(raw, CAPTURE)
-    assert isinstance(result, Unknown)
-    assert result.reason is UnknownReason.IDENTITY_AMBIGUOUS
+@pytest.mark.parametrize("other", [
+    b"Cisco Nexus Operating System (NX-OS) Software\n",
+    b"Cisco IOS Software, generic image, Version 15.2(4)E\n",
+])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_conflicting_family_markers_are_unknown(other, reverse):
+    raw = other + XE16 if reverse else XE16 + other
+    for operation in (detect, detection_version):
+        result = operation(raw, CAPTURE)
+        assert isinstance(result, Unknown)
+        assert result.reason is UnknownReason.IDENTITY_AMBIGUOUS
 
 
 @pytest.mark.parametrize("raw,canonical", [
