@@ -160,13 +160,16 @@ class ImportIndex:
 def source_allowed(source: str, sources=None, path="atlas_brain/probe.py") -> bool:
     tree = ast.parse(source)
     apis = STDLIB_API | SCOPED_API.get(path, set())
+    scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
         aliases = import_bindings(tree, path)[0]
         index = ImportIndex(sources or {})
     except ValueError:
         return False
     def admitted(name):
-        return name is not None and (index.namespace(name) or name.startswith("atlas_brain.") or name in apis
+        if name is None or (path not in SCOPED_API and any(name == m or name.startswith(m + ".") for m in scoped_modules)):
+            return False
+        return (index.namespace(name) or name.startswith("atlas_brain.") or name in apis
                                      or any(api.startswith(name + ".") for api in apis))
     if not all(admitted(index.origin(name)) for name in aliases.values()):
         return False

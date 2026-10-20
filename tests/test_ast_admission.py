@@ -45,6 +45,23 @@ def test_scoped_api_cannot_escape_through_internal_reexport():
     assert not source_allowed(source, sources, TOKEN)
 
 
+@pytest.mark.parametrize("source", [
+    "from atlas_brain.kernel.lints import parser; parser('')",
+    "from atlas_brain.kernel.lints import exported; exported()('')",
+    "from atlas_brain.kernel import lints; lints.exported()",
+    "from atlas_brain import bridge; bridge.parser('')",
+])
+def test_runtime_cannot_borrow_lint_capabilities(source):
+    sources = {LINTS: "import ast\nparser = ast.parse\ndef exported(): return ast.parse",
+               "atlas_brain/bridge.py": "from .kernel.lints import parser"}
+    assert not source_allowed(source, sources, "atlas_brain/model/runtime.py")
+
+
+def test_lint_to_lint_function_dependency_passes():
+    sources = {TOKEN: "def fallback_node(node): return False"}
+    assert source_allowed("from .token_lints import fallback_node; fallback_node(None)", sources, LINTS)
+
+
 def test_amendment_matches_exact_grant_and_bounds():
     assert set(SCOPED_API) == {TOKEN, LINTS}
     endpoints = set().union(*SCOPED_API.values())

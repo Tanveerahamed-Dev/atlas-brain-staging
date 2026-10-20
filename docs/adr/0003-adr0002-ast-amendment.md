@@ -53,8 +53,8 @@ Types inspect parsed syntax; parse builds ASTs, walk/iter_child_nodes traverse t
 | ast.walk | T, L |
 
 No wildcard, compilation, execution, reflection or process grant is added.
-Caller-path checks also apply to internal re-exports. The pinned request inventory
-and source-policy acceptance run in CI; K lint/type acceptance stays separate.
+Runtime paths cannot import either lint module; aliases and re-exports stay scoped.
+Pinned API inventory and source admission run in CI; K lint/type checks stay separate.
 Future API or path-grant changes require an amendment, REV MERGE-READY and explicit
 supervisor approval. Implementation acceptance requires a green published exact
 head on Linux and Windows and independent REV review. This is source policy only.
