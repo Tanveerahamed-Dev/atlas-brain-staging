@@ -11,7 +11,7 @@ def _unknown_only(statements: list[ast.stmt]) -> bool:
         (isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Return)) and _unknown(stmt.value)) for stmt in statements)
 
 
-def _scopes(tree: ast.AST) -> list[tuple[list[ast.AST], dict[str, list[ast.expr]], list[ast.arg], set[str]]]:
+def _scopes(tree: ast.AST) -> list[tuple[list[ast.AST], dict[str, list[ast.expr]], list[ast.arg], set[str], set[str]]]:
     frames = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
     all_nodes = list(ast.walk(tree))
     parents = {child: node for node in all_nodes for child in ast.iter_child_nodes(node)}
@@ -24,7 +24,7 @@ def _scopes(tree: ast.AST) -> list[tuple[list[ast.AST], dict[str, list[ast.expr]
         return tree
 
     scopes = [tree, *(node for node in all_nodes if isinstance(node, frames))]
-    result: list[tuple[list[ast.AST], dict[str, list[ast.expr]], list[ast.arg], set[str]]] = []
+    result: list[tuple[list[ast.AST], dict[str, list[ast.expr]], list[ast.arg], set[str], set[str]]] = []
     for scope in scopes:
         chain = [scope]
         while chain[-1] is not tree:
@@ -35,6 +35,7 @@ def _scopes(tree: ast.AST) -> list[tuple[list[ast.AST], dict[str, list[ast.expr]
         bindings: dict[str, list[ast.expr]] = {}
         parameters: dict[str, ast.arg] = {}
         unknowns: set[str] = set()
+        passthroughs: set[str] = set()
         for frame in reversed(chain):
             local: dict[str, list[ast.expr]] = {}
             for node in all_nodes:
@@ -43,6 +44,7 @@ def _scopes(tree: ast.AST) -> list[tuple[list[ast.AST], dict[str, list[ast.expr]
                 if isinstance(node, ast.arg):
                     parameters[node.arg] = node
                     unknowns.discard(node.arg)
+                    passthroughs.discard(node.arg)
                     if node.arg in bindings:
                         del bindings[node.arg]
                 if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
@@ -51,12 +53,21 @@ def _scopes(tree: ast.AST) -> list[tuple[list[ast.AST], dict[str, list[ast.expr]
                             local[target.id] = [*local[target.id], node.value] if target.id in local else [node.value]
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     unknowns.discard(node.name)
+                    passthroughs.discard(node.name)
+                    if isinstance(node, ast.FunctionDef) and not node.decorator_list and len(node.body) == 1:
+                        returned = node.body[0]
+                        args = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+                        if isinstance(returned, ast.Return) and isinstance(returned.value, ast.Name) and any(
+                            argument.arg == returned.value.id for argument in args
+                        ):
+                            passthroughs.add(node.name)
                     if isinstance(node.returns, ast.Name) and node.returns.id == "Unknown":
                         unknowns.add(node.name)
             bindings.update(local)
             unknowns.difference_update(local)
+            passthroughs.difference_update(local)
         nodes = [node for node in all_nodes if node is scope or (owner(node) is scope and not isinstance(node, frames))]
-        result.append((nodes, bindings, list(parameters.values()), unknowns))
+        result.append((nodes, bindings, list(parameters.values()), unknowns, passthroughs))
     return result
 
 
@@ -106,7 +117,7 @@ def _scalar_expression(value: ast.expr | None, proof: dict[str, set[str]]) -> bo
 
 
 def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], parameters: list[ast.arg],
-                unknowns: set[str], structural: bool) -> set[tuple[int, str]]:
+                unknowns: set[str], passthroughs: set[str], structural: bool) -> set[tuple[int, str]]:
     tables = {name for name, values in assignments.items() if all(isinstance(value, ast.Dict) or
         (isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "dict") for value in values)}
     raw_names = {name for name, values in assignments.items() if any(
@@ -115,15 +126,15 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
                      isinstance(n.annotation, ast.Name) and n.annotation.id == "str")
     buffers = {n.arg for n in parameters if n.arg != "token" and n.arg not in assignments and isinstance(n.annotation, ast.Name) and n.annotation.id == "bytes"}
     proof: dict[str, set[str]] = {"fallbacks": set(), "observed": set(assignments) | {n.arg for n in parameters}, "buffers": buffers,
-             "data": set(buffers), "raw": raw_names, "maps": set(), "patterns": set(), "mapped": set(), "tables": tables, "unknowns": unknowns, "conversions": {"bool", "int", "str", "float", "complex", "bytes", "bytearray"}}
+             "data": set(buffers), "raw": raw_names, "maps": set(), "patterns": set(), "mapped": set(), "tables": tables, "unknowns": unknowns, "passthroughs": set(passthroughs)}
 
     def scalar(value: ast.expr | None) -> bool:
         return _scalar_expression(value, proof)
 
     for _ in range(len(assignments) + 1):
         for name, values in assignments.items():
-            if any(isinstance(value, ast.Name) and value.id in proof["conversions"] for value in values):
-                proof["conversions"].add(name)
+            if all(isinstance(value, ast.Name) and value.id in proof["passthroughs"] for value in values):
+                proof["passthroughs"].add(name)
             for key, factory, method in (("maps", "TokenMap", "closed"), ("patterns", "compile_pattern", "")):
                 if factory not in assignments and factory not in {n.arg for n in parameters} and all(
                     isinstance(value, ast.Name) and value.id in proof[key] or isinstance(value, ast.Call) and (
@@ -180,8 +191,10 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
             raw_input = any((isinstance(child, ast.Attribute) and child.attr == "raw")
                             or (isinstance(child, ast.Name) and child.id in raw_names)
                             for value in arguments for child in ast.walk(value))
-            if raw_input and (any(scalar(value) for value in arguments) or
-                              isinstance(node.func, ast.Name) and node.func.id in proof["conversions"]):
+            proved_call = (isinstance(node.func, ast.Name) and node.func.id in proof["passthroughs"] or
+                           isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                           and node.func.attr == "resolve" and node.func.value.id in proof["maps"])
+            if raw_input and (any(scalar(value) for value in arguments) or not proved_call):
                 failures.add((node.lineno, "token_fallback_argument"))
         if isinstance(node, ast.Name) and node.id in ("getattr", "vars", "__getattribute__", "eval", "exec"):
             failures.add((node.lineno, "token_unproved_lookup"))
@@ -228,6 +241,6 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
 def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[int, str], ...]:
     """Audit lexical source units; permit proved byte grammar and closed maps."""
     failures: set[tuple[int, str]] = set()
-    for nodes, assignments, parameters, unknowns in _scopes(ast.parse(source)):
-        failures.update(_check_unit(nodes, assignments, parameters, unknowns, structural))
+    for nodes, assignments, parameters, unknowns, passthroughs in _scopes(ast.parse(source)):
+        failures.update(_check_unit(nodes, assignments, parameters, unknowns, passthroughs, structural))
     return tuple(sorted(failures))

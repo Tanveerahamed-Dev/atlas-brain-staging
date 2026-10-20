@@ -14,6 +14,10 @@ from atlas_brain.evidence.parsekit.token_lint import lint_token_handler
     "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes, evidence):\n original = raw\n if raw != b'full': raw = b'full'\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return Known(value=text, basis=Basis.OBSERVED, evidence=evidence, raw=original.decode('ascii'))\n",
     "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes):\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return text.startswith('half')\n",
     "def decode(token: bytes): return token[:4]\n",
+    "def truth(x):\n return bool(x)\ndef decode(field, evidence): return Known(value=truth(field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
+    "def truth(x):\n return bool(x)\nconvert = truth\ndef decode(field, evidence): return Known(value=convert(field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
+    "def apply(fn, x): return fn(x)\ndef decode(field, evidence): return Known(value=apply(bool, field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
+    "def exact(token): return token\ndef decode(field, evidence):\n exact = truth\n return Known(value=exact(field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
     "def decode(field, evidence): return Known(value=bool(field.raw), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
     "convert = bool\ndef decode(field, evidence):\n token = field.raw\n alias = convert\n return Known(value=alias(token), basis=Basis.OBSERVED, evidence=evidence, raw=token)\n",
     "def decode(field, evidence): return Known(value=bool(), basis=Basis.OBSERVED, evidence=evidence, raw=field.raw)\n",
@@ -42,7 +46,7 @@ def test_structural_token_policy_refuses_every_planted_escape(source):
 
 @pytest.mark.parametrize("source", [
     "def decode(field): return TABLE.resolve(field)\n",
-    "def decode(field): return exact(field.raw)\n",
+    "def exact(token): return token\ndef decode(field): return exact(field.raw)\n",
     "def metadata():\n text = 'status'\n return Unknown()\ndef decode(field):\n text = field.raw\n return Known(value=text, basis=Basis.OBSERVED, raw=text)\n",
     "TABLE = TokenMap.closed({'week': Unit.WEEK})\nPATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes, span, capture):\n part = raw[0:4]\n matched = PATTERN.fullmatch(part)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n item = Captured(text, span, text)\n resolved = TABLE.resolve(item, capture)\n return resolved.value\n",
     "def decode(field): return Unknown(reason=UnknownReason.PARSE_PARTIAL, detail=field.raw, evidence=(), candidates=(), next_evidence=())\n",
