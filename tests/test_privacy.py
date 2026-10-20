@@ -28,7 +28,8 @@ def test_gate_marker_and_split_receipts():
     for prefix in (b"", b"b", b"B", b"r", b"u", b"br", b"rb", b"f", b"F", b"fr", b"rf", b"t", b"tr", b"rt"):
         for data in (b"prefix " + marker,
                      b'v = ' + prefix + b'"' + marker[:5] + b'" + ' + prefix + b'"' + marker[5:] + b'"',
-                     b'v = ' + prefix + b'"' + marker[:5] + b'" ' + prefix + b'"' + marker[5:] + b'"'):
+                     b'v = ' + prefix + b'"' + marker[:5] + b'" ' + prefix + b'"' + marker[5:] + b'"',
+                     b'v = (' + prefix + b'"' + marker[:5] + b'" # "ignored"\n ' + prefix + b'"' + marker[5:] + b'")'):
             hits = scan(data, "c" * 40, [marker])
             assert hits == [{"blob": "c" * 40, "offset": data.index(marker[:5])}]
             assert marker.decode() not in json.dumps(hits)
