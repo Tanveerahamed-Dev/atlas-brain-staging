@@ -5,7 +5,6 @@ complements strict typing and runtime admission; it is not a Python sandbox.
 """
 import ast
 import re
-from hashlib import sha256
 
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
@@ -14,10 +13,6 @@ LOADER = 'atlas_brain/model/catalogue.py'
 FACT_PATH = ('kernel', 'model', 'packs', 'correlate', 'timeline')
 DENIED = ('ctypes', 'cffi', 'socket', 'ssl', 'subprocess', 'multiprocessing',
           'http', 'urllib.request', 'requests', 'httpx', 'aiohttp')
-# PR 13's independently reviewed runtime grammar is stronger than this AST lint.
-# Any source edit removes this proof until its new body is independently accepted.
-PATTERN_GUARD = ('atlas_brain/evidence/parsekit/patterns.py',
-                 'c3b1b997a5fc558df2e1e67a3245885475b03fb9c6a4ea0115664a4b12efbe48')
 
 
 def nested_unbounded(pattern: str) -> bool:
@@ -59,7 +54,6 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     parts = path.replace('\\', '/').split('/')
     fact_path = any(p in FACT_PATH for p in parts)
     fact_fields = 'model' in parts or 'packs' in parts
-    guarded_patterns = (path, sha256(source.encode('utf-8')).hexdigest()) == PATTERN_GUARD
     aliases: dict[str, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -106,20 +100,6 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 return True
         return False
 
-    broad_handlers = tuple(n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and
-                           (n.type is None or contains(n.type, ('BaseException',))))
-
-    def aborts(handler: ast.ExceptHandler) -> bool:
-        # Deliberately narrow: re-raising SystemExit(0) would still exit zero.
-        if len(handler.body) != 1 or not isinstance(handler.body[0], ast.Raise) or handler.body[0].cause is not None:
-            return False
-        exception = handler.body[0].exc
-        if not isinstance(exception, ast.Call) or name(exception.func) not in ('SystemExit', 'builtins.SystemExit'):
-            return False
-        if any(n in rebound for n in ('SystemExit', 'builtins.SystemExit', 'builtins')):
-            return False
-        return len(exception.args) == 1 and not exception.keywords and isinstance(exception.args[0], ast.Constant) and type(exception.args[0].value) is int and 1 <= exception.args[0].value <= 255
-
     findings: set[tuple[int, int]] = set()
 
     def hit(rule: int, node: ast.AST) -> None:
@@ -156,14 +136,8 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             test = node.test
             if any(isinstance(n, ast.Name) and 'token' in n.id.lower() for n in ast.walk(test)):
                 hit(3, node)
-        if isinstance(node, ast.ExceptHandler):
-            broad = node.type is None or contains(node.type, ('BaseException',))
-            if broad:
-                owner = parents[parents[node]]
-                top = isinstance(owner, ast.Module) or (isinstance(owner, ast.FunctionDef) and
-                      owner.name == 'main' and isinstance(parents[owner], ast.Module))
-                if path != 'atlas_brain/runner/__main__.py' or len(broad_handlers) != 1 or not top or not aborts(node):
-                    hit(5, node)
+        if isinstance(node, ast.ExceptHandler) and (node.type is None or contains(node.type, ('BaseException',))):
+            hit(5, node)
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or '', *[f'{node.module}.{a.name}' for a in node.names]]
             for module in modules:
@@ -208,7 +182,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             flags = list(node.args[1:] if short == 'compile' else node.args[2:]) + [k.value for k in node.keywords if k.arg == 'flags']
             if not any(ascii_flag(f) for f in flags):
                 hit(12, node)
-            if not guarded_patterns and (not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str)):
+            if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
                 hit(12, node)
             if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str) and nested_unbounded(node.args[0].value):
                 hit(12, node)
