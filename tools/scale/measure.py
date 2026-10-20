@@ -69,6 +69,19 @@ def kill_tree(processes):
             pass
 
 
+def sample_memory(process):
+    try:
+        return process.memory_full_info(), None
+    except psutil.AccessDenied:
+        # Windows can deny VM queries during process teardown. Require actual exit
+        # within one sampling period; a still-live denial remains a failed measure.
+        try:
+            process.wait(timeout=0.05)
+        except (psutil.TimeoutExpired, psutil.AccessDenied):
+            raise psutil.AccessDenied(process.pid)
+        return None, "confirmed_exit_after_access_denial"
+
+
 def measure(input_root, output_root, runtime, size, dense=False, workers=4, recycle=None,
             container=False, cap=2**31, fault="none", cancel_half=False, environment=None, interpreter="3.14.8"):
     output_root.mkdir(parents=True, exist_ok=False)
@@ -84,7 +97,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
                 "os": platform.system(), "cap_bytes": cap, "container": container,
                 "fault": fault, "workers_requested": workers, "recycle": recycle,
                 "status": "starting", "cancel_half": cancel_half, "sample_hz": 20}
-    samples, known, errors, io_errors = [], {}, [], []
+    samples, known, errors, io_errors, exit_races = [], {}, [], [], []
     job, container_id, cg = None, None, None
     logfile = (output_root / "console.log").open("wb")
     started = time.monotonic()
@@ -149,7 +162,10 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             for member in current:
                 try:
                     known[(member.pid, member.create_time())] = member
-                    memory = member.memory_full_info()
+                    memory, race = sample_memory(member)
+                    if race:
+                        exit_races.append({"pid": member.pid, "t_s": now - started, "kind": race})
+                        continue
                     tree_uss += memory.uss
                     tree_rss += memory.rss
                     member_cpu = None
@@ -248,7 +264,7 @@ def measure(input_root, output_root, runtime, size, dense=False, workers=4, recy
             job.close()
         if container_id:
             subprocess.run(["docker", "rm", "-f", container_id], check=False, stdout=subprocess.DEVNULL)
-        metadata.update({"samples": len(samples), "sampling_errors": sorted(set(errors)), "io_sampling_errors": io_errors, "cgroup_last": sampled_cg,
+        metadata.update({"samples": len(samples), "sampling_errors": sorted(set(errors)), "io_sampling_errors": io_errors, "confirmed_exit_races": exit_races, "cgroup_last": sampled_cg,
                          "peak_job_commit": job_peak, "peak_tree_uss": max((s["uss"] for s in samples), default=0),
                          "median_tree_uss": statistics.median([s["uss"] for s in samples]) if samples else 0,
                          "max_tree_rss": max((s["rss"] for s in samples), default=0),

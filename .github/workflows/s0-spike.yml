@@ -44,6 +44,8 @@ jobs:
           & $runtime -I -X warn_default_encoding -W error::EncodingWarning tools/scale/smoke.py
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python -m pip install psutil==7.2.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest tools.scale.test_sampler -v
           exit $LASTEXITCODE
       - name: End-to-end 100-device smoke (uncapped, not acceptance)
         run: python tools/scale/measure.py --runtime $env:S0_RUNTIME --sizes 100 --repetitions 1 --host --raw .s0/smoke/raw
