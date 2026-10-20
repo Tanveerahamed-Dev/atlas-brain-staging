@@ -22,28 +22,30 @@ outside the span survive, including UTF-8 prefixes, CRLF and missing final newli
 It is a bare text transform and supplies no tier or device-semantic claim.
 
 `mutate(parent, operator, start, end, after, witness, witness_start, witness_end)`
-also checks both raw digests, H/L/P tiers, a known identical family/exact train,
-and the verbatim complete replacement at the witness span. `Capture` is a small
-trusted-loader projection, not a provenance schema or attestation oracle. Validate
-source metadata through the shared provenance gate before projecting it; do not
-infer a train from an unversioned sample or bypass a source-version conflict.
-The result is bytes plus a deterministic M derivation receipt containing parent
-ID/hash/provenance, operator, edit bytes/offsets, witness ID/hash/provenance/span,
-output hash and content-derived mutation ID. It is not a signed truth-case record.
+checks the internal consistency of caller descriptions: digests, declared H/L/P,
+a known identical family/exact train, and replacement bytes at the witness span.
+`Capture` is untrusted caller data, never admitted source or witness evidence.
+The output receipt has `qualification: unqualified`, kind `unqualified_text_edit`
+and **no tier field**. This remains true for a self-consistent invented pair with
+nonexistent provenance links. It records declared IDs/hashes/links, edit bytes and
+spans, output hash and a deterministic edit ID; it cannot assign tier M.
 
-The caller owns field selection, applicable platform grammar, peer/domain/bay
-identity and independently registered fault/healthy/insufficient labels. A VLAN
-edit on a non-trunk is not a mismatch; a duplicated address needs a closed common
-domain; EXSTART plus MTU edits do not prove causation. Compose U3 from separately
-witnessed MTU and OSPF derivations. I1–I10 bundle operators are a separate harness
-contract; tier-P edits cannot satisfy the H/L insufficient-evidence holdout quota.
+Actual M issuance remains deferred until both source and witness are bound to
+validated admission/provenance evidence. V's current public schema accepts P/S
+fixtures and refuses M. Do not promote these edit receipts into truth records.
+The caller still owns field selection, grammar, peer/domain/bay identity and
+independent labels. A VLAN edit on a non-trunk is not a mismatch; duplicate
+addresses need a closed common domain; MTU plus EXSTART does not prove causation.
+I1–I10 bundle operators and signed truth records are a separate harness contract.
 
-Pinned Q inputs are copied byte-for-byte from `q/public-corpus` commit
-`ef92126e9f2ae2161c02f050f4fba29932dc117e` into `fixtures/mutations/q/`, preserving
-notices/licences and original sidecars renamed `source-provenance.yaml`. Sidecars
-are historical source records; shared-schema acceptance is not verified. Current
-Q parents lack eligible same-train fault-token witnesses. Tests must refuse M,
-while explicitly synthetic loader doubles exercise the positive path. No generated
-M fixture, format-floor, measured accuracy or verified-device claim is supplied.
-Hosted Linux and Windows tests check planted refusals, inverse controls, exact
-byte preservation and identical receipts across two fresh hash-seeded processes.
+Four Q raw files remain byte-identical to `q/public-corpus` commit
+`ef92126e9f2ae2161c02f050f4fba29932dc117e` under `fixtures/mutations/q/`.
+Their adapted `provenance.yaml` records use MU-prefixed IDs, sibling `file`, full
+notice text and `format_floor: false`; original source metadata remains pinned
+in Q's commit. Ancillary files are outside fixtures. Source-specific notices and
+NTC's copyright licence are in `docs/contract/mutation-sources/`. Root `LICENSE`
+contains the complete identical Apache terms (only an extra terminal blank line).
+Q lacks eligible same-train fault-token witnesses. No M fixture, format-floor,
+measured accuracy or verified-device claim is supplied. Hosted Linux/Windows tests
+check the entire shared fixture gate, caller-tier spoofing, planted refusals,
+inverse controls, byte preservation and fresh-process hash-seed determinism.

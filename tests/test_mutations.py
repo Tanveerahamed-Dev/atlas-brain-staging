@@ -26,7 +26,7 @@ CASES = (
 
 
 def capture(raw, **changes):
-    # A simulated trusted-loader result, never committed or scored as real tier P.
+    # Deliberately self-declared data: it must never receive a source tier.
     result = Capture("synthetic-double", "iosxe", "test-train", "P", raw,
                      sha256(raw).hexdigest(), "fixtures/mutations/test-double")
     return replace(result, **changes)
@@ -154,7 +154,7 @@ class MutationTests(unittest.TestCase):
                 self.assertEqual(sha256(raw).hexdigest(), digest)
                 start = raw.index(before) if operator != "native-vlan" else raw.index(b"not-trunking  1") + 14
                 source = Capture(path, family, train, "P", raw, digest,
-                                 f"{root.as_posix()}/{path}/source-provenance.yaml")
+                                 f"{root.as_posix()}/{path}/provenance.yaml")
                 with self.assertRaises(ValueError):
                     mutate(source, operator, start, start + len(before), after, source, 0, len(after))
                 edited = apply_span(raw, operator, start, start + len(before), after)

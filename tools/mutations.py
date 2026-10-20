@@ -1,4 +1,4 @@
-"""Declared raw-byte mutations. Tier M requires trusted H/L/P capture metadata."""
+"""Declared raw-byte edits with unqualified receipts; no source tier is assigned."""
 import json
 from dataclasses import dataclass
 from hashlib import sha256
@@ -39,7 +39,7 @@ OPERATORS = MappingProxyType({
 
 @dataclass(frozen=True)
 class Capture:
-    """Trusted-loader projection, not a substitute for the shared provenance validator."""
+    """Untrusted caller description; never admitted source or witness evidence."""
     fixture_id: str
     family: str
     train: str | None
@@ -57,7 +57,7 @@ def _capture(capture: Capture) -> None:
             or not capture.provenance or "\\" in capture.provenance or ":" in capture.provenance
             or PurePosixPath(capture.provenance).is_absolute()
             or any(p in {"", ".", ".."} for p in capture.provenance.split("/"))):
-        raise ValueError("eligible capture, known train, digest and relative provenance required")
+        raise ValueError("consistent declaration, known train, digest and relative link required")
 
 
 def _span(raw: bytes, start: int, end: int) -> bytes:
@@ -84,7 +84,7 @@ def apply_span(raw: bytes, operator: str, start: int, end: int, after: bytes) ->
 
 def mutate(parent: Capture, operator: str, start: int, end: int, after: bytes,
            witness: Capture, witness_start: int, witness_end: int) -> tuple[bytes, dict]:
-    """Return bytes and a deterministic tier-M receipt, or refuse without writing anything."""
+    """Return bytes and an explicitly unqualified receipt; caller claims cannot assign M."""
     _capture(parent)
     _capture(witness)
     if (parent.family, parent.train) != (witness.family, witness.train):
@@ -93,9 +93,9 @@ def mutate(parent: Capture, operator: str, start: int, end: int, after: bytes,
         raise ValueError("inserted token absent at witness span")
     output = apply_span(parent.raw, operator, start, end, after)
     receipt = {
-        "tier": "M", "family": parent.family, "train": parent.train,
+        "qualification": "unqualified", "family": parent.family, "train": parent.train,
         "source": {
-            "kind": "mutation", "parent_fixture": parent.fixture_id,
+            "kind": "unqualified_text_edit", "parent_fixture": parent.fixture_id,
             "parent_sha256": parent.sha256, "parent_provenance": parent.provenance,
             "operator": operator,
             "token_witness": {"capture_id": witness.fixture_id, "sha256": witness.sha256,
