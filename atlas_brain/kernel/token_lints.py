@@ -13,9 +13,21 @@ def _tail(node: ast.AST) -> str:
     return node.attr if isinstance(node, ast.Attribute) else ''
 
 
-def _token_subject(node: ast.AST) -> bool:
-    return any(isinstance(part, ast.Name) and 'token' in part.id.lower()
-               for part in ast.walk(node))
+def _lookup_value(node: ast.AST) -> bool:
+    return any(isinstance(part, ast.Subscript) and (
+        isinstance(part.slice, ast.Name) or
+        (isinstance(part.slice, ast.Constant) and type(part.slice.value) is str))
+        for part in ast.walk(node))
+
+
+def _terminal_assertion(pattern: ast.pattern, body: list[ast.stmt]) -> bool:
+    bound = {part.name for part in ast.walk(pattern) if isinstance(part, ast.MatchAs) and part.name}
+    if len(body) != 1 or not isinstance(body[0], ast.Expr):
+        return False
+    call = body[0].value
+    return (isinstance(call, ast.Call) and _tail(call.func) == 'assert_never' and
+            len(call.args) == 1 and not call.keywords and
+            isinstance(call.args[0], ast.Name) and call.args[0].id in bound)
 
 
 def _literal_pattern(pattern: ast.pattern) -> bool:
@@ -30,16 +42,21 @@ def fallback_node(node: ast.AST, called: str = '') -> bool:
         short = (called or _tail(node.func)).rsplit('.', 1)[-1]
         return short in ('get', 'setdefault', 'defaultdict') or (
             short == 'pop' and (len(node.args) > 1 or bool(node.keywords)))
-    if isinstance(node, (ast.If, ast.IfExp)):
-        return bool(node.orelse) and _token_subject(node.test)
+    if isinstance(node, ast.IfExp):
+        return _lookup_value(node.body) or _lookup_value(node.orelse)
+    if isinstance(node, ast.If) and node.orelse:
+        return any(_lookup_value(part.value)
+                   for statement in node.body + node.orelse for part in ast.walk(statement)
+                   if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
     if isinstance(node, ast.Match):
         patterns = [case.pattern for case in node.cases]
         # An object class pattern is universal, including without a literal arm.
         if any(isinstance(p, ast.MatchClass) and _tail(p.cls) == 'object'
                for pattern in patterns for p in ast.walk(pattern)):
             return True
-        enumerated = _token_subject(node.subject) or any(
-            isinstance(p, (ast.MatchValue, ast.MatchSingleton))
-            for pattern in patterns for p in ast.walk(pattern))
-        return enumerated and any(not _literal_pattern(pattern) for pattern in patterns)
+        return any(not _literal_pattern(case.pattern) and
+                   not (isinstance(case.pattern, ast.MatchClass) and
+                        _tail(case.pattern.cls) in ('Known', 'Absent', 'Unknown', 'NotApplicable')) and
+                   not _terminal_assertion(case.pattern, case.body)
+                   for case in node.cases)
     return False
