@@ -42,6 +42,14 @@ def lint_token_handler(source: str) -> tuple[tuple[int, str], ...]:
             node.args.defaults or any(value is not None for value in node.args.kw_defaults)
         ):
             failures.add((node.lineno, "token_parameter_default"))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for index, statement in enumerate(node.body):
+                if isinstance(statement, ast.Return) and not _unknown(statement.value) and (
+                    isinstance(statement.value, (ast.Constant, ast.Attribute))
+                    or any(isinstance(child, ast.Return)
+                           for prior in node.body[:index] for child in ast.walk(prior))
+                ):
+                    failures.add((statement.lineno, "token_catchall"))
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and node.func.attr in ("get", "setdefault", "startswith", "endswith", "find", "index")):
             failures.add((node.lineno, "token_convenience_lookup"))
