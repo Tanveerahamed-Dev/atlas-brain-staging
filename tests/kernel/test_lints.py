@@ -140,3 +140,25 @@ def test_parsekit_compiler_requires_pk_extension():
     assert changed != source
     assert 12 in {r for r, _ in lint(changed, path)}
     assert 12 in {r for r, _ in lint(source, 'atlas_brain/packs/example/parser.py')}
+
+
+@pytest.mark.parametrize('source', [
+    'from pathlib import Path\nwith Path("x").open("rb") as f:\n raw = f.read()',
+    'with path.open("rb") as f:\n raw = f.read()',
+    'with path.open(mode="rb") as f:\n raw = f.read()',
+    'from pathlib import Path\nwith Path.open(path, "rb") as f:\n raw = f.read()',
+    'import io\nwith io.open("x", "rb") as f:\n raw = f.read()',
+])
+def test_bound_and_unbound_binary_open_controls(source):
+    assert not lint(source, 'atlas_brain/evidence/admission.py')
+
+
+@pytest.mark.parametrize('source', [
+    'with path.open("r") as f:\n text = f.read()',
+    'import io\nwith io.open("rb", "r") as f:\n text = f.read()',
+    'import builtins\nwith builtins.open("rb") as f:\n text = f.read()',
+    'from pathlib import Path\nwith Path.open(path, "r") as f:\n text = f.read()',
+    'text = path.read_text(None, "b")',
+])
+def test_text_open_still_requires_encoding(source):
+    assert 10 in {r for r, _ in lint(source, 'atlas_brain/evidence/admission.py')}

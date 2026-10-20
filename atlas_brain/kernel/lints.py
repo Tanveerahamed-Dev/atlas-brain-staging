@@ -170,11 +170,14 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
         if path not in RUNNER and (called in ('os.getenv', 'os.getenvb', 'time.time', 'time.time_ns', 'time.monotonic', 'time.perf_counter') or short in ('now', 'utcnow', 'today')):
             hit(9, node)
         if short in ('open', 'read_text', 'write_text'):
-            mode = node.args[1] if len(node.args) > 1 else None
+            unbound = called in ('open', 'builtins.open', 'io.open', '_io.open',
+                                 'pathlib.Path.open', 'pathlib.PosixPath.open', 'pathlib.WindowsPath.open')
+            mode_index = 1 if unbound else 0
+            mode = node.args[mode_index] if len(node.args) > mode_index else None
             for keyword in node.keywords:
                 if keyword.arg == 'mode':
                     mode = keyword.value
-            binary = isinstance(mode, ast.Constant) and isinstance(mode.value, str) and 'b' in mode.value
+            binary = short == 'open' and isinstance(mode, ast.Constant) and isinstance(mode.value, str) and 'b' in mode.value
             encoding = any(k.arg == 'encoding' and not (isinstance(k.value, ast.Constant) and k.value.value is None) for k in node.keywords)
             if not binary and not encoding:
                 hit(10, node)
