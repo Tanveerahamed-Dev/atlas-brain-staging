@@ -86,11 +86,11 @@ def test_adr_refuses_planted_violations(repo, plant):
 def test_accepted_adr_status_only_change_passes(repo, ending):
     name = "docs/adr/0000-example.md"
     write(repo, name, "# Synthetic ADR\nStatus: accepted\nFrozen decision.\n")
-    (repo / name).write_bytes((repo / name).read_bytes().replace(b"\n", ending.encode()))
+    (repo / name).write_bytes((repo / name).read_bytes().replace(b"\r\n", b"\n").replace(b"\n", ending.encode()))
     commit(repo)
     base = git(repo, "rev-parse", "HEAD")
     write(repo, name, "# Synthetic ADR\nStatus: superseded\nFrozen decision.\n")
-    (repo / name).write_bytes((repo / name).read_bytes().replace(b"\n", ending.encode()))
+    (repo / name).write_bytes((repo / name).read_bytes().replace(b"\r\n", b"\n").replace(b"\n", ending.encode()))
     commit(repo)
     assert audit(repo, base, "HEAD")["counted_lines"] == 2
 
