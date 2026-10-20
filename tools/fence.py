@@ -1,8 +1,10 @@
-"""Tracked-path fence; explicit arguments support planted violation probes."""
+"""Tracked paths, standard-library runtime dependencies, and denied engine imports."""
+import ast
 import json
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path, PurePosixPath
 
 ROOTS = {"README.md", "LICENSE", ".gitattributes", ".gitignore",
@@ -12,7 +14,14 @@ TREES = ("atlas_brain/", "tests/", "fixtures/", "docs/adr/", "docs/contract/",
 DENIED = {"plans", "prompts", "agents.md", "claude.md", ".claude", ".codex",
           ".agents", ".mcp.json", ".specify", "specs"}
 PROCESS = re.compile(r"(?:^|[-_.])(boards?|agent[-_]?notes?)(?:$|[-_.])", re.ASCII)
+# S3 3.3.1: dynamic importing requires an approved exact pack-loader path; none exists yet.
+BANNED = ("tkinter", "curses", "webbrowser", "http.server", "wsgiref", "socketserver", "importlib", "builtins")
 GOVERNANCE = {"governance/generators.json", "governance/review.schema.json", "governance/review-policy.json"}
+DYNAMIC = {"exec", "eval", "compile", "__import__", "__builtins__", "globals", "locals", "vars",
+           "getattr", "setattr", "delattr", "hasattr", "dir",
+           "builtins.exec", "builtins.eval", "builtins.compile", "builtins.__import__", "sys.modules", "sys._getframe"}
+CODE_ATTRIBUTES = {"__globals__", "__builtins__", "__code__", "__closure__", "__dict__", "__subclasses__",
+                   "f_builtins", "f_globals", "f_locals", "gi_frame", "cr_frame", "ag_frame", "tb_frame"}
 
 
 def allowed(path: str) -> bool:
@@ -22,6 +31,12 @@ def allowed(path: str) -> bool:
     if path.startswith("governance/"):
         return path in GOVERNANCE
     return path in ROOTS or path.startswith(TREES)
+
+
+def dependencies_allowed(config: dict) -> bool:
+    project = config.get("project", {})
+    extras = project.get("optional-dependencies", {})
+    return project.get("dependencies") == [] and isinstance(extras, dict) and all(v == [] for v in extras.values())
 
 
 def gate_data_allowed(path: str, data) -> bool:
@@ -48,6 +63,41 @@ def gate_data_allowed(path: str, data) -> bool:
     return False
 
 
+def source_allowed(source: str) -> bool:
+    tree, aliases, modules, module_aliases = ast.parse(source), {}, [], set()
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                modules.append(item.name)
+                aliases[item.asname or item.name.split(".")[0]] = item.name if item.asname else item.name.split(".")[0]
+                module_aliases.add(item.asname or item.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and not node.level:
+            modules.append(node.module or "")
+            for item in node.names:
+                qualified = f"{node.module}.{item.name}"
+                modules.append(qualified)
+                aliases[item.asname or item.name] = qualified
+    def qualified(node):
+        if isinstance(node, ast.Name):
+            return aliases.get(node.id, node.id)
+        return qualified(node.value) + "." + node.attr if isinstance(node, ast.Attribute) else ""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in module_aliases:
+            parent = parents.get(node)
+            if not isinstance(parent, ast.Attribute) or parent.value is not node:
+                return False
+        if isinstance(node, ast.Attribute) and node.attr in CODE_ATTRIBUTES:
+            return False
+        if isinstance(node, (ast.Name, ast.Attribute)) and qualified(node) in DYNAMIC:
+            return False
+    return all(
+        name not in DYNAMIC and name.split(".")[0] in sys.stdlib_module_names | {"atlas_brain"}
+        and not any(name == banned or name.startswith(banned + ".") for banned in BANNED)
+        for name in modules
+    )
+
+
 def main() -> int:
     paths = sys.argv[1:] or subprocess.check_output(
         ["git", "ls-files", "-z"],
@@ -55,11 +105,14 @@ def main() -> int:
     try:
         failures = sum(not allowed(path) for path in paths)
         for path in paths:
+            if path.startswith("atlas_brain/") and path.endswith(".py"):
+                failures += not source_allowed(Path(path).read_text(encoding="utf-8"))
             if path.startswith("governance/") and allowed(path):
                 failures += not gate_data_allowed(path, json.loads(Path(path).read_text(encoding="utf-8")))
-    except (OSError, ValueError, TypeError):
+        failures += not dependencies_allowed(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8")))
+    except (OSError, ValueError, SyntaxError, TypeError):
         failures = 1
-    print(f"path fence: {failures} refused paths")
+    print(f"scope fence: {failures} refused paths, imports, dependencies or machine-data files")
     return int(bool(failures))
 
 
