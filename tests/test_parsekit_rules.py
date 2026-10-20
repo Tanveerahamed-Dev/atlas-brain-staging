@@ -30,3 +30,17 @@ def test_planted_unmapped_token_is_unknown_with_raw_kept():
     assert isinstance(field.value, Unknown)
     assert field.value.reason is UnknownReason.PARSE_PARTIAL
     assert field.value.evidence[0].locator == field.span
+
+
+def test_ordered_states_and_cited_ignore():
+    rules = (
+        Rule("open", "start", "BEGIN", "enter_state", "body", "", ()),
+        Rule("blank", "body", "", "ignore", "body", "fixture:blank separator", ()),
+        Rule("value", "body", r"(?P<value>\d+)", "record", "body", "", ("value",)),
+        Rule("close", "body", "END", "leave_state", "start", "", ()),
+    )
+    result = run_rules(b"BEGIN\r\n\r\n42\nEND", CaptureId("cap-a"), rules, ())
+    assert result.quality == "complete"
+    assert [line.rule_id for line in result.lines] == ["open", "blank", "value", "close"]
+    assert result.lines[1].status == "ignored"
+    assert result.records[0].fields[0][1].raw == "42"
