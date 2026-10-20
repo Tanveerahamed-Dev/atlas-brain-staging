@@ -169,3 +169,11 @@ def test_bad_deflate_has_stable_refusal(tmp_path):
     with (patch.object(zipfile.ZipExtFile, "read", side_effect=z.DecompressionError("invalid stream")),
           pytest.raises(a.AdmissionRefused, match="invalid_zip")):
         z.zip_members(path, limits())
+
+
+def test_zip64_member_profile_is_refused(tmp_path):
+    path = tmp_path / "zip64.zip"
+    with zipfile.ZipFile(path, "w") as stream, stream.open("a", "w", force_zip64=True) as member:
+        member.write(b"data")
+    with pytest.raises(a.AdmissionRefused, match="unsupported_zip_profile"):
+        z.zip_members(path, limits())
