@@ -25,6 +25,13 @@ def _tree(tmp_path, source):
 @pytest.mark.parametrize("source", [
     "def decode(field):\n token = field.raw\n lookup = rows.get\n return lookup(token, 'full')\n",
     "def decode(field): return field.raw[:4] == 'half'\n",
+    "def decode(field):\n rows = {'half': 'half'}\n return rows.pop(field.raw, 'full')\n",
+    "def decode(field):\n lookup = rows.pop\n return lookup(field.raw, 'full')\n",
+    "def decode(field): return dict.pop(rows, field.raw, 'full')\n",
+    "def decode(field): return mapper(field.raw, 'full')\n",
+    "def decode(field):\n fallback = 'full'\n value = field.raw\n alias = value\n return mapper(alias, fallback)\n",
+    "def decode(field): return mapper(*(field.raw, 'full'))\n",
+    "def decode(field): return factory(field.raw, default='full')\n",
 ])
 def test_foreign_pack_violation_is_discovered_without_registration(tmp_path, source):
     report = audit_tree(_tree(tmp_path, source))
