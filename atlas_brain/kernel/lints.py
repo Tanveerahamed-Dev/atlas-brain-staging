@@ -80,6 +80,28 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     def contains(node: ast.AST, names: tuple[str, ...]) -> bool:
         return any(tail(n) in names for n in ast.walk(node))
 
+    rebound = {name(n) for n in ast.walk(tree) if isinstance(n, (ast.Name, ast.Attribute)) and isinstance(n.ctx, ast.Store)}
+    for binding in ast.walk(tree):
+        identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else ''
+        if identifier in aliases:
+            rebound.add(aliases[identifier])
+
+    def ascii_flag(node: ast.AST) -> bool:
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return ascii_flag(node.left) or ascii_flag(node.right)
+        return name(node) in ('re.ASCII', 're.A') and name(node) not in rebound and 're' not in rebound
+
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+
+    def inside_verdict(node: ast.AST) -> bool:
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, ast.FunctionDef) and node.name == 'verdict' and isinstance(parents[node], ast.Module):
+                return True
+        return False
+
+    broad_handlers = tuple(n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and
+                           (n.type is None or contains(n.type, ('BaseException',))))
     findings: set[tuple[int, int]] = set()
 
     def hit(rule: int, node: ast.AST) -> None:
@@ -118,8 +140,12 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 hit(3, node)
         if isinstance(node, ast.ExceptHandler):
             broad = node.type is None or contains(node.type, ('BaseException',))
-            if broad and path != 'atlas_brain/runner/__main__.py':
-                hit(5, node)
+            if broad:
+                owner = parents[parents[node]]
+                top = isinstance(owner, ast.Module) or (isinstance(owner, ast.FunctionDef) and
+                      owner.name == 'main' and isinstance(parents[owner], ast.Module))
+                if path != 'atlas_brain/runner/__main__.py' or len(broad_handlers) != 1 or not top:
+                    hit(5, node)
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or '', *[f'{node.module}.{a.name}' for a in node.names]]
             for module in modules:
@@ -129,11 +155,11 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                     hit(8, node)
                 if path not in RUNNER and any(module == d or module.startswith(d + '.') for d in DENIED):
                     hit(14, node)
-        if isinstance(node, (ast.For, ast.comprehension)):
+        if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             iterator = node.iter
             if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and tail(iterator.func) in ('set', 'frozenset')):
                 hit(11, node)
-        if isinstance(node, (ast.Attribute, ast.Name)) and fact_path and name(node) in ('os.environ', 'os.environb'):
+        if isinstance(node, (ast.Attribute, ast.Name)) and path not in RUNNER and name(node) in ('os.environ', 'os.environb'):
             hit(9, node)
         if not isinstance(node, ast.Call):
             continue
@@ -141,7 +167,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
         short = tail(node.func)
         if short == 'get' and (len(node.args) > 1 or node.keywords):
             hit(3, node)
-        if short == 'CheckResult' and path != 'atlas_brain/kernel/verdict.py':
+        if short == 'CheckResult' and (path != 'atlas_brain/kernel/verdict.py' or not inside_verdict(node)):
             hit(4, node)
         if fact_path and (short == 'float' or called.startswith('math.')):
             hit(7, node)
@@ -162,9 +188,9 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                 hit(10, node)
         if called.startswith('re.') and short in ('compile', 'search', 'match', 'fullmatch', 'findall', 'finditer', 'split', 'sub', 'subn'):
             flags = list(node.args[1:] if short == 'compile' else node.args[2:]) + [k.value for k in node.keywords if k.arg == 'flags']
-            if not any(contains(f, ('ASCII', 'A')) for f in flags):
+            if not any(ascii_flag(f) for f in flags):
                 hit(12, node)
-            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str) and nested_unbounded(node.args[0].value):
+            if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str) or nested_unbounded(node.args[0].value):
                 hit(12, node)
         if path != LOADER and called in ('importlib.import_module', '__import__', 'builtins.__import__'):
             hit(15, node)
