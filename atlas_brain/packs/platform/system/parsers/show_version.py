@@ -4,9 +4,23 @@ from enum import StrEnum
 from hashlib import sha256
 
 from atlas_brain.evidence.parsekit.patterns import compile_pattern
-from atlas_brain.evidence.parsekit.rules import Captured, ParseResult, Rule, TokenMap, run_rules
+from atlas_brain.evidence.parsekit.rules import (
+    Captured,
+    ParseResult,
+    Rule,
+    TokenMap,
+    run_rules,
+)
 from atlas_brain.kernel.states import (
-    Basis, ByteSpan, CaptureId, EvidenceRef, EvidenceRole, Known, Unknown, UnknownReason, WholeCapture,
+    Basis,
+    ByteSpan,
+    CaptureId,
+    EvidenceRef,
+    EvidenceRole,
+    Known,
+    Unknown,
+    UnknownReason,
+    WholeCapture,
 )
 
 
@@ -72,7 +86,7 @@ def _uptime(field: Known[str] | Unknown, raw: bytes, capture: CaptureId) -> tupl
         return field, ()
     reference = field.evidence[0]
     if not isinstance(reference, EvidenceRef) or not isinstance(reference.locator, ByteSpan):
-        raise ValueError("uptime_requires_byte_span")
+        raise TypeError("uptime_requires_byte_span")
     start, end = reference.locator.start, reference.locator.end
     components: list[tuple[int, Unit]] = []
     tokens: list[tuple[str, Captured]] = []
@@ -91,7 +105,7 @@ def _uptime(field: Known[str] | Unknown, raw: bytes, capture: CaptureId) -> tupl
         if isinstance(resolved.value, Unknown):
             return resolved.value, tuple(tokens)
         if not isinstance(resolved.value, Unit):
-            raise ValueError("unit_table_type_mismatch")
+            raise TypeError("unit_table_type_mismatch")
         rank = _ORDER.index(resolved.value)
         if len(match["count"]) > 16:
             return _unknown(UnknownReason.PARSE_PARTIAL, "invalid_uptime_integer", (reference,)), tuple(tokens)

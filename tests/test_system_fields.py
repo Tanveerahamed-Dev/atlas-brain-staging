@@ -1,8 +1,6 @@
 """Synthetic field-extraction cases; these do not establish a platform floor."""
 from hashlib import sha256
 
-from atlas_brain.packs.platform.system.parsers.show_version import Unit, extract_fields
-
 from atlas_brain.kernel.states import (
     CaptureId,
     EvidenceRef,
@@ -10,6 +8,7 @@ from atlas_brain.kernel.states import (
     Unknown,
     UnknownReason,
 )
+from atlas_brain.packs.platform.system.parsers.show_version import Unit, extract_fields
 
 CAPTURE = CaptureId("synthetic-cap-a")
 RAW = (b'sw-a uptime is 1 day, 2 hours, 3 minutes\r\n'
