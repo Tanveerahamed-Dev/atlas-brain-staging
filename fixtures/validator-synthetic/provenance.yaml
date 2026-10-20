@@ -17,3 +17,7 @@ licence:
   redistribution: public
   notice: "Synthetic transport self-test authored for Atlas Brain under repository Apache-2.0 licence; see LICENSE. No upstream attribution notice; never device evidence."
 sha256: "50496eb933ee5e6c8b2db35e409a9968b48a9b430ffab0d47d40e09f75531d70"
+privacy:
+  scanner_version: "tools/privacy.py@a41f882902b40d698cf64ff058654a7149cf9c79"
+  result: pass
+  exemption: null

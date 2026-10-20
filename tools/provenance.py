@@ -3,7 +3,7 @@ import hashlib
 import json
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
@@ -70,8 +70,8 @@ def relative(value):
 
 def record(path):
     data = fields(parse(path.read_bytes().decode("utf-8").replace("\r\n", "\n")),
-                  "fixture_id file tier source platform licence sha256",
-                  "capture privacy line_count format_floor")
+                  "fixture_id file tier source platform licence sha256 privacy",
+                  "capture line_count format_floor")
     require(re.fullmatch(r"[a-z0-9]+(?:[-_][a-z0-9]+)*", string(data["fixture_id"])), "invalid fixture id")
     name = relative(data["file"])
     require(len(PurePosixPath(name).parts) == 1 and name != "provenance.yaml", "file must be a sibling raw file")
@@ -106,18 +106,16 @@ def record(path):
         for key in ("tool", "form", "read_scope"):
             string(capture[key])
         if capture["utc"] is not None:
-            require(datetime.fromisoformat(string(capture["utc"])).tzinfo is not None, "capture time requires timezone")
+            require(datetime.fromisoformat(string(capture["utc"])).utcoffset() == timedelta(0), "capture.utc requires zero UTC offset")
         require(all(v is None or type(v) is bool for v in (capture["attempted"], capture["succeeded"]))
                 and (capture["succeeded"] is not True or capture["attempted"] is True), "invalid capture outcome")
-    if "privacy" in data:
-        privacy = fields(data["privacy"], "scanner_version result exemption")
-        string(privacy["scanner_version"])
-        require(privacy["result"] == "pass" and privacy["exemption"] is None, "privacy declaration refused")
+    privacy = fields(data["privacy"], "scanner_version result exemption")
+    string(privacy["scanner_version"])
+    require(privacy["result"] == "pass" and privacy["exemption"] is None, "privacy declaration refused")
     if "line_count" in data:
         require(type(data["line_count"]) is int and data["line_count"] >= 0, "invalid line count")
     if "format_floor" in data:
-        require(type(data["format_floor"]) is bool and (not data["format_floor"] or
-                (tier == "P" and basis == "source_stated")), "invalid format-floor declaration")
+        require(data["format_floor"] is False, "format-floor approval is deferred to the parser census")
     digest = string(data["sha256"])
     require(re.fullmatch(r"[0-9a-f]{64}", digest), "invalid raw-byte SHA-256")
     raw = path.parent / name

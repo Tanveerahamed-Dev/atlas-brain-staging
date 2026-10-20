@@ -94,7 +94,7 @@ class ProvenanceTests(unittest.TestCase):
             self.assertTrue(validate_tree(root))
 
     def test_q_capture_privacy_and_inventory_extensions(self):
-        extended = RECORD + "\ncapture:\n  tool: unstated\n  form: synthetic.raw\n  utc: null\n  attempted: null\n  succeeded: null\n  read_scope: unstated\nprivacy:\n  scanner_version: test\n  result: pass\n  exemption: null\nline_count: 1\nformat_floor: false\n"
+        extended = RECORD + "\ncapture:\n  tool: unstated\n  form: synthetic.raw\n  utc: null\n  attempted: null\n  succeeded: null\n  read_scope: unstated\nline_count: 1\nformat_floor: false\n"
         self.assertEqual(self.check_tree(extended), [])
         for old, new in [("succeeded: null", "succeeded: true"), ("result: pass", "result: fail"), ("line_count: 1", "line_count: true"), ("format_floor: false", "format_floor: true")]:
             self.assertTrue(self.check_tree(extended.replace(old, new)))

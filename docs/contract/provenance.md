@@ -1,11 +1,8 @@
 # Public fixture provenance, M0
 
-Run `python tools/provenance.py` from the repository root. No runtime dependency
-is needed. An absent default `fixtures/` is allowed before corpus import; an
+Run `python tools/provenance.py` from the repository root. An absent default `fixtures/` is allowed before corpus import; an
 explicit missing root is refused. Each fixture directory contains exactly one
 raw file and `provenance.yaml`; every other file needs its own record/directory.
-Links, duplicate fixture IDs, orphan records and unrecorded files are refused.
-Git attributes keep fixture bytes unchanged; hashes include original line endings.
 
 The exact YAML subset is UTF-8, LF or CRLF, blank lines, two-space-indented block mappings,
 lowercase snake_case keys, and scalar strings, `null`, `true`, `false`, or nonnegative decimal integers. Strings are JSON double-quoted
@@ -35,15 +32,19 @@ licence:
   redistribution: public
   notice: "<full required notice text, or explicit no-notice statement>"
 sha256: "<SHA-256 of raw output.txt bytes>"
+privacy:
+  scanner_version: "<scanner version or pinned source commit>"
+  result: pass
+  exemption: null
 ```
 
 The public M0 subset accepts P/library_testdata and S/synthetic. H and L belong
 in the private truth repository. M is refused until parent/mutation/token-witness
-validation exists. Excluded sources are never accepted. Optional S6 `capture` and `privacy` mappings use their exact section 6.3 keys;
-`source.archive_sha256`, `line_count` and `format_floor` are also validated.
-Truth records require a future explicit schema extension before import.
+validation exists. Excluded sources are never accepted. The required `privacy` receipt and optional `capture` use the exact S6 keys;
+`source.archive_sha256` and `line_count` are validated; `capture.utc` requires zero offset.
+`format_floor` may only be false here; parser-census approval is deferred.
 Unknown version uses `version: unstated` and `version_basis: unknown`; family/model may be known;
-this can test robustness, never a train's format floor. S may also use `observed`.
+S may also use `observed`.
 P requires `source_stated` for a stated platform/version; P never proves accuracy.
 This gate checks declared provenance and byte integrity, not upstream authenticity,
 licence correctness, privacy clearance or parser-census qualification.
