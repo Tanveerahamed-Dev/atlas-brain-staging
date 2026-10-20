@@ -3,6 +3,7 @@ import pytest
 
 from atlas_brain.evidence.parsekit.token_lint import lint_token_handler
 
+
 @pytest.mark.parametrize("source", [
     "def decode(field):\n token = field.raw\n lookup = rows.get\n return lookup(token, 'full')\n",
     "def decode(field): return field.raw[:4] == 'half'\n",
