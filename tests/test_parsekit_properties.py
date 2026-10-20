@@ -54,3 +54,14 @@ def test_generated_nested_quantifiers_are_always_refused(inner, outer):
 
     with pytest.raises(ValueError):
         compile_pattern(f"(?:a{inner}){outer}")
+
+
+@given(st.sampled_from(("record", "enter_state", "leave_state")),
+       st.sampled_from((r".*+", r".++", r"[\s\S]*+", r"\w++", r".?+")),
+       st.binary(max_size=128))
+def test_no_value_broad_rule_never_claims_a_complete_parse(kind, pattern, raw):
+    import pytest
+
+    rule = Rule("swallow", "start", pattern, kind, "start", "", ())
+    with pytest.raises(ValueError):
+        run_rules(raw, CaptureId("cap-a"), (rule,), ())
