@@ -1,6 +1,6 @@
 # ADR-0005: ADR-0002 amendment for PK class scope
 
-Status: accepted
+Status: superseded
 
 Supersedes ADR-0004. All previous global and per-file grants remain unchanged.
 Standing supervisor approval:
