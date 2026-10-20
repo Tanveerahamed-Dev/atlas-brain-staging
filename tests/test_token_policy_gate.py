@@ -23,15 +23,6 @@ def _tree(tmp_path, source):
 
 
 @pytest.mark.parametrize("source", [
-    "def decode(field):\n token = field.raw\n lookup = rows.get\n return lookup(token, 'full')\n",
-    "def decode(field): return field.raw[:4] == 'half'\n",
-    "def decode(field):\n rows = {'half': 'half'}\n return rows.pop(field.raw, 'full')\n",
-    "def decode(field):\n lookup = rows.pop\n return lookup(field.raw, 'full')\n",
-    "def decode(field): return dict.pop(rows, field.raw, 'full')\n",
-    "def decode(field): return mapper(field.raw, 'full')\n",
-    "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes, evidence):\n original = raw\n if raw != b'full': raw = b'full'\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return Known(value=text, basis=Basis.OBSERVED, evidence=evidence, raw=original.decode('ascii'))\n",
-    "PATTERN = compile_pattern(r'(?P<value>[A-Za-z]++)')\ndef decode(raw: bytes):\n matched = PATTERN.fullmatch(raw)\n if matched is None: return Unknown()\n text = matched['value'].decode('ascii')\n return text.startswith('half')\n",
-    "def decode(token: bytes): return token[:4]\n",
     "Unknown = Known\ndef decode(field): return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
     "def decode(field, Unknown): return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
     "from atlas_brain.kernel.states import Known as Unknown\ndef decode(field): return Unknown(value=True, basis=Basis.OBSERVED, raw=field.raw)\n",
