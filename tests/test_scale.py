@@ -123,6 +123,22 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(result[0][0], "l2.stp.root_placement")
         self.assertEqual(result[0][3], "unknown")
 
+    def test_priorities_alone_cannot_prove_root_identity(self):
+        from spike.estate import device_checks
+        rows = [["root_priority", ["0100", "4096"], ["evidence", 0, 1, 1]],
+                ["bridge_priority", ["0100", "4096"], ["evidence", 1, 2, 2]]]
+        result = device_checks({"name": "sw-00016", "profile": "core_xe", "estate_rows": rows})
+        self.assertEqual(result[0][3], "unknown")
+
+    def test_same_vlan_without_evidenced_links_is_not_one_domain(self):
+        from spike.estate import estate_stages
+        nodes = [{"name": name, "profile": "access", "estate_rows": [["trunk", ["GigabitEthernet1/0/1", "100"], ["evidence", 0, 1, 1]]],
+                  "route_summary": {"complete": False, "expected_present": False, "evidence": []}} for name in ("sw-00000", "sw-00001")]
+        self.assertEqual(len(estate_stages(nodes)["l2_domains"]), 2)
+
+    def test_known_healthy_middle_hop_cannot_complete_fault_chain(self):
+        self.assertFalse(correlate("problem", "ok", "problem")["complete"])
+
 
 class ThresholdTests(unittest.TestCase):
     def test_determinism_covering_design(self):

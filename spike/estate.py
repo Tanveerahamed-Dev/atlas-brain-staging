@@ -22,7 +22,7 @@ def correlate(mtu, adjacency, missing_route):
             {"state": adjacency, "reason": "PEER_NOT_COLLECTED" if adjacency == "unknown" else "observed_adjacency"},
             {"state": missing_route, "reason": "expected_route_missing"}]
     stop = next((i for i, hop in enumerate(hops) if hop["state"] == "unknown"), None)
-    return {"hops": hops, "stopped_at": stop, "complete": stop is None,
+    return {"hops": hops, "stopped_at": stop, "complete": stop is None and all(h["state"] == "problem" for h in hops),
             "label": "root_cause_candidate", "next_evidence": "collect peer OSPF state" if stop is not None else "validate MTU intent"}
 
 
@@ -34,14 +34,15 @@ def device_checks(node):
     rows, checks = node["estate_rows"], []
     for row in by_kind(rows, "interface"):
         port, admin, oper = row[1]
-        checks.append([CHECKS[0], node["name"], port, "problem" if admin == "up" and oper == "down" else "ok", [row[2]], "collect peer interface state"])
+        state = "problem" if admin == "up" and oper == "down" else "ok" if admin == "up" and oper == "up" else "unknown"
+        checks.append([CHECKS[0], node["name"], port, state, [row[2]], "collect explicit admin and peer interface state"])
     roots, bridges = by_kind(rows, "root_priority"), by_kind(rows, "bridge_priority")
     if not roots or not bridges:
         checks.append([CHECKS[4], node["name"], "node", "unknown", [], "collect spanning-tree and root intent"])
     for root, bridge in zip(roots, bridges):
-        expected_root = node["profile"].startswith("core")
-        is_root = root[1][1] == bridge[1][1]
-        checks.append([CHECKS[4], node["name"], root[1][0], "ok" if is_root == expected_root else "problem", [root[2], bridge[2]], "collect STP root intent"])
+        # Equal priority cannot establish identity: no root/bridge MAC or intent
+        # is printed in this synthetic slice. Preserve the coverage gap.
+        checks.append([CHECKS[4], node["name"], root[1][0], "unknown", [root[2], bridge[2]], "collect root and bridge identifiers and root intent"])
     return checks
 
 
@@ -49,7 +50,16 @@ def estate_stages(nodes):
     # Identity resolution is exact on synthetic stable node ids. No inferred aliases.
     indexed = {node["name"]: node for node in nodes}
     ports, neighbors, trunks, ospf, route_evidence = {}, {}, {}, {}, {}
-    checks, domains, correlations = [], {}, []
+    checks, domains, correlations, parents = [], {}, [], {}
+    def find(key):
+        parents.setdefault(key, key)
+        while parents[key] != key:
+            parents[key] = parents[parents[key]]
+            key = parents[key]
+        return key
+    def join(a, b):
+        left, right = find(a), find(b)
+        parents[max(left, right)] = min(left, right)
     for node in nodes:
         name, rows = node["name"], node["estate_rows"]
         if not node.get("analysis_failed"):
@@ -73,7 +83,9 @@ def estate_stages(nodes):
             port, vlan = row[1]
             configured_native = natives.get(port)
             trunks[(name, port)] = (vlan, row[2], configured_native[2] if configured_native else row[2])
-            domains.setdefault(vlan, []).append([name, port, row[2]])
+            key = (vlan, name)
+            find(key)
+            domains.setdefault(key, []).append([name, port, row[2]])
         for row in by_kind(rows, "neighbor"):
             peer, port, remote_port = row[1]
             neighbors[(name, port)] = (peer, remote_port, row[2])
@@ -101,6 +113,8 @@ def estate_stages(nodes):
                    [CHECKS[2], name, port, mtu, refs + [left[3], right[3]], "collect link MTU intent"]]
         lt, rt = trunks.get((name, port)), trunks.get((peer, remote_port))
         native = "unknown" if lt is None or rt is None else "ok" if lt[0] == rt[0] else "problem"
+        if native == "ok":
+            join((lt[0], name), (rt[0], peer))
         checks.append([CHECKS[3], name, port, native, refs + ([lt[1], rt[1]] if lt and rt else []), "collect trunk and native VLAN state"])
         adj, adjrefs = ospf.get((name, port), ("unknown", [neighbor_ref]))
         route = route_evidence[name]
@@ -110,6 +124,9 @@ def estate_stages(nodes):
                 chain.update({"node": name, "port": port, "variant": variant,
                               "evidence": [refs + [left[3], right[3]], adjrefs if middle != "unknown" else [neighbor_ref], route["evidence"]]})
                 correlations.append(chain)
+    components = {}
+    for key, items in sorted(domains.items()):
+        components.setdefault(find(key), []).extend(items)
     return {"schema": 1, "spike_only": True, "identities": sorted(indexed),
-            "l2_domains": [[vlan, sorted(items)] for vlan, items in sorted(domains.items())],
+            "l2_domains": [[list(key), sorted(items)] for key, items in sorted(components.items())],
             "checks": sorted(checks), "correlations": sorted(correlations, key=lambda c: (c["node"], c["port"], c["variant"]))}
