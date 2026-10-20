@@ -84,7 +84,10 @@ def lint_token_handler(source: str, *, structural: bool = False) -> tuple[tuple[
         ):
             failures.add((node.lineno, "token_convenience_lookup"))
         if structural and isinstance(node, ast.Call):
-            arguments = [*node.args, *(kw.value for kw in node.keywords)]
+            arguments = [*node.args, *(kw.value for kw in node.keywords if not (
+                kw.arg == "basis" and isinstance(node.func, ast.Name) and node.func.id == "Known"
+                and isinstance(kw.value, ast.Attribute) and kw.value.attr == "OBSERVED"
+                and isinstance(kw.value.value, ast.Name) and kw.value.value.id == "Basis"))]
             arguments = [part for value in arguments for part in (
                 value.value.elts if isinstance(value, ast.Starred) and isinstance(value.value, (ast.Tuple, ast.List)) else [value])]
             raw_input = any((isinstance(child, ast.Attribute) and child.attr == "raw")

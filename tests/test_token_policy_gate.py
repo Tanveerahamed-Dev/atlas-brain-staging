@@ -32,6 +32,7 @@ def _tree(tmp_path, source):
     "def decode(field):\n fallback = 'full'\n value = field.raw\n alias = value\n return mapper(alias, fallback)\n",
     "def decode(field): return mapper(*(field.raw, 'full'))\n",
     "def decode(field): return factory(field.raw, default='full')\n",
+    "def decode(field):\n fallback = 'full'\n return Known(value=fallback, basis=Basis.OBSERVED, raw=field.raw)\n",
 ])
 def test_foreign_pack_violation_is_discovered_without_registration(tmp_path, source):
     report = audit_tree(_tree(tmp_path, source))
@@ -42,6 +43,7 @@ def test_foreign_pack_violation_is_discovered_without_registration(tmp_path, sou
 @pytest.mark.parametrize("source", [
     "def decode(field): return TABLE.resolve(field)\n",
     "def decode(field): return exact(field.raw)\n",
+    "def decode(field): return Known(value=field.raw, basis=Basis.OBSERVED, raw=field.raw)\n",
 ])
 def test_foreign_safe_lookup_is_scanned_without_importing_it(tmp_path, source):
     report = audit_tree(_tree(tmp_path, source))
