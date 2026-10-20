@@ -18,6 +18,9 @@ def test_closed_fact_union_and_vocabularies():
     assert len(k.UnknownReason) == 30
     assert len(k.Basis) == 7
     assert len(k.NAReason) == 5
+    assert len(k.IntegrityState) == 8
+    assert len(k.ReadScope) == 4
+    assert len(k.ViewConsistency) == 5
     for state in (k.Known, k.Absent, k.Unknown, k.NotApplicable):
         with pytest.raises(TypeError):
             type('Forged', (state,), {})
