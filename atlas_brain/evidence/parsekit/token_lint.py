@@ -36,7 +36,7 @@ def _scalar_expression(value: ast.expr | None, fallbacks: set[str], observed: se
         parts = [*value.args, *(key.value for key in value.keywords)]
         if isinstance(value.func, ast.Attribute):
             parts.append(value.func.value)
-        return bool(parts) and all(_scalar_expression(part, fallbacks, observed) for part in parts)
+        return all(_scalar_expression(part, fallbacks, observed) for part in parts)
     if value is None:
         return False
     children = [child for child in ast.iter_child_nodes(value) if isinstance(child, ast.expr)]
