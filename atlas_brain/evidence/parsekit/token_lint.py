@@ -82,6 +82,9 @@ def _scalar_expression(value: ast.expr | None, proof: dict[str, set[str]]) -> bo
     if _unknown(value):
         return False
     if isinstance(value, ast.Call):
+        if isinstance(value.func, ast.Attribute) and (isinstance(value.func.value, ast.Attribute) and value.func.value.attr == "raw"
+                or isinstance(value.func.value, ast.Name) and value.func.value.id in proof["raw"]):
+            return True
         if isinstance(value.func, ast.Name):
             if value.func.id in proof["unknowns"] or value.func.id == "EvidenceRef":
                 return False
@@ -114,7 +117,7 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
                      isinstance(n.annotation, ast.Name) and n.annotation.id == "str")
     buffers = {n.arg for n in parameters if n.arg != "token" and isinstance(n.annotation, ast.Name) and n.annotation.id == "bytes"}
     proof: dict[str, set[str]] = {"fallbacks": set(), "observed": set(assignments) | {n.arg for n in parameters}, "buffers": buffers,
-             "data": set(buffers), "maps": set(), "patterns": set(), "mapped": set(), "tables": tables, "unknowns": unknowns}
+             "data": set(buffers), "raw": raw_names, "maps": set(), "patterns": set(), "mapped": set(), "tables": tables, "unknowns": unknowns}
 
     def scalar(value: ast.expr | None) -> bool:
         return _scalar_expression(value, proof)
@@ -137,7 +140,9 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
                    isinstance(value.value, ast.Name) and value.value.id in buffers for value in values):
                 buffers.add(name)
                 proof["data"].add(name)
-            if any(isinstance(value, ast.Name) and value.id in raw_names for value in values):
+            if any(isinstance(value, ast.Name) and value.id in raw_names or isinstance(value, ast.Call) and
+                   isinstance(value.func, ast.Attribute) and value.func.attr == "decode" and isinstance(value.func.value, ast.Subscript)
+                   and isinstance(value.func.value.value, ast.Name) and value.func.value.value.id in proof["data"] for value in values):
                 raw_names.add(name)
             if any(scalar(value) for value in values):
                 proof["fallbacks"].add(name)
@@ -164,11 +169,7 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
                     or any(isinstance(child, ast.Return) for prior in node.body[:index] for child in ast.walk(prior))
                 ):
                     failures.add((statement.lineno, "token_catchall"))
-        if isinstance(node, ast.Attribute) and (
-            node.attr in ("get", "setdefault", "pop") or (node.attr in ("startswith", "endswith", "find", "index")
-            and (not structural or (isinstance(node.value, ast.Attribute) and node.value.attr == "raw")
-                 or (isinstance(node.value, ast.Name) and node.value.id in raw_names)))
-        ):
+        if isinstance(node, ast.Attribute) and node.attr in ("get", "setdefault", "pop"):
             failures.add((node.lineno, "token_convenience_lookup"))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("Known", "Captured") and scalar(node):
             failures.add((node.lineno, "token_catchall"))
@@ -187,7 +188,7 @@ def _check_unit(nodes: list[ast.AST], assignments: dict[str, list[ast.expr]], pa
         if isinstance(node, ast.Name) and node.id in ("getattr", "vars", "__getattribute__", "eval", "exec"):
             failures.add((node.lineno, "token_unproved_lookup"))
         if isinstance(node, ast.Return) and (
-            (structural and scalar(node.value))
+            ((structural or isinstance(node.value, ast.Call)) and scalar(node.value))
             or (isinstance(node.value, ast.Name) and node.value.id in fallback_names)
         ):
             failures.add((node.lineno, "token_catchall"))
