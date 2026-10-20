@@ -1,11 +1,11 @@
-"""Version-one folder bundles: fail closed before exposing any capture."""
+"""Strict CLI folder admission, source metadata and raw capture identity."""
 import json
 import math
 import stat
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
-from typing import Literal, cast
+from typing import cast
 
 from atlas_brain.kernel import states as k
 from atlas_brain.kernel.states import CaptureId
@@ -248,7 +248,7 @@ def capture_metadata(row: dict[str, object], source: k.EntityKey, witness: k.Evi
             raise AdmissionRefused("invalid_scope")
         values.append(value)
     result = Scope(node=source, vrf=values[0], context=values[1], vdc=values[2], tenant=values[3],
-                   afi=values[4], instance=values[5], plane=cast(Literal["exec", "admin", "controller"], plane))
+                   afi=values[4], instance=values[5], plane=plane)
     if not version_two or row["collected_utc"] is None:
         return result, unrecorded_time(witness)
     time = record(row["collected_utc"], ("earliest", "latest", "clock", "bound"))
