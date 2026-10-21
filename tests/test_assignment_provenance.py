@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.fence import ImportIndex, STDLIB_API, source_allowed
+from tools.fence import STDLIB_API, ImportIndex, source_allowed
 
 USING = "atlas_brain/evidence/producer.py"
 MODULE = "atlas_brain.evidence.producer."
