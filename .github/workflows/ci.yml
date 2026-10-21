@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'push' || github.event_name == 'schedule' || vars.BOOTSTRAP_PR_LINUX_ONLY == 'false') && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || vars.BOOTSTRAP_PR_LINUX_ONLY == 'false') && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10 # budget: 5 minutes (S6 A1)
     steps:
