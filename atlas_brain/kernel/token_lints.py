@@ -21,6 +21,12 @@ def _lookup_value(node: ast.AST) -> bool:
         for part in ast.walk(node))
 
 
+def _lookup_branch(body: list[ast.stmt]) -> bool:
+    return any(_lookup_value(part.value)
+               for statement in body for part in ast.walk(statement)
+               if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
+
+
 def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...]], frozenset[ast.AST]]:
     """Bind successors to blocks and retain potentially intercepting outer scopes.
 
@@ -137,11 +143,12 @@ def _finite_subject(test: ast.AST) -> str:
 
 
 def _refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
-    if not subject or not following:
+    if not following:
         return False
     # Only further literal equalities on this same input may precede the refusal.
     # An early unconditional return, mutation or unrelated condition is unproven.
-    if any(not isinstance(s, ast.If) or s.orelse or _finite_subject(s.test) != subject for s in following[:-1]):
+    if len(following) > 1 and (not subject or any(
+            not isinstance(s, ast.If) or s.orelse or _finite_subject(s.test) != subject for s in following[:-1])):
         return False
     last = following[-1]
     return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
@@ -157,12 +164,12 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
         return (_lookup_value(node.body) or _lookup_value(node.orelse) or
                 _enum_comparison(node.test))
     if isinstance(node, ast.If):
-        if allow_refusal and not node.orelse and _refusal_tail(following, _finite_subject(node.test), unknowns):
+        lookup = _lookup_branch(node.body + node.orelse)
+        subject = _finite_subject(node.test)
+        if allow_refusal and not node.orelse and (subject or lookup) and _refusal_tail(following, subject, unknowns):
             return False
         return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
-                _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or bool(node.orelse) and any(_lookup_value(part.value)
-                   for statement in node.body + node.orelse for part in ast.walk(statement)
-                   if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
+                _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or lookup
     if isinstance(node, ast.Match):
         terminals = frozenset(case for case in node.cases if allow_refusal and case.guard is None
                              and _terminal_assertion(case.pattern, case.body, assertions))

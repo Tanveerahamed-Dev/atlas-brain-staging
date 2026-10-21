@@ -182,3 +182,22 @@ def test_unhandled_exhaustive_assertion_allows_a_known_fact_branch_to_continue()
 def test_only_irrefutable_terminal_assertion_patterns_are_default_proofs(pattern):
     source = 'import typing\ndef mapped(raw):\n match raw:\n  case ' + pattern + ': typing.assert_never(missing)\n return "up"'
     assert not fallback_nodes(ast.parse(source), {}, set())
+
+
+@pytest.mark.parametrize('source', [
+    'states = {"up": "up"}\ndef map_state(raw: str) -> str:\n if raw in states: return states[raw]\n return "up"',
+    'def mapped(entry):\n if entry in table: return table[entry]\n return "up" + ""',
+    'def mapped(packet):\n value = "up"\n if packet.code in registry: value = registry[packet.code]\n return value',
+    'def mapped(key):\n if key in mapping: return mapping[key]\n if valid: return "up"\n raise ValueError("unmapped")',
+    'def mapped(key):\n try:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n except ValueError: return "up"',
+    'def mapped(key):\n with manager:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(key):\n try:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n finally: return "up"',
+])
+def test_sequential_lookup_without_proven_refusal_is_refused(source):
+    assert fallback_nodes(ast.parse(source), {}, set())
+
+
+@pytest.mark.parametrize('ending', ['raise ValueError("unmapped")', 'return atlas_brain.kernel.states.Unknown()'])
+def test_guarded_lookup_with_uncaught_explicit_refusal_remains_valid(ending):
+    source = 'import atlas_brain.kernel.states\ndef mapped(key):\n if key in mapping: return mapping[key]\n ' + ending
+    assert not fallback_nodes(ast.parse(source), {}, set())
