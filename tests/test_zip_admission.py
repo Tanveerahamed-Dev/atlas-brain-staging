@@ -1,6 +1,7 @@
 """Planted hostile ZIP members and bounded streaming controls for M1."""
 import stat
 import zipfile
+from binascii import crc32
 from unittest.mock import patch
 
 import pytest
@@ -181,14 +182,16 @@ def test_zip64_member_profile_is_refused(tmp_path):
 
 @pytest.mark.parametrize("compression,declared", [(zipfile.ZIP_STORED, 0),
                                                   (zipfile.ZIP_STORED, 5),
+                                                  (zipfile.ZIP_DEFLATED, 0),
+                                                  (zipfile.ZIP_DEFLATED, 2),
                                                   (zipfile.ZIP_DEFLATED, 5)])
 def test_declared_member_size_must_match_payload(tmp_path, compression, declared):
     path = archive(tmp_path, [("a", b"data")], compression=compression)
     raw = bytearray(path.read_bytes())
     central = raw.index(b"PK\1\2")
     raw[22:26] = raw[central + 24:central + 28] = declared.to_bytes(4, "little")
-    if declared == 0:
-        raw[14:18] = raw[central + 16:central + 20] = b"\0" * 4
+    if declared < 4:
+        raw[14:18] = raw[central + 16:central + 20] = crc32(b"data"[:declared]).to_bytes(4, "little")
     path.write_bytes(raw)
     with pytest.raises(a.AdmissionRefused, match="invalid_zip_size"):
         z.zip_members(path, limits())
@@ -201,4 +204,15 @@ def test_directory_with_nonempty_crc_refuses(tmp_path):
     raw[14:18] = raw[central + 16:central + 20] = (1).to_bytes(4, "little")
     path.write_bytes(raw)
     with pytest.raises(a.AdmissionRefused, match="special_zip_member"):
+        z.zip_members(path, limits())
+
+
+@pytest.mark.parametrize("directory", [False, True])
+def test_deflate_end_marker_is_required(tmp_path, directory):
+    path = archive(tmp_path, [("dir/" if directory else "a", b"")], compression=zipfile.ZIP_DEFLATED)
+    raw = bytearray(path.read_bytes())
+    start = 30 + int.from_bytes(raw[26:28], "little") + int.from_bytes(raw[28:30], "little")
+    raw[start] = 2  # Empty nonfinal block: output and CRC match, stream is incomplete.
+    path.write_bytes(raw)
+    with pytest.raises(a.AdmissionRefused, match="invalid_zip"):
         z.zip_members(path, limits())
