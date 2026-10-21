@@ -30,6 +30,7 @@ BINDINGS = {
     "subscript": "leaked = {}\nleaked['api'] = capability",
     "pattern": "match capability:\n    case leaked: pass",
     "annotation": "leaked: object",
+    "type_alias": "type leaked = capability",
 }
 
 
@@ -64,6 +65,8 @@ def test_unproven_rhs_or_rebinding_is_not_an_engine_declaration(assignment):
     "import re\nvalue = re.compile('synthetic')",
     "def helper(): pass\nvalue = helper()", "class Record: pass\nvalue = Record()",
     "value = {'synthetic': 1}", "value = [1, 2][0]",
+    "class Record: pass\ntype value = Record | int",
+    "class Record[T]: pass\ntype value[T] = Record[T] | None",
 ])
 def test_ordinary_declarations_and_globally_admitted_data_stay_importable(body):
     sources = {USING: body + "\ndef public(value): return value\nclass PublicRecord: pass"}
@@ -124,8 +127,8 @@ def test_actual_cli_reports_consumer_and_bridge_binding_refusals(tmp_path: Path,
 def test_actual_cli_keeps_ordinary_loop_bindings_and_public_declarations(tmp_path: Path):
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
-    using.write_text("for value in (1, 2):\n    pass\ndef public(value): return value\nclass Record: pass\n", encoding="utf-8")
-    (tmp_path / "atlas_brain/probe.py").write_text("from .evidence.producer import value, public, Record\n", encoding="utf-8")
+    using.write_text("for value in (1, 2):\n    pass\ndef public(value): return value\nclass Record: pass\ntype Evidence = Record | int\n", encoding="utf-8")
+    (tmp_path / "atlas_brain/probe.py").write_text("from .evidence.producer import value, public, Record, Evidence\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
