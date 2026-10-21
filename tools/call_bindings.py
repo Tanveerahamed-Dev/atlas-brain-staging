@@ -13,21 +13,29 @@ class CallableBindings:
         self.module, self.aliases, self.exports, self.declarations = module, aliases, exports, declarations
         self.possible, self.values, self.definitions = {}, {}, {}
         self.external = set()
+        self.external_roots, self.class_scopes = set(), set()
+        self.function_scopes = set()
 
-    @staticmethod
-    def scope_keys(name, scope):
+    def scope_keys(self, name, scope):
         parts = scope.rstrip(".").split(".") if scope else []
-        return [".".join((*parts[:length], name)) for length in range(len(parts), -1, -1)]
+        prefixes = [".".join(parts[:length]) + ("." if length else "") for length in range(len(parts), -1, -1)]
+        return [prefix + name for prefix in prefixes
+                if prefix == scope or prefix not in self.class_scopes or prefix in self.function_scopes]
 
     def external_name(self, name, scope):
-        return any(key in self.external for key in self.scope_keys(name.split(".")[0], scope))
+        root = name.split(".")[0]
+        return root in self.external_roots or any(key in self.external for key in self.scope_keys(root, scope))
 
     def origins(self, value, scope):
         if isinstance(value, ast.Name):
-            if self.external_name(value.id, scope):
+            if self.external_name(value.id, scope) or scope in self.class_scopes:
                 # Explicit outer bindings can be mutated outside this lexical walk.
                 # Over-approximate named alternatives; never certify a scalar from them.
                 roots = {None}
+                if value.id in BUILTINS:
+                    roots.add("builtins." + value.id)
+                if value.id in self.aliases:
+                    roots.add(self.aliases[value.id])
                 for key, alternatives in self.possible.items():
                     if key.rsplit(".", 1)[-1] == value.id:
                         roots.update(alternatives)
@@ -81,6 +89,11 @@ class CallableBindings:
         def walk(node, scope=""):
             if isinstance(node, (ast.Global, ast.Nonlocal)):
                 self.external.update(scope + name for name in node.names)
+                self.external_roots.update(node.names)
+            if isinstance(node, ast.ClassDef):
+                self.class_scopes.add(scope + node.name + ".")
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self.function_scopes.add(scope + node.name + ".")
             if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.declare(node, scope)
                 self.declarations.add(scope + node.name)
@@ -99,7 +112,7 @@ class CallableBindings:
         root = value.func
         while isinstance(root, ast.Attribute):
             root = root.value
-        if isinstance(root, ast.Name) and self.external_name(root.id, scope):
+        if scope in self.class_scopes or isinstance(root, ast.Name) and self.external_name(root.id, scope):
             return False
         scalar = SCALAR_APIS | {"builtins." + name for name in SCALARS}
         return bool(origins) and all(root in scalar for root in origins)
