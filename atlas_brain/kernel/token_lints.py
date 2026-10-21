@@ -5,12 +5,46 @@ silently manufactures None, so token maps must use checked subscription.
 This is a static shape guard, complemented by the closed parse-kit token map.
 """
 import ast
+from typing import cast
 
 
 def _tail(node: ast.AST) -> str:
     if isinstance(node, ast.Name):
         return node.id
     return node.attr if isinstance(node, ast.Attribute) else ''
+
+
+def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...]], frozenset[ast.AST]]:
+    """Bind successors to blocks and retain potentially intercepting outer scopes.
+
+    Handler dispatch and context-manager behavior are unproven. A function body
+    starts its own execution scope; a try's else is outside its own handlers.
+    """
+    following: dict[ast.stmt, tuple[ast.stmt, ...]] = {}
+    intercepted: set[ast.AST] = set()
+    pending: list[tuple[ast.AST, bool]] = [(tree, False)]
+    while pending:
+        owner, protected = pending.pop()
+        fields = tuple(ast.iter_fields(owner))
+        if any(field == 'args' and isinstance(value, ast.AST) for field, value in fields):
+            protected = False
+        if protected:
+            intercepted.add(owner)
+        catching = any(field == 'handlers' and bool(value) for field, value in fields)
+        finalizing = any(field == 'finalbody' and bool(value) for field, value in fields)
+        managing = any(field == 'items' and bool(value) for field, value in fields)
+        for field, value in fields:
+            children: tuple[ast.AST, ...] = ()
+            if isinstance(value, ast.AST):
+                children = (value,)
+            elif isinstance(value, list):
+                children = tuple(child for child in cast(list[object], value) if isinstance(child, ast.AST))
+            block = tuple(child for child in children if isinstance(child, ast.stmt))
+            following.update((statement, block[index + 1:]) for index, statement in enumerate(block))
+            blocked = protected or (field == 'body' and (catching or managing)) or (
+                field in ('body', 'orelse', 'handlers') and finalizing)
+            pending.extend((child, blocked) for child in children)
+    return following, frozenset(intercepted)
 
 
 def bound_names(node: ast.AST) -> frozenset[str]:
