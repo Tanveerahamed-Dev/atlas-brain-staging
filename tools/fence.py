@@ -300,14 +300,21 @@ class ImportIndex:
         exports = self.modules[module][0]
         tail = name[len(module) + 1:]
         binding = max((key for key in exports if tail == key or tail.startswith(key + ".")), key=len, default="")
+        returned = not binding
         if not binding:
             binding = tail + ".$return"
             if binding not in exports:
                 return set()
         target = exports[binding]
         if isinstance(target, tuple):
-            return set().union(*(self.foreign_roots(root, seen | {name}) for root in target))
-        return self.foreign_roots(target + tail[len(binding):], seen | {name}) if target is not None else set()
+            roots = set().union(*(self.foreign_roots(root, seen | {name}) for root in target))
+        else:
+            roots = self.foreign_roots(target + tail[len(binding):], seen | {name}) if target is not None else set()
+        if returned:
+            # Only known class endpoints imply a returned instance, not primitive operations.
+            admitted = STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values())
+            roots.intersection_update(constructor_members(frozenset(admitted)))
+        return roots
 
     def origin(self, name, seen=frozenset()):
         if any(name == module or name.startswith(module + ".") for module in self.forbidden):
