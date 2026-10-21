@@ -1,8 +1,8 @@
 # ADR-0100: development-only JSON Schema consumer
 
-Status: proposed
+Status: accepted
 
-## Decision candidate
+## Accepted development-only decision
 Pin jsonschema==4.26.0 in the hashed dev lock only, with no optional format extras.
 Use Draft202012Validator to check generated schemas and actual contract wire bytes.
 S3 section3.5 requires a development-only result validator; S2 DA-4/DA-7 govern admission.
@@ -20,7 +20,8 @@ PyPI metadata: https://pypi.org/pypi/jsonschema/4.26.0/json
 Hosted uv.lock pins attrs26.1.0, jsonschema-specifications2025.9.1,
 referencing0.37.0 and rpds-py2026.9.1; their checked PyPI metadata reports MIT.
 The exact lock bytes/hashes come from hosted C1 run39573657895, not local resolution.
-(d) CT proposes; an independent REV2 DA-7 admission decision is required before adoption.
+(d) CT proposed; independent REV2 approved DA-7 development-only admission:
+https://github.com/Tanveerahamed-Dev/atlas-brain-staging/pull/99#issuecomment-6312428267
 (e) PyPI JSON reports4.26.0 first uploaded2026-01-07T13:41:05Z, one release in the
 2025-10-21 through2026-10-21 window, and Python>=3.10 including the3.14 classifier.
 PyPI maintenance source: https://pypi.org/pypi/jsonschema/json
@@ -29,8 +30,8 @@ https://github.com/python-jsonschema/jsonschema/releases/tag/v4.26.0
 REST metadata, initially rate-limited, was successfully checked2026-10-21: archived=false;
 latest GitHub release v4.26.0 was published2026-01-07T13:41:11Z. Latest default commit
 c497561ea0a95f5aac09cd63d15eb1420eb7bbec is dated2026-10-07T10:49:35Z.
-This records maintenance activity from both primary API sources; admission still
-requires the independent verifier's explicit decision and exact-head CI evidence.
+This records maintenance activity from both primary API sources. The independent
+approval is limited to this exact dev-only package/closure and no optional extras.
 REST sources: https://api.github.com/repos/python-jsonschema/jsonschema
 https://api.github.com/repos/python-jsonschema/jsonschema/releases/latest
 https://api.github.com/repos/python-jsonschema/jsonschema/commits?per_page=1
@@ -38,5 +39,5 @@ https://api.github.com/repos/python-jsonschema/jsonschema/commits?per_page=1
 ## Validation and disposition
 Metaschema, actual header/evidence instances, malformed data, offline references,
 JSONL framing and real CLI success/refusal must pass on both hosted OS jobs.
-No local installation/runtime acceptance. This remains a proposal until independently
-approved; green tests alone neither adopt the library nor complete contract v0.
+No local installation/runtime acceptance. The independent approval above admits only
+the dev/test consumer; green tests do not complete result schemas, contract v0 or runner.
