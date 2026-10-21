@@ -181,6 +181,12 @@ def _returned_default(body: list[ast.stmt]) -> bool:
     return bool(body) and isinstance(body[-1], ast.Return)
 
 
+def _finite_arm(node: ast.If) -> str:
+    if not node.body or not isinstance(node.body[-1], (ast.Return, ast.Raise)):
+        return ''
+    return finite_subject(node.test)
+
+
 def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset(), following: tuple[ast.stmt, ...] = (), unknowns: frozenset[ast.Call] = frozenset(), allow_refusal: bool = False) -> bool:
     """Refuse defaults; assertion call witnesses require whole-module binding proof."""
     if isinstance(node, ast.Call):
@@ -194,7 +200,7 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
         lookup = _lookup_branch(node.body + node.orelse) or _lookup_branch(list(following))
         subject = finite_subject(node.test)
         if allow_refusal and not node.orelse:
-            if (subject or guarded_lookup(node.test, tuple(node.body))) and refusal_tail(following, subject, unknowns):
+            if (_finite_arm(node) or guarded_lookup(node.test, tuple(node.body))) and refusal_tail(following, subject, unknowns):
                 return False
             if guarded_lookup(node.test, following, inverse=True) and refusal_tail(tuple(node.body), '', unknowns):
                 return False
@@ -219,7 +225,7 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
     following, intercepted = statement_context(tree)
     roots = frozenset(branch for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
-        and (finite_subject(branch.test) or guarded_lookup(branch.test, tuple(branch.body)))
+        and (_finite_arm(branch) or guarded_lookup(branch.test, tuple(branch.body)))
         and refusal_tail(following[branch], finite_subject(branch.test), unknowns))
     proven_guards = roots | frozenset(later for branch in roots if finite_subject(branch.test)
                                      for later in following[branch][:-1])
