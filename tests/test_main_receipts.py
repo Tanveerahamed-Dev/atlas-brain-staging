@@ -47,7 +47,8 @@ def receipts():
             "runs": [{"id": i + 10, "workflow_id": i + 1, "head_sha": SHA, "event": "push",
                       "run_number": 1, "run_attempt": 1, "status": "completed", "conclusion": "success"}
                      for i in range(3)],
-            "jobs": {str(i + 10): [{"name": n, "status": "completed", "conclusion": "success"}
+            "jobs": {str(i + 10): [{"name": n, "status": "completed", "conclusion": "success",
+                                   "steps": [{"name": "Run echo synthetic", "status": "completed", "conclusion": "success"}]}
                                   for n in ("check (ubuntu-latest)", "check (windows-latest)", "audit")]
                      for i in range(3)}}
 
@@ -55,6 +56,40 @@ def receipts():
 def test_full_source_derived_class_passes():
     result = verify(receipts(), SHA, "push")
     assert result["workflow_count"] == 3 and result["job_count"] == 9
+
+
+@pytest.mark.parametrize("step", [
+    "      - run: exit 1\n        continue-on-error: true\n",
+    "      - run: uv run pytest\n        if: false\n",
+    "      - if: false\n        run: uv run pytest\n",
+    '      - run: exit 1\n        "continue-on-error": true\n',
+    "      - {run: exit 1, continue-on-error: true}\n",
+    "      - run: uv run pytest\n        <<: *skip_gate\n",
+])
+def test_source_step_bypasses_cannot_hide_behind_green_jobs(step):
+    data = receipts()
+    path = data["catalog"][0]["path"]
+    blob = source_blob(SOURCE.replace("      - run: echo synthetic\n", step, 1))
+    data["sources"][path] = blob
+    data["tree"]["tree"][0]["sha"] = blob["sha"]
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
+
+
+@pytest.mark.parametrize("plant", ["missing", "empty", "skipped", "failure", "cancelled", "pending"])
+def test_green_job_requires_successful_step_receipts(plant):
+    data = receipts()
+    job = data["jobs"]["10"][0]
+    if plant == "missing":
+        del job["steps"]
+    elif plant == "empty":
+        job["steps"] = []
+    elif plant == "pending":
+        job["steps"][0]["status"] = "in_progress"
+    else:
+        job["steps"][0]["conclusion"] = plant
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
 
 
 def test_matrix_values_come_from_source_not_an_os_list():
