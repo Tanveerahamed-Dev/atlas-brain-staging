@@ -22,12 +22,6 @@ env:
   GH_TOKEN: ${{ github.token }}
 jobs:
   governance-foundation:
-  workflow_dispatch:
-    inputs:
-      source_sha:
-        description: 'Optional exact source SHA for labelled recovery; blank tests the workflow head'
-        type: string
-        required: false
     name: ${{ inputs.source_sha && 'recovery-' || '' }}governance-foundation (${{ matrix.os }})
     strategy:
       fail-fast: false
