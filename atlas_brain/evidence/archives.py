@@ -73,8 +73,10 @@ def zip_members(path: Path, budgets: Budgets) -> dict[str, bytes]:
                         raise AdmissionRefused("encrypted_zip_member")
                     if entry.compress_type not in (ZIP_STORED, ZIP_DEFLATED):
                         raise AdmissionRefused("unsupported_zip_compression")
+                    if entry.compress_type == ZIP_STORED and entry.compress_size != entry.file_size:
+                        raise AdmissionRefused("invalid_zip_size")
                     if entry.is_dir():
-                        if entry.file_size or (stat.S_IFMT(mode) and not stat.S_ISDIR(mode)):
+                        if entry.file_size or entry.CRC or (stat.S_IFMT(mode) and not stat.S_ISDIR(mode)):
                             raise AdmissionRefused("special_zip_member")
                         continue
                     if stat.S_IFMT(mode) and not stat.S_ISREG(mode):
@@ -94,6 +96,8 @@ def zip_members(path: Path, budgets: Budgets) -> dict[str, bytes]:
                             if expanded > budgets.bundle_bytes:
                                 raise BudgetExceeded("bundle")
                             chunks.append(chunk)
+                    if member_size != entry.file_size:
+                        raise AdmissionRefused("invalid_zip_size")
                     raw = b"".join(chunks)
                     if (Path(name).suffix.casefold() in (".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz")
                             or raw.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08", b"\x1f\x8b"))
