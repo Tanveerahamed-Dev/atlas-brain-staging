@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.main_receipts import verify
+from tools.main_receipts import expected_jobs, verify
 
 SHA = "a" * 40
 SOURCE = """name: Synthetic
@@ -154,3 +154,51 @@ def test_live_published_positive_and_missing_push_history(sha, expected):
     assert record["verified"] is (expected == 0)
     if expected:
         assert "missing exact-SHA push receipt" in record["reason"]
+
+
+def test_every_registered_workflow_has_one_explicit_manual_recovery_trigger():
+    for path in Path(".github/workflows").glob("*.yml"):
+        text = path.read_text(encoding="utf-8")
+        assert text.count("  workflow_dispatch:\n") == 1
+        assert "github.event.pull_request.head.sha || github.sha" in text
+        blob = source_blob(text)
+        data = {"sources": {path.as_posix(): blob},
+                "tree": {"tree": [{"path": path.as_posix(), "sha": blob["sha"]}]}}
+        ordinary = expected_jobs(data, path.as_posix(), "push")
+        manual = expected_jobs(data, path.as_posix(), "workflow_dispatch")
+        assert len(manual) == len(ordinary) and set(manual).isdisjoint(ordinary)
+        assert all(name.startswith("manual-") for name in manual)
+
+
+@pytest.mark.parametrize("event,prefix", [("push", ""), ("schedule", ""), ("workflow_dispatch", "manual-")])
+def test_event_bound_job_names_have_positive_receipts(event, prefix):
+    data = receipts()
+    text = SOURCE
+    for job, suffix in (("check", " (${{ matrix.os }})"), ("audit", "")):
+        expression = "${{ github.event_name == 'workflow_dispatch' && 'manual-" + job + "' || '" + job + "' }}" + suffix
+        text = text.replace(f"  {job}:\n", f"  {job}:\n    name: {expression}\n")
+    blob = source_blob(text)
+    for entry in data["tree"]["tree"]:
+        entry["sha"] = blob["sha"]
+        data["sources"][entry["path"]] = blob
+    for run in data["runs"]:
+        run["event"] = event
+    for jobs in data["jobs"].values():
+        for job in jobs:
+            job["name"] = prefix + job["name"]
+    assert verify(data, SHA, event)["job_count"] == 9
+    if prefix:
+        data["jobs"]["10"][0]["name"] = "check (ubuntu-latest)"
+        with pytest.raises(ValueError):
+            verify(data, SHA, event)
+
+
+def test_manual_context_collision_is_refused():
+    data = receipts()
+    text = SOURCE.replace("  audit:\n", "  audit:\n    name: ${{ github.event_name == 'workflow_dispatch' && 'audit' || 'audit' }}\n")
+    blob = source_blob(text)
+    path = data["catalog"][0]["path"]
+    data["sources"][path] = blob
+    data["tree"]["tree"][0]["sha"] = blob["sha"]
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
