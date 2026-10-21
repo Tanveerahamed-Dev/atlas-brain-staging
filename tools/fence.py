@@ -192,6 +192,21 @@ def import_bindings(tree, path):
             key = next((key for key in scope_keys(value.id, scope) if key in exports or key in declarations), "")
             return key in containers
         return False
+    def plain_type(value, scope):
+        if isinstance(value, ast.Constant) and value.value is None:
+            return True
+        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.BitOr):
+            return plain_type(value.left, scope) and plain_type(value.right, scope)
+        roots = calls.origins(value, scope)
+        for root in roots:
+            if isinstance(root, str) and root.startswith("builtins."):
+                if isinstance(getattr(_binding_module.builtins, root.removeprefix("builtins."), None), type):
+                    continue
+            definitions = calls.definitions.get(root, ())
+            if not definitions or any(not isinstance(node, ast.ClassDef) or node.bases or node.keywords
+                                      for node, _ in definitions):
+                return False
+        return bool(roots)
     def assignment(target, value, scope, *, type_data=False):
         if isinstance(target, ast.Subscript):
             assignment(target.value, value, scope)
@@ -231,7 +246,8 @@ def import_bindings(tree, path):
         values = callable_values.setdefault(key, set())
         values.update(root[len(CALLABLE_VALUE):] if isinstance(root, str) and root.startswith(CALLABLE_VALUE)
                       else root for root in results or {None})
-        functions = values.intersection(calls.definitions) if not type_data and not isinstance(value, ast.BinOp) else set()
+        type_union = isinstance(value, ast.BinOp) and isinstance(value.op, ast.BitOr) and plain_type(value, scope)
+        functions = values.intersection(calls.definitions) if not type_data and not type_union else set()
         if functions:
             # Join callable values from both direct aliases and call results, preserving UNKNOWN.
             origins = tuple(CALLABLE_VALUE + root if root in functions else root
