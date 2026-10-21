@@ -437,7 +437,7 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
                     break
         return {(root, result) for root, result in roots if isinstance(root, str)}
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
+        if isinstance(node, ast.Call) and not isinstance(node.func, ast.Attribute):
             for root, applied in receiver_roots(node.func):
                 origins = index.foreign_roots(root, callable_value=True, evaluate_return=applied)
                 if any(not admitted(origin) for origin in origins):
