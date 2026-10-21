@@ -40,6 +40,8 @@ from atlas_brain.kernel.lints import lint
     ('def mapped(raw):\n value: str = "up"\n for _ in ():\n  value: str = states[raw]\n return value', 3),
     ('def mapped(raw):\n value = 0\n for _ in ():\n  value += states[raw]\n return value', 3),
     ('def mapped(raw):\n value = "up"\n for _ in ():\n  (value := states[raw])\n return value', 3),
+    ('def mapped(raw):\n value = "up"\n for _ in ():\n  def ignored(value=states[raw]): pass\n return value', 3),
+    ('def mapped(raw):\n value = "up"\n for _ in ():\n  @states[raw]\n  def ignored(): pass\n return value', 3),
     ('def mapped(raw):\n return "up"\n if raw in states: return states[raw]\n raise ValueError("unmapped")', 3),
     ('def factory(label):\n if label == "ready":\n  def mapped(key):\n   for item in ():\n    return mapping[key]\n   return "up"\n  return mapped\n raise ValueError("unmapped")', 3),
     ('def mapped(key):\n while ready:\n  return mapping[key]\n return "up"', 3),
