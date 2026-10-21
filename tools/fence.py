@@ -199,11 +199,11 @@ def import_bindings(tree, path):
             return plain_type(value.left, scope) and plain_type(value.right, scope)
         roots = calls.origins(value, scope)
         for root in roots:
-            if isinstance(root, str) and root.startswith("builtins."):
-                if isinstance(getattr(_binding_module.builtins, root.removeprefix("builtins."), None), type):
-                    continue
+            if (isinstance(root, str) and root.startswith("builtins.")
+                    and isinstance(getattr(_binding_module.builtins, root.removeprefix("builtins."), None), type)):
+                continue
             definitions = calls.definitions.get(root, ())
-            if not definitions or any(not isinstance(node, ast.ClassDef) or node.bases or node.keywords
+            if not definitions or any(not isinstance(node, ast.ClassDef) or node.bases or node.keywords or node.decorator_list
                                       for node, _ in definitions):
                 return False
         return bool(roots)
