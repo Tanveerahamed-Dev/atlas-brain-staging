@@ -1,8 +1,8 @@
-# ADR-0008: ADR-0002 amendment for bounded ZIP source admission
+# ADR-0009: ADR-0002 amendment for bounded ZIP source admission
 
 Status: accepted
 
-Supersedes ADR-0007; its AST and global grants remain unchanged.
+Supersedes ADR-0008; its AST and global grants remain unchanged.
 Standing safe per-file stdlib approval: owner prompt 2026-10-20 22:15.
 Bounded sequencing decision:
 https://github.com/Tanveerahamed-Dev/atlas-brain-staging/issues/89#issuecomment-6314092860

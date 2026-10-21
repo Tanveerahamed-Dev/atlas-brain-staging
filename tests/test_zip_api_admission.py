@@ -19,9 +19,9 @@ APIS = {"zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.
 def test_zip_amendment_and_existing_bounds_are_exact():
     assert RUNTIME_API[USING] == APIS and USING not in SCOPED_API
     assert len(STDLIB_API) == 22 and not APIS & STDLIB_API
-    assert len(SCOPED_API["atlas_brain/kernel/token_lints.py"]) == 27
+    assert len(SCOPED_API["atlas_brain/kernel/token_lints.py"]) == 29
     assert len(SCOPED_API["atlas_brain/kernel/lints.py"]) == 32
-    text = Path("docs/adr/0008-adr0002-zip-runtime.md").read_text(encoding="utf-8")
+    text = Path("docs/adr/0009-adr0002-zip-runtime.md").read_text(encoding="utf-8")
     assert set(re.findall(r"(?m)^\| ([\w.]+) \|", text)) == APIS
     assert len(text.splitlines()) <= 60 and len(text) <= 4000
 
