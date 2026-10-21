@@ -231,7 +231,8 @@ def import_bindings(tree, path):
         values = callable_values.setdefault(key, set())
         values.update(root[len(CALLABLE_VALUE):] if isinstance(root, str) and root.startswith(CALLABLE_VALUE)
                       else root for root in results or {None})
-        functions = values.intersection(calls.definitions)
+        functions = {root for root in values if any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     for node, _ in calls.definitions.get(root, ()))}
         if functions:
             # Join callable values from both direct aliases and call results, preserving UNKNOWN.
             origins = tuple(CALLABLE_VALUE + root if root in functions else root
