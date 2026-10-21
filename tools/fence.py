@@ -131,6 +131,7 @@ def import_bindings(tree, path):
     aliases, exports, declarations = {}, {}, set()
     containers = {}
     calls = CallableBindings(path.removesuffix(".py").replace("/", ".").removesuffix(".__init__"), aliases, exports, declarations)
+    calls.predeclare(tree)
     def dotted(node):
         if isinstance(node, ast.Name):
             return node.id

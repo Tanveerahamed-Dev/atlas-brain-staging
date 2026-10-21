@@ -61,7 +61,19 @@ class CallableBindings:
     def declare(self, node, scope):
         key, origin = scope + node.name, self.module + "." + scope + node.name
         self.possible.setdefault(key, set()).add(origin)
-        self.definitions.setdefault(origin, []).append((node, scope + node.name + "."))
+        definitions = self.definitions.setdefault(origin, [])
+        if not any(previous is node for previous, _ in definitions):
+            definitions.append((node, scope + node.name + "."))
+
+    def predeclare(self, tree):
+        def walk(node, scope=""):
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                self.declare(node, scope)
+                self.declarations.add(scope + node.name)
+                scope += node.name + "."
+            for child in ast.iter_child_nodes(node):
+                walk(child, scope)
+        walk(tree)
 
     def has_carrier(self, value, scope):
         return any(root in {"builtins." + name for name in CARRIERS} for root in self.origins(value, scope))
