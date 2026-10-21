@@ -25,7 +25,7 @@ SHA-256: 2c882be101d184cdfde60fdcfbff866ff8c0a49e5bdb17c8e0e369d8ee77f897.
 These seven APIs bind only to T in a separate RUNTIME_API map; T remains a
 normal runtime module whose public declarations may be imported. Direct,
 module and bridge API re-exports and wrong-file/unlisted uses must refuse.
-All 22 globals and K27/32/PK34/10 AST grants remain unchanged.
+All 22 globals and K29/32/PK34/10 AST grants remain unchanged.
 Hosted inventory parses pinned source and runs the real tracked source fence
 without executing the consumer. No process/network/dynamic/unsafe-deserialiser
 or runtime-thread grant is added. This admission does not certify ZIP runtime,
