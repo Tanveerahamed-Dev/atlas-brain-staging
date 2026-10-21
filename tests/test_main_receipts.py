@@ -91,7 +91,7 @@ def test_live_published_positive_and_missing_push_history(sha, expected):
 def test_every_workflow_preserves_source_and_context_binding():
     for path in Path(".github/workflows").glob("*.yml"):
         text = path.read_text(encoding="utf-8")
-        assert "  workflow_dispatch:" in text and "      source_sha:" in text
+        assert text.count("  workflow_dispatch:\n") == 1 and "      source_sha:" in text
         assert text.count("- name: Bind checked source") == text.count("uses: actions/checkout@")
         assert "inputs.source_sha || github.event.pull_request.head.sha || github.sha" in text
         assert "inputs.source_sha && 'recovery-' || ''" in text
