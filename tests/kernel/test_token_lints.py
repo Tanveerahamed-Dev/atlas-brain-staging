@@ -120,6 +120,8 @@ def test_following_explicit_refusal_remains_valid(ending, branches):
 @pytest.mark.parametrize('source', [
     'def mapped(raw):\n if raw == "up": pass\n return "up"',
     'def mapped(raw):\n if raw == "mystery": raw = "down"\n if raw == "down": return "down"\n raise ValueError("unmapped")',
+    'def mapped(raw):\n if raw == "mystery":\n  raw = "down"\n  pass\n if raw == "down": return "down"\n raise ValueError("unmapped")',
+    'def normalize(packet): packet.state = "down"\ndef mapped(packet):\n if packet.state == "mystery": normalize(packet)\n if packet.state == "down": return "down"\n raise ValueError("unmapped")',
     'def mapped(packet):\n if packet.state == "mystery": packet.state = "down"\n if packet.state == "down": return "down"\n raise ValueError("unmapped")',
     'def mapped(raw):\n if raw == "up": return "up"\n if raw == "mystery": raw = "down"\n if raw == "down": return "down"\n raise ValueError("unmapped")',
     'def mapped(packet):\n if packet.state == "up": return "up"\n if packet.state == "mystery": packet.state = "down"\n if packet.state == "down": return "down"\n raise ValueError("unmapped")',
