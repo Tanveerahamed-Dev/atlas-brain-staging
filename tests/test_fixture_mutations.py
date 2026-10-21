@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from hashlib import sha256
 from pathlib import Path
+from unittest.mock import patch
 
-from tools.evidence_mutations import mutate_fixture
+from tools.evidence_mutations import _snapshot, mutate_fixture
 from tools.mutations import OPERATORS
 
 TEMPLATE = Path("fixtures/validator-synthetic/provenance.yaml").read_text(encoding="utf-8")
@@ -91,6 +92,12 @@ class FixtureMutationTests(unittest.TestCase):
                     clean_witness = fixture(root, "other-witness", b"EXSTART")
                     with self.assertRaisesRegex(ValueError, "family/train"):
                         edit(root, changed_parent, clean_witness)
+            for changes in ((("family: iosxe", "family: other"),),
+                            (("version: test-train", "version: unknown"),)):
+                bad_parent = fixture(root, "bad-parent", b"FULL", changes)
+                bad_witness = fixture(root, "bad-witness", b"EXSTART", changes)
+                with self.subTest(both=changes), self.assertRaisesRegex(ValueError, "family/train"):
+                    edit(root, bad_parent, bad_witness)
 
     def test_planted_absent_partial_or_undeclared_tokens_and_noop_refuse(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -133,6 +140,22 @@ class FixtureMutationTests(unittest.TestCase):
                 self.assertEqual(result[1]["token_witness"]["snapshot"]["declared_source_tier"], "S")
                 results.append(result)
         self.assertEqual(results[0], results[1])
+
+    def test_one_path_cannot_name_two_different_sidecar_snapshots(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            parent = fixture(root, "parent", b"FULL EXSTART")
+            changed = False
+            def read_then_change(*args):
+                nonlocal changed
+                snapshot = _snapshot(*args)
+                if not changed:
+                    path = root / parent[0]
+                    path.write_bytes(path.read_bytes() + b"\n")
+                    changed = True
+                return snapshot
+            with patch("tools.evidence_mutations._snapshot", side_effect=read_then_change), self.assertRaises(ValueError):
+                mutate_fixture(root, parent, "ospf-state", 0, 4, b"EXSTART", parent, 5, 12)
 
     def test_q_known_train_has_no_half_token_and_unversioned_source_is_not_attested(self):
         known = ("fixtures/tier-p/nxos/show-interface-status/provenance.yaml",
