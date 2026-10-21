@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.fence import import_bindings, source_allowed
+from tools.fence import ImportIndex, import_bindings, source_allowed
 
 USING = "atlas_brain/evidence/archives.py"
 CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
@@ -97,3 +97,47 @@ def test_named_closure_binding_keeps_the_returned_function_level():
     _, exports, _ = import_bindings(ast.parse(source), USING)
     assert exports["outer.$return"] == ("atlas_brain.evidence.archives.outer.factory",)
     assert exports["factory"] == "atlas_brain.evidence.archives.outer.factory"
+
+
+@pytest.mark.parametrize("choice, ordinary_callable", [
+    ("first if flag else second", True), ("(first, second)[flag]", True),
+    ("first if flag else opaque", False), ("first if flag else CAP", False)])
+@pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
+def test_actual_cli_returned_function_union_keeps_capabilities(tmp_path, choice, ordinary_callable, capability):
+    source = ("from zipfile import ZipFile\ndef first(): return CAP\ndef second(): return CAP\n"
+              + "def choose(flag, opaque=None): return " + choice + "\nfactory = choose(True)\n"
+              + "def public_data(): return 1\n").replace("CAP", capability)
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text(source, encoding="utf-8")
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import factory, public_data\n", encoding="utf-8")
+    # Uncertain exports can refuse at the bridge import; keep the baseline data-only.
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import public_data\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    probe, tool = tmp_path / "atlas_brain/probe.py", str(Path("tools/fence.py").resolve())
+    args = "source" if capability == "ZipFile" else "archive, entry"
+    for module in (".evidence.archives", ".bridge"):
+        probe.write_text(f"from {module} import public_data\npublic_data().bit_length()\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+        (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import factory, public_data\n", encoding="utf-8")
+        prefix = f"from {module} import factory, public_data\n"
+        if ordinary_callable:
+            probe.write_text(prefix + "factory()\npublic_data()\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+            subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+        probe.write_text(prefix + f"factory()({args})\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert result.returncode == 1 and "atlas_brain/" in result.stdout
+        (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import public_data\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("choice", ["first if flag else second", "first if flag else opaque"])
+def test_returned_callable_union_keeps_known_roots_and_evaluation_level(choice):
+    source = ("from zipfile import ZipFile\ndef first(): return ZipFile\ndef second(): return ZipFile\n"
+              + "def choose(flag, opaque=None): return " + choice + "\nfactory = choose(True)")
+    index = ImportIndex({USING: source})
+    assert index.foreign_roots("atlas_brain.evidence.archives.factory", callable_value=True) == {"zipfile.ZipFile"}
+    assert not index.foreign_roots("atlas_brain.evidence.archives.factory", callable_value=True, evaluate_return=False)
