@@ -27,7 +27,9 @@ def bound_names(node: ast.AST) -> frozenset[str]:
 
 def _qualified(node: ast.AST, aliases: dict[str, str]) -> str:
     if isinstance(node, ast.Name):
-        return aliases[node.id] if node.id in aliases else node.id
+        if node.id in aliases:
+            return aliases[node.id]
+        return node.id
     if isinstance(node, ast.Attribute):
         return _qualified(node.value, aliases) + '.' + node.attr
     return ''
