@@ -271,6 +271,7 @@ class ImportIndex:
         return name in self.modules or any(module.startswith(name + ".") for module in self.modules)
 
     def foreign_roots(self, name, seen=frozenset()):
+        """Trace known foreign API roots of exported data without running engine code."""
         if name is None or name in seen:
             return set()
         if not name.startswith("atlas_brain.") and name != "atlas_brain":
