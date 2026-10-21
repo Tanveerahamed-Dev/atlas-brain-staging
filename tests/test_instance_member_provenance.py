@@ -63,7 +63,7 @@ def test_factory_arguments_keep_protected_roots_and_engine_data_keeps_public_fie
 def test_expression_receiver_cannot_hide_a_known_imported_capability(receiver):
     sources = {USING: PRODUCERS[0]}
     assert source_allowed("from .evidence.producer import value\nvalue", sources)
-    assert not source_allowed("from .evidence.producer import value\nborrowed = value\n" + receiver + ".write_text('x')", sources)
+    assert not source_allowed("from .evidence.producer import value\nborrowed = value if True else 0\n" + receiver + ".write_text('x')", sources)
     ordinary = {USING: "class Record:\n field = 1\nvalue = Record()"}
     assert source_allowed("from .evidence.producer import value\n(value if True else value).field", ordinary)
 
@@ -85,12 +85,12 @@ def test_actual_two_file_cli_allows_data_but_refuses_direct_and_bridge_writes(tm
     (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     assert tracked_cli(tmp_path).returncode == 0
-    consumer.write_text("from .evidence.producer import value\nborrowed = value\n" + receiver + ".write_text('x')\n", encoding="utf-8")
+    consumer.write_text("from .evidence.producer import value\nborrowed = value if True else 0\n" + receiver + ".write_text('x')\n", encoding="utf-8")
     direct = tracked_cli(tmp_path)
     assert direct.returncode == 1 and "atlas_brain/probe.py" in direct.stdout
     assert "pathlib.Path.write_text" not in STDLIB_API
     (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.producer import value\nexported = value\n", encoding="utf-8")
-    consumer.write_text("from .bridge import exported as value\nborrowed = value\n" + receiver + ".write_text('x')\n", encoding="utf-8")
+    consumer.write_text("from .bridge import exported as value\nborrowed = value if True else 0\n" + receiver + ".write_text('x')\n", encoding="utf-8")
     bridge = tracked_cli(tmp_path)
     assert bridge.returncode == 1 and "atlas_brain/probe.py" in bridge.stdout
 
@@ -105,6 +105,12 @@ def test_actual_cli_tracks_function_local_data_alias_receivers(tmp_path: Path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     result = tracked_cli(tmp_path)
     assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
+
+
+@pytest.mark.parametrize("expression", ["make().field", "Record(1).field", "(Record(1) if True else Record(2)).field"])
+def test_engine_constructor_and_function_results_are_not_their_local_namespaces(expression):
+    sources = {"atlas_brain/records.py": "from dataclasses import dataclass\n@dataclass\nclass Record:\n field: int\ndef make():\n field = 1\n return Record(field)"}
+    assert source_allowed("from .records import Record, make\n" + expression, sources)
 
 
 @pytest.mark.parametrize("kind", ["outside", "noncontract"])
