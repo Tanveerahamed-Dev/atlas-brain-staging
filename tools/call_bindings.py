@@ -32,6 +32,14 @@ class CallableBindings:
                 return frozenset({self.aliases[value.id]})
             return frozenset({"builtins." + value.id if value.id in BUILTINS else None})
         if isinstance(value, ast.Attribute):
+            def dotted(node):
+                if isinstance(node, ast.Name):
+                    return node.id
+                base = dotted(node.value) if isinstance(node, ast.Attribute) else ""
+                return base + "." + node.attr if base else ""
+            for key in self.scope_keys(dotted(value), scope):
+                if key in self.possible:
+                    return frozenset(self.possible[key])
             return frozenset(root + "." + value.attr if root is not None else None
                              for root in self.origins(value.value, scope))
         if isinstance(value, ast.IfExp):

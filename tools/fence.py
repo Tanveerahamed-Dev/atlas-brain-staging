@@ -210,9 +210,9 @@ def import_bindings(tree, path):
         if not name:
             return
         key = scope + name
-        if isinstance(target, ast.Name):
+        if isinstance(target, (ast.Name, ast.Attribute)):
             carried = container(value, scope)
-            calls.assign(target.id, value, scope)
+            calls.assign(name, value, scope)
             if carried or key in containers:
                 containers.setdefault(key, set()).update(returned(value, scope))
         known, origin = reference(value, scope)
