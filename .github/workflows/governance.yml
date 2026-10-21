@@ -8,9 +8,12 @@ on:
     - cron: '32 22 * * *'
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: governance-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: false
+env:
+  GH_TOKEN: ${{ github.token }}
 jobs:
   governance-foundation:
     strategy:
@@ -29,7 +32,7 @@ jobs:
           version: '0.13.1'
           enable-cache: false
       - run: uv sync --locked
-      - run: uv run --no-sync pytest -q tests/test_governance.py
+      - run: uv run --no-sync pytest -q tests/test_governance.py tests/test_main_receipts.py
       - name: Enforce size and ADR guards; emit review diff digest
         shell: bash
         env:
