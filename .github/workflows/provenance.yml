@@ -1,5 +1,6 @@
 name: Fixture provenance
 on:
+  workflow_dispatch:
   pull_request:
   merge_group:
   push:
@@ -8,6 +9,7 @@ permissions:
   contents: read
 jobs:
   provenance:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'manual-provenance' || 'provenance' }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
