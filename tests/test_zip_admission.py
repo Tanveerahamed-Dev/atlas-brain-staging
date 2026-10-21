@@ -23,6 +23,11 @@ def limits(**changes):
     return a.Budgets(1000000, 500000, 100, **changes)
 
 
+def test_hostile_name_plant_preserves_local_and_index_bytes(tmp_path):
+    path = archive(tmp_path, [("a\\b", b"data")])
+    assert path.read_bytes().count(b"a\\b") == 2
+
+
 def test_streamed_zip_matches_folder_identity_and_never_extracts(tmp_path):
     root = tmp_path / "folder"
     root.mkdir()
