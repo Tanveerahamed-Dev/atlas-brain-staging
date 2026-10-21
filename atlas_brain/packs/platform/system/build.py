@@ -15,8 +15,8 @@ def build_capture(capture: Capture) -> SystemFields:
         raise ValueError("unsupported_system_operation")
     if capture.codec not in ("utf-8", "ascii"):
         raise ValueError("unsupported_system_codec")
-    if capture.error is not None and capture.integrity is k.IntegrityState.COMPLETE:
-        raise ValueError("complete_capture_has_error")
+    if capture.error is not None and capture.integrity is not k.IntegrityState.ERROR:
+        raise ValueError("capture_error_integrity_mismatch")
     observed = extract_fields(capture.raw, capture.id, integrity=capture.integrity)
     if isinstance(observed.uptime, k.Unknown):
         boot = observed.uptime
