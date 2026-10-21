@@ -12,7 +12,7 @@ concurrency:
   group: governance-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: false
 jobs:
-  governance-foundation:
+  governance-enforcement-probe:
     strategy:
       fail-fast: false
       matrix:
