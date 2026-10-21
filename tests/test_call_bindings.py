@@ -1,6 +1,8 @@
 """An uncertain binding cannot erase a possible carrier or prove a scalar result."""
 import ast
 
+import pytest
+
 from tools.call_bindings import CallableBindings
 
 
@@ -48,3 +50,18 @@ def test_declarations_exist_before_a_forward_call_is_analyzed():
     bindings.predeclare(tree)
     assert bindings.origins(expression("helper"), "factory.") == {"atlas_brain.example.helper"}
     assert len(bindings.definitions["atlas_brain.example.helper"]) == 1
+
+
+@pytest.mark.parametrize("declaration, scope", [("global carrier", "factory."),
+                                               ("nonlocal carrier", "outer.factory.")])
+def test_explicit_scope_assignments_keep_the_runtime_binding_alternatives(declaration, scope):
+    bindings = CallableBindings("atlas_brain.example", {}, {}, set())
+    body = "def factory():\n " + declaration + "\n carrier = len\n"
+    tree = ast.parse("carrier = iter\n" + body if scope == "factory."
+                     else "def outer():\n carrier = iter\n " + body.replace("\n", "\n "))
+    bindings.predeclare(tree)
+    bindings.assign("carrier", expression("iter"), "" if scope == "factory." else "outer.")
+    bindings.assign("carrier", expression("len"), scope)
+    assert bindings.origins(expression("carrier"), scope) == {"builtins.iter", "builtins.len"}
+    assert bindings.has_carrier(expression("carrier"), scope)
+    assert not bindings.primitive_call(expression("carrier(values)"), scope)
