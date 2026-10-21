@@ -204,6 +204,8 @@ def import_bindings(tree, path):
                 assignment(target, node.value, scope)
         elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
             assignment(node.target, node.value, scope)
+        elif isinstance(node, ast.TypeAlias):
+            assignment(node.name, node.value, scope)
         elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             assignment(node.target, node.iter, scope)
         elif isinstance(node, ast.withitem) and node.optional_vars is not None:
