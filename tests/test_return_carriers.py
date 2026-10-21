@@ -96,16 +96,29 @@ def test_named_closure_binding_keeps_the_returned_function_level():
     source = "from zipfile import ZipFile\ndef outer():\n def factory(): return ZipFile\n return factory\nfactory = outer()\n"
     _, exports, _ = import_bindings(ast.parse(source), USING)
     assert exports["outer.$return"] == ("atlas_brain.evidence.archives.outer.factory",)
-    assert exports["factory"] == "atlas_brain.evidence.archives.outer.factory"
+    assert exports["factory"] == "$callable:atlas_brain.evidence.archives.outer.factory"
 
 
-@pytest.mark.parametrize("choice, ordinary_callable", [
+FACTORIES = [("def choose(flag, opaque=None): return " + choice + "\nfactory = choose(True)\n", ordinary)
+             for choice, ordinary in [
     ("first if flag else second", True), ("(first, second)[flag]", True),
-    ("first if flag else opaque", False), ("first if flag else CAP", False)])
+    ("first if flag else opaque", False), ("first if flag else CAP", False)]] + [
+    ("factory = first\n", True),
+    ("flag = True\nfactory = first if flag else second\n", True),
+    ("factory = first or second\n", True),
+    ("factory = (first, second)[0]\n", True),
+    ("factory = first\nif True:\n factory = second\n", True),
+    ("opaque = None\nfactory = first\nif False:\n factory = opaque\n", False),
+    ("flag = True\nfactory = first if flag else CAP\n", False),
+    ("def choose(flag): return first if flag else second\nfactory = choose(True)\nif True:\n factory = second\n", True),
+    ("def choose(flag): return first if flag else second\nfactory = first\nif True:\n factory = choose(True)\n", True)]
+
+
+@pytest.mark.parametrize("factory_source, ordinary_callable", FACTORIES)
 @pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
-def test_actual_cli_returned_function_union_keeps_capabilities(tmp_path, choice, ordinary_callable, capability):
+def test_actual_cli_returned_function_union_keeps_capabilities(tmp_path, factory_source, ordinary_callable, capability):
     source = ("from zipfile import ZipFile\ndef first(): return CAP\ndef second(): return CAP\n"
-              + "def choose(flag, opaque=None): return " + choice + "\nfactory = choose(True)\n"
+              + factory_source
               + "def public_data(): return 1\n").replace("CAP", capability)
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
@@ -133,10 +146,15 @@ def test_actual_cli_returned_function_union_keeps_capabilities(tmp_path, choice,
         (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import public_data\n", encoding="utf-8")
 
 
-@pytest.mark.parametrize("choice", ["first if flag else second", "first if flag else opaque"])
-def test_returned_callable_union_keeps_known_roots_and_evaluation_level(choice):
+@pytest.mark.parametrize("factory_source", [
+    "def choose(flag, opaque=None): return first if flag else second\nfactory = choose(True)",
+    "def choose(flag, opaque=None): return first if flag else opaque\nfactory = choose(True)",
+    "factory = first", "flag = True\nfactory = first if flag else second",
+    "factory = first\nif True:\n factory = second",
+    "opaque = None\nfactory = first\nif False:\n factory = opaque"])
+def test_returned_callable_union_keeps_known_roots_and_evaluation_level(factory_source):
     source = ("from zipfile import ZipFile\ndef first(): return ZipFile\ndef second(): return ZipFile\n"
-              + "def choose(flag, opaque=None): return " + choice + "\nfactory = choose(True)")
+              + factory_source)
     index = ImportIndex({USING: source})
     assert index.foreign_roots("atlas_brain.evidence.archives.factory", callable_value=True) == {"zipfile.ZipFile"}
     assert not index.foreign_roots("atlas_brain.evidence.archives.factory", callable_value=True, evaluate_return=False)
