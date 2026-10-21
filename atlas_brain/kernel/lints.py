@@ -62,34 +62,17 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
             for item in node.names:
                 aliases[item.asname or item.name] = f'{node.module}.{item.name}'
 
-    def name(node: ast.AST) -> str:
-        if isinstance(node, ast.Name):
-            if node.id not in aliases:
-                return node.id
-            return aliases[node.id]
-        if isinstance(node, ast.Attribute):
-            return name(node.value) + '.' + node.attr
-        if isinstance(node, ast.Subscript):
-            return name(node.value)
-        return ''
-
-    def tail(node: ast.AST) -> str:
-        return name(node).split('.')[-1]
-
-    def contains(node: ast.AST, names: tuple[str, ...]) -> bool:
-        return any(tail(n) in names for n in ast.walk(node))
-
-    rebound = {name(n) for n in ast.walk(tree) if isinstance(n, (ast.Name, ast.Attribute)) and isinstance(n.ctx, ast.Store)}
+    rebound = {resolved_name(n, aliases) for n in ast.walk(tree) if isinstance(n, (ast.Name, ast.Attribute)) and isinstance(n.ctx, ast.Store)}
     for binding in ast.walk(tree):
         identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)) else ''
         if identifier:
-            rebound.add(name(ast.Name(id=identifier, ctx=ast.Load())))
+            rebound.add(resolved_name(ast.Name(id=identifier, ctx=ast.Load()), aliases))
     fallbacks = fallback_nodes(tree, aliases, rebound)
 
     def ascii_flag(node: ast.AST) -> bool:
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
             return ascii_flag(node.left) or ascii_flag(node.right)
-        return name(node) in ('re.ASCII', 're.A') and name(node) not in rebound and 're' not in rebound
+        return resolved_name(node, aliases) in ('re.ASCII', 're.A') and resolved_name(node, aliases) not in rebound and 're' not in rebound
 
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
 
@@ -125,31 +108,31 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
         if fact_path and ((isinstance(node, ast.Constant) and not isinstance(node.value, (str, bytes, int, type(None), type(Ellipsis)))) or
                           (isinstance(node, ast.Name) and node.id == 'float')):
             hit(7, node)
-        if isinstance(node, ast.AnnAssign) and contains(node.annotation, ('set', 'frozenset')) and isinstance(node.target, ast.Name):
+        if isinstance(node, ast.AnnAssign) and contains_name(node.annotation, ('set', 'frozenset'), aliases) and isinstance(node.target, ast.Name):
             sets.add(node.target.id)
-        if isinstance(node, ast.arg) and node.annotation and contains(node.annotation, ('set', 'frozenset')):
+        if isinstance(node, ast.arg) and node.annotation and contains_name(node.annotation, ('set', 'frozenset'), aliases):
             sets.add(node.arg)
         if isinstance(node, (ast.Assign, ast.NamedExpr)):
             value = node.value
-            if isinstance(value, (ast.Set, ast.SetComp)) or (isinstance(value, ast.Call) and tail(value.func) in ('set', 'frozenset')):
+            if isinstance(value, (ast.Set, ast.SetComp)) or (isinstance(value, ast.Call) and resolved_tail(value.func, aliases) in ('set', 'frozenset')):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 sets.update(t.id for t in targets if isinstance(t, ast.Name))
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.AnnAssign) and fact_fields and (contains(node.annotation, ('Optional',)) or
+        if isinstance(node, ast.AnnAssign) and fact_fields and (contains_name(node.annotation, ('Optional',), aliases) or
                 any(isinstance(n, ast.Constant) and n.value is None for n in ast.walk(node.annotation))):
             hit(1, node)
         if isinstance(node, ast.ClassDef):
-            if any(tail(b) in STATES for b in node.bases):
+            if any(resolved_tail(b, aliases) in STATES for b in node.bases):
                 hit(13, node)
-            record = any(tail(d.func if isinstance(d, ast.Call) else d) == 'dataclass' for d in node.decorator_list)
+            record = any(resolved_tail(d.func if isinstance(d, ast.Call) else d, aliases) == 'dataclass' for d in node.decorator_list)
             if record:
                 for field in node.body:
-                    if isinstance(field, ast.AnnAssign) and field.value is not None and not contains(field.annotation, ('ClassVar',)):
+                    if isinstance(field, ast.AnnAssign) and field.value is not None and not contains_name(field.annotation, ('ClassVar',), aliases):
                         hit(2, field)
         if node in fallbacks:
             hit(3, node)
-        if isinstance(node, ast.ExceptHandler) and (node.type is None or contains(node.type, ('BaseException',))):
+        if isinstance(node, ast.ExceptHandler) and (node.type is None or contains_name(node.type, ('BaseException',), aliases)):
             hit(5, node)
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or '', *[f'{node.module}.{a.name}' for a in node.names]]
@@ -162,14 +145,14 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                     hit(14, node)
         if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             iterator = node.iter
-            if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and tail(iterator.func) in ('set', 'frozenset')):
+            if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and resolved_tail(iterator.func, aliases) in ('set', 'frozenset')):
                 hit(11, node)
-        if isinstance(node, (ast.Attribute, ast.Name)) and path not in RUNNER and name(node) in ('os.environ', 'os.environb'):
+        if isinstance(node, (ast.Attribute, ast.Name)) and path not in RUNNER and resolved_name(node, aliases) in ('os.environ', 'os.environb'):
             hit(9, node)
         if not isinstance(node, ast.Call):
             continue
-        called = name(node.func)
-        short = tail(node.func)
+        called = resolved_name(node.func, aliases)
+        short = resolved_tail(node.func, aliases)
         if short == 'CheckResult' and (path != 'atlas_brain/kernel/verdict.py' or not inside_verdict(node)):
             hit(4, node)
         if fact_path and (short == 'float' or called.startswith('math.')):
@@ -209,3 +192,24 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
         if re.search(r'#\s*pyright:\s*ignore\[', line, re.ASCII) and not re.search(r'reviewer:\s*\S', line, re.ASCII):
             findings.add((6, lineno))
     return tuple(sorted(findings))
+
+
+def resolved_name(node: ast.AST, aliases: dict[str, str]) -> str:
+    """Resolve an AST name using the scanner's supplied import environment."""
+    if isinstance(node, ast.Name):
+        if node.id not in aliases:
+            return node.id
+        return aliases[node.id]
+    if isinstance(node, ast.Attribute):
+        return resolved_name(node.value, aliases) + '.' + node.attr
+    if isinstance(node, ast.Subscript):
+        return resolved_name(node.value, aliases)
+    return ''
+
+
+def resolved_tail(node: ast.AST, aliases: dict[str, str]) -> str:
+    return resolved_name(node, aliases).split('.')[-1]
+
+
+def contains_name(node: ast.AST, names: tuple[str, ...], aliases: dict[str, str]) -> bool:
+    return any(resolved_tail(part, aliases) in names for part in ast.walk(node))
