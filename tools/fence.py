@@ -110,6 +110,71 @@ def gate_data_allowed(path: str, data) -> bool:
 
 def import_bindings(tree, path):
     aliases, exports, declarations = {}, {}, set()
+    def dotted(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        base = dotted(node.value) if isinstance(node, ast.Attribute) else ""
+        return base + "." + node.attr if base else ""
+    def reference(node, scope):
+        name = dotted(node)
+        if name:
+            if scope + name in exports:
+                return True, exports[scope + name]
+            if scope + name in declarations:
+                return False, None
+            if name in exports:
+                return True, exports[name]
+            if isinstance(node, ast.Name):
+                return (True, aliases[node.id]) if node.id in aliases else (False, None)
+            known, base = reference(node.value, scope)
+            return known, base + "." + node.attr if isinstance(base, str) else base
+        if isinstance(node, ast.NamedExpr):
+            return reference(node.value, scope)
+        if isinstance(node, ast.IfExp):
+            left, a = reference(node.body, scope)
+            right, b = reference(node.orelse, scope)
+            return left or right, a if left and right and a == b else None
+        if isinstance(node, ast.BoolOp):
+            values = [reference(value, scope) for value in node.values]
+            origins = [origin for known, origin in values if known]
+            return bool(origins), origins[0] if len(origins) == len(values) and all(o == origins[0] for o in origins) else None
+        return False, None
+    def assignment(target, value, scope):
+        if isinstance(target, (ast.Tuple, ast.List)):
+            if (isinstance(value, (ast.Tuple, ast.List)) and len(target.elts) == len(value.elts)
+                    and not any(isinstance(item, ast.Starred) for item in target.elts)):
+                for item, origin in zip(target.elts, value.elts, strict=True):
+                    assignment(item, origin, scope)
+            else:
+                for item in ast.walk(target):
+                    if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store):
+                        assignment(item, value, scope)
+            return
+        name = dotted(target)
+        if not name:
+            return
+        key = scope + name
+        known, origin = reference(value, scope)
+        if not known:
+            parents = {child: parent for parent in ast.walk(value) for child in ast.iter_child_nodes(parent)}
+            roots = set()
+            ambiguous = False
+            for part in ast.walk(value):
+                if not isinstance(part, (ast.Name, ast.Attribute)) or isinstance(parents.get(part), ast.Attribute):
+                    continue
+                found, base = reference(part, scope)
+                if found:
+                    ambiguous |= base is None
+                    roots.update(base if isinstance(base, tuple) else (base,) if base is not None else ())
+            if roots or ambiguous:
+                known, origin = True, None if ambiguous else tuple(sorted(roots))
+        if known:
+            if key in declarations or key in exports and exports[key] != origin:
+                origin = None
+            exports[key] = origin
+            declarations.discard(key)
+        elif key in exports:
+            exports[key] = None
     def walk(node, scope=""):
         pairs = []
         if isinstance(node, ast.Import):
@@ -129,10 +194,15 @@ def import_bindings(tree, path):
             if name in aliases and aliases[name] != target:
                 raise ValueError("ambiguous import binding")
             aliases[name], exports[scope + name] = target, target
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                assignment(target, node.value, scope)
+        elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+            assignment(node.target, node.value, scope)
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             declarations.add(scope + node.name)
             scope += node.name + "."
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and scope + node.id not in exports:
             declarations.add(scope + node.id)
         for child in ast.iter_child_nodes(node):
             walk(child, scope)
@@ -179,7 +249,11 @@ class ImportIndex:
         tail = name[len(module) + 1:]
         binding = max((key for key in exports if tail == key or tail.startswith(key + ".")), key=len, default="")
         if binding:
-            return self.origin(exports[binding] + tail[len(binding):], seen | {name})
+            target = exports[binding]
+            if isinstance(target, tuple):
+                roots = [self.origin(root, seen | {name}) for root in target]
+                return name if all(root is not None and (root.startswith("atlas_brain.") or root in STDLIB_API) for root in roots) else None
+            return self.origin(target + tail[len(binding):], seen | {name}) if target is not None else None
         return name if any(tail == key or tail.startswith(key + ".") for key in declarations) else None
 
 
