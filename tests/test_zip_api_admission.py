@@ -188,3 +188,11 @@ def test_public_factory_result_cannot_export_zip_members(tmp_path: Path, member,
 def test_plain_primitive_function_results_keep_their_operations(producer):
     sources = {"atlas_brain/plain.py": producer}
     assert source_allowed("from .plain import text\ntext().upper()", sources)
+
+
+@pytest.mark.parametrize("result", ["isinstance(value, ZipFile)", "bool(value) and isinstance(value, ZipFile)",
+                                   "'zip' if isinstance(value, ZipFile) else 'other'"])
+def test_class_predicates_do_not_return_the_tested_class(result):
+    sources = {USING: "from zipfile import ZipFile\ndef factory(value): return " + result}
+    assert source_allowed("from .evidence.archives import factory\nfactory(value).__str__()", sources) is False
+    assert source_allowed("from .evidence.archives import factory\nfactory(value).real", sources)
