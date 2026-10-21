@@ -157,7 +157,9 @@ def test_live_published_positive_and_missing_push_history(sha, expected):
 
 
 def test_every_registered_workflow_has_one_explicit_manual_recovery_trigger():
-    for path in Path(".github/workflows").glob("*.yml"):
+    for path in Path(".github/workflows").iterdir():
+        if path.suffix not in {".yml", ".yaml"}:
+            continue
         text = path.read_text(encoding="utf-8")
         assert text.count("  workflow_dispatch:\n") == 1
         assert "github.event.pull_request.head.sha || github.sha" in text
