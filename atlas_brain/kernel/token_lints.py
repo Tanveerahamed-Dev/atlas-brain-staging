@@ -14,11 +14,30 @@ def _tail(node: ast.AST) -> str:
     return node.attr if isinstance(node, ast.Attribute) else ''
 
 
+def _may_return(node: ast.AST) -> bool:
+    """Find a possible early return without entering a separately defined function."""
+    pending = [node]
+    while pending:
+        part = pending.pop()
+        if isinstance(part, ast.Return):
+            return True
+        fields = tuple(ast.iter_fields(part))
+        if any(field == 'args' and isinstance(value, ast.AST) for field, value in fields):
+            continue
+        for _, value in fields:
+            if isinstance(value, ast.AST):
+                pending.append(value)
+            elif isinstance(value, list):
+                pending.extend(child for child in cast(list[object], value) if isinstance(child, ast.AST))
+    return False
+
+
 def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...]], frozenset[ast.AST]]:
     """Bind local successors without certifying optional or intercepted execution.
 
-    Handler dispatch and context-manager behavior are unproven. A function body
-    starts its own execution scope; a try's else is outside its own handlers.
+    A single handler after an unconditional raise runs or failure escapes.
+    Other handler entries are optional; a leaf-only try body proves else entry.
+    A function body starts its own execution scope; finalizers may override exits.
     Test-controlled branches and loop bodies/else blocks may never execute.
     """
     following: dict[ast.stmt, tuple[ast.stmt, ...]] = {}
@@ -31,6 +50,11 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
         if protected:
             intercepted.add(owner)
         catching = any(field == 'handlers' and bool(value) for field, value in fields)
+        raising = any(field == 'body' and isinstance(value, list) and len(cast(list[object], value)) == 1
+                      and isinstance(cast(list[object], value)[0], ast.Raise) for field, value in fields)
+        single_handler = any(field == 'handlers' and isinstance(value, list) and len(cast(list[object], value)) == 1 for field, value in fields)
+        leaf_body = any(field == 'body' and isinstance(value, list) and bool(cast(list[object], value)) and all(
+            isinstance(child, ast.stmt) and not tuple(ast.iter_fields(child)) for child in cast(list[object], value)) for field, value in fields)
         finalizing = any(field == 'finalbody' and bool(value) for field, value in fields)
         managing = any(field == 'items' and bool(value) for field, value in fields)
         conditional = any(field in ('test', 'iter') and isinstance(value, ast.AST) for field, value in fields)
@@ -42,10 +66,17 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
                 children = tuple(child for child in cast(list[object], value) if isinstance(child, ast.AST))
             block = tuple(child for child in children if isinstance(child, ast.stmt))
             following.update((statement, block[index + 1:]) for index, statement in enumerate(block))
-            blocked = protected or (field == 'body' and (catching or managing)) or (
+            blocked = protected or (field == 'handlers' and not (raising and single_handler)) or (
+                field == 'orelse' and catching and not leaf_body) or (field == 'body' and (catching or managing)) or (
                 field in ('body', 'orelse', 'handlers') and finalizing) or (
                 field in ('body', 'orelse') and conditional)
-            pending.extend((child, blocked) for child in children)
+            unreachable: set[ast.AST] = set()
+            may_skip = False
+            for statement in block:
+                if may_skip:
+                    unreachable.add(statement)
+                may_skip = may_skip or isinstance(statement, ast.Raise) or _may_return(statement)
+            pending.extend((child, blocked or child in unreachable) for child in children)
     return following, frozenset(intercepted)
 
 
@@ -112,3 +143,44 @@ def fallback_node(node: ast.AST, called: str = '') -> bool:
             for pattern in patterns for p in ast.walk(pattern))
         return enumerated and any(not _literal_pattern(pattern) for pattern in patterns)
     return False
+
+
+def finite_subject(test: ast.AST) -> str:
+    if isinstance(test, ast.Compare) and len(test.ops) == len(test.comparators) == 1 and isinstance(test.ops[0], ast.Eq):
+        left, right = test.left, test.comparators[0]
+        if isinstance(right, ast.Constant) and type(right.value) is str:
+            return _qualified(left, {})
+        if isinstance(left, ast.Constant) and type(left.value) is str:
+            return _qualified(right, {})
+    return ''
+
+
+def _same_operand(left: ast.AST, right: ast.AST) -> bool:
+    if isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
+        return type(left.value) is type(right.value) and left.value == right.value
+    name = _qualified(left, {})
+    return bool(name) and name == _qualified(right, {})
+
+
+def guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool = False) -> bool:
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1 or len(test.comparators) != 1:
+        return False
+    if not isinstance(test.ops[0], ast.NotIn if inverse else ast.In):
+        return False
+    if len(body) != 1 or not isinstance(body[0], ast.Return) or not isinstance(body[0].value, ast.Subscript):
+        return False
+    lookup = body[0].value
+    return _same_operand(test.left, lookup.slice) and _same_operand(test.comparators[0], lookup.value)
+
+
+def refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
+    """Prove an escaping tail; the caller supplies canonical Unknown call witnesses."""
+    if not following:
+        return False
+    last = following[-1]
+    # Each same-input arm must exit; an arm that mutates and continues is unproven.
+    if len(following) > 1 and (not subject or any(
+            not isinstance(s, ast.If) or s.orelse or finite_subject(s.test) != subject
+            or len(s.body) != 1 or not isinstance(s.body[0], (ast.Return, ast.Raise)) for s in following[:-1])):
+        return False
+    return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
