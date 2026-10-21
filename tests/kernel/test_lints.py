@@ -33,6 +33,7 @@ from atlas_brain.kernel.lints import lint
     ('match raw:\n case _: value = "up"', 3),
     ('def mapped(raw):\n if raw == "up": return "up"\n else: return "up" + ""', 3),
     ('def map_state(raw):\n if raw == "up": return "up"\n else: pass\n return "up"', 3),
+    ('def map_state(raw):\n if raw == "up": return "up"\n if raw == "down": return "down"\n return "up"', 3),
     ('class Known(str): pass\nmatch raw:\n case Known(): value = "up"', 3),
     ('def assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
     ('from typing import assert_never\ndef assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
