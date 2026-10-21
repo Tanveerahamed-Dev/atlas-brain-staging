@@ -53,7 +53,10 @@ jobs:
           version: '0.13.1'
           enable-cache: false
       - run: uv sync --locked
-      - run: uv run --no-sync pytest -q tests/test_governance.py tests/test_main_receipts.py
+      - run: uv run --no-sync pytest -q tests/test_governance.py
+      - name: Test the new receipt guard on ordinary CI source
+        if: ${{ !inputs.source_sha }}
+        run: uv run --no-sync pytest -q tests/test_main_receipts.py
       - name: Enforce size and ADR guards; emit review diff digest
         shell: bash
         env:
