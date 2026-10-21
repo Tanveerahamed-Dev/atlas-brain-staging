@@ -216,3 +216,9 @@ def test_deflate_end_marker_is_required(tmp_path, directory):
     path.write_bytes(raw)
     with pytest.raises(a.AdmissionRefused, match="invalid_zip"):
         z.zip_members(path, limits())
+
+
+@pytest.mark.parametrize("payload", [b"", bytes(range(256)) * 300])
+def test_complete_deflate_empty_and_multiple_output_chunks_pass(tmp_path, payload):
+    path = archive(tmp_path, [("a", payload)], compression=zipfile.ZIP_DEFLATED)
+    assert z.zip_members(path, limits(compression_ratio=1000)) == {"a": payload}
