@@ -5,6 +5,7 @@ import pytest
 
 from atlas_brain.evidence.capture import (
     Capture,
+    CaptureMetadata,
     Channel,
     ErrorKind,
     Scope,
@@ -26,13 +27,13 @@ def record(raw=RAW, operation="iosxe.show_version", rendered="show version",
     source = k.EntityKey("node:sw-a")
     witness = k.EvidenceRef(capture=capture_id, locator=k.WholeCapture(), role=k.EvidenceRole.SUBJECT,
                             excerpt_sha256=sha256(raw).hexdigest())
-    return Capture(id=capture_id, source=source, channel=Channel.CLI, operation=operation,
-                   rendered=rendered, scope=Scope(node=source, vrf=None, context=None, vdc=None,
+    metadata = CaptureMetadata(channel=Channel.CLI, scope=Scope(node=source, vrf=None, context=None, vdc=None,
                    tenant=None, afi=None, instance=None, plane="exec"),
                    collected_utc=unrecorded_time(witness) if time is None else time,
-                   codec=codec, integrity=integrity, error=error, integrity_evidence=(witness,),
-                   read_scope=k.ReadScope.UNKNOWN, read_scope_evidence=(),
-                   view=k.ViewConsistency.SINGLE_RESPONSE, envelope=None, raw=raw, lines=text_lines(raw, codec))
+                   error=error, integrity_evidence=(witness,), read_scope_evidence=(), envelope=None)
+    return Capture(id=capture_id, source=source, operation=operation, rendered=rendered,
+                   codec=codec, integrity=integrity, read_scope=k.ReadScope.UNKNOWN,
+                   view=k.ViewConsistency.SINGLE_RESPONSE, raw=raw, lines=text_lines(raw, codec), metadata=metadata)
 
 
 @pytest.mark.parametrize("codec", ["utf-8", "ascii"])
@@ -46,6 +47,21 @@ def test_capture_binding_preserves_observed_fields_and_time_unknown(codec):
         assert isinstance(fact, k.Known)
         assert all(ref.capture == item.id for ref in fact.evidence)
     assert result.parse.quality == "complete"
+
+
+def test_legacy_capture_keeps_evidenced_missing_time_instead_of_a_boot_guess():
+    item = Capture(k.CaptureId("synthetic-legacy"), k.EntityKey("node:sw-a"),
+                   "iosxe.show_version", "show version", "utf-8", RAW, k.IntegrityState.COMPLETE,
+                   text_lines(RAW, "utf-8"), k.ReadScope.UNKNOWN, k.ViewConsistency.SINGLE_RESPONSE)
+    assert item.metadata is None
+    result = build_capture(item)
+    assert isinstance(result.uptime, k.Known)
+    assert isinstance(result.boot_epoch, k.Unknown)
+    assert result.boot_epoch.reason is k.UnknownReason.AS_OF_MISSING
+    assert result.boot_epoch.evidence == item.integrity_evidence
+    witness, = result.boot_epoch.evidence
+    assert isinstance(witness, k.EvidenceRef) and witness.capture == item.id
+    assert witness.excerpt_sha256 == sha256(RAW).hexdigest()
 
 
 @pytest.mark.parametrize("operation,rendered", [
