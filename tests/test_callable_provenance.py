@@ -68,3 +68,10 @@ def test_predicates_and_ordinary_records_are_not_foreign_instances(value, member
     assert source_allowed("from .evidence.admission import plain\nplain(x)." + member, sources)
     sources[USING] = "class Record:\n field = 1\ndef plain(x): return Record()"
     assert source_allowed("from .evidence.admission import plain\nplain(x).field", sources)
+
+
+@pytest.mark.parametrize("source", ["from hashlib import sha256\nsha256(b'x').hexdigest()",
+    "import json\njson.dumps('x').encode()", "from typing import cast\ncast(str, 'x').encode()",
+    "import re\nvalue = re.compile('x', re.ASCII)\nvalue.match('x').end()"])
+def test_ordinary_attribute_calls_keep_existing_primitive_operations(source):
+    assert source_allowed(source)
