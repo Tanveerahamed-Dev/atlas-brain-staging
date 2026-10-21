@@ -210,12 +210,21 @@ def import_bindings(tree, path):
         else:
             declarations.add(key)
     def returned(value, scope):
+        if isinstance(value, (ast.NamedExpr, ast.Subscript)):
+            return returned(value.value, scope)
+        if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+            return set().union(*(returned(part, scope) for part in value.elts))
         if isinstance(value, ast.IfExp):
             return returned(value.body, scope) | returned(value.orelse, scope)
         if isinstance(value, ast.BoolOp):
             return set().union(*(returned(part, scope) for part in value.values))
         # A call returns its callee's result, not its arguments or tested classes.
         known, origin = reference(value.func if isinstance(value, ast.Call) else value, scope)
+        if not known and isinstance(value, ast.Call):
+            name = dotted(value.func)
+            key = scope + name if scope + name in declarations else name
+            if name and key in declarations:
+                return {path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "." + key}
         return set(origin if isinstance(origin, tuple) else (origin,)) if known else set()
     def walk(node, scope=""):
         pairs = []
