@@ -158,8 +158,12 @@ def test_exact_zip_member_uses_and_reexports(tmp_path: Path, api):
 
 @pytest.mark.parametrize("member", ["open", "infolist"])
 @pytest.mark.parametrize("receiver", ["factory(source)", "(factory(source) if flag else factory(source))", "value"])
-def test_public_factory_result_cannot_export_zip_members(tmp_path: Path, member, receiver):
-    sources = {USING: "from zipfile import ZipFile\ndef factory(source):\n value = ZipFile(source)\n return value\n",
+@pytest.mark.parametrize("producer", ["def factory(source): return ZipFile(source)",
+    "def factory(source):\n value = ZipFile(source)\n return value",
+    "def maker(source): return ZipFile(source)\ndef factory(source): return maker(source)",
+    "def factory(source): return (ZipFile(source),)[0]"])
+def test_public_factory_result_cannot_export_zip_members(tmp_path: Path, member, receiver, producer):
+    sources = {USING: "from zipfile import ZipFile\n" + producer + "\n",
                "atlas_brain/bridge.py": "from .evidence.archives import factory"}
     consumer = "from .evidence.archives import factory\nvalue = factory(source)\n"
     assert source_allowed(consumer, sources)
