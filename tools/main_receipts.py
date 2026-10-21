@@ -18,6 +18,8 @@ def workflow_paths(tree):
 
 
 def step_scalar(value):
+    if not isinstance(value, str):
+        raise ValueError("unsupported step scalar")
     if value.startswith('"'):
         value = json.loads(value)
     elif value.startswith("'"):
@@ -41,7 +43,8 @@ def check_steps(text):
             raise ValueError("step must have exactly one run or uses command")
         kind = next(iter(kinds))
         name = step_scalar(fields["name"]) if "name" in fields else "Run " + step_scalar(fields[kind])
-        if name in {"Set up job", "Complete job"} or name.startswith(("Post ", "Pre ")):
+        if (name in {"Set up job", "Complete job"} or name.startswith(("Post ", "Pre "))
+                or any(s["name"] == name for s in required)):
             raise ValueError("source step collides with runner lifecycle identity")
         required.append({"name": name, "kind": kind})
     for line in text.splitlines():
