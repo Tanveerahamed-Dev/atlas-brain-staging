@@ -225,3 +225,15 @@ def test_matching_inverted_membership_with_explicit_unknown_remains_valid(ending
 def test_matching_literal_membership_with_explicit_unknown_remains_valid():
     source = 'def mapped(fields):\n if "state" in fields: return fields["state"]\n raise ValueError("unmapped")'
     assert not fallback_nodes(ast.parse(source), {}, set())
+
+
+@pytest.mark.parametrize('source', [
+    'states = {"up": "up"}\ndef map_state(raw):\n for _ in ():\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(key):\n while ready:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n return "up"',
+    'async def mapped(key):\n async for item in rows:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(key):\n if ready:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(key):\n for item in rows: break\n else:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(key):\n while ready: break\n else:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n return "up"',
+])
+def test_optional_execution_cannot_certify_a_function_refusal(source):
+    assert fallback_nodes(ast.parse(source), {}, set())
