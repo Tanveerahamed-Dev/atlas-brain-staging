@@ -251,3 +251,13 @@ def test_a_bare_lookup_in_an_optional_body_cannot_hide_healthy_fallthrough(sourc
 def test_finite_nonloop_guard_still_proves_a_returned_lookup():
     source = 'def mapped(key):\n if key == "up": return mapping[key]\n raise ValueError("unmapped")'
     assert not fallback_nodes(ast.parse(source), {}, set())
+
+
+def test_outer_finite_guard_cannot_certify_a_nested_functions_optional_lookup():
+    source = 'def factory(label):\n if label == "ready":\n  def mapped(key):\n   for item in ():\n    return mapping[key]\n   return "up"\n  return mapped\n raise ValueError("unmapped")'
+    assert fallback_nodes(ast.parse(source), {}, set())
+
+
+def test_a_nested_functions_own_guard_remains_a_valid_proof():
+    source = 'def factory(label):\n if label == "ready":\n  def mapped(key):\n   if key in mapping: return mapping[key]\n   raise ValueError("unmapped")\n  return mapped\n raise ValueError("unmapped")'
+    assert not fallback_nodes(ast.parse(source), {}, set())
