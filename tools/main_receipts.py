@@ -17,31 +17,55 @@ def workflow_paths(tree):
             and re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", r["path"])}
 
 
+def step_scalar(value):
+    if value.startswith('"'):
+        value = json.loads(value)
+    elif value.startswith("'"):
+        if not value.endswith("'"):
+            raise ValueError("unsupported step scalar")
+        value = value[1:-1].replace("''", "'")
+    else:
+        value = value.split(" #", 1)[0].rstrip()
+    if not isinstance(value, str) or not value.strip() or "${{" in value or value in {"|", ">", "|-", ">-"}:
+        raise ValueError("unresolved step display identity")
+    return value.lstrip().splitlines()[0]
+
+
 def check_steps(text):
-    """Closed step mappings: conditional/soft-failure/alias/flow forms refuse."""
-    commands = None
+    """Closed step mappings with ordered, literal runner display identities."""
+    fields = None
+    required = []
+    def finish():
+        kinds = set(fields or {}) & {"run", "uses"}
+        if len(kinds) != 1:
+            raise ValueError("step must have exactly one run or uses command")
+        kind = next(iter(kinds))
+        name = step_scalar(fields["name"]) if "name" in fields else "Run " + step_scalar(fields[kind])
+        if name in {"Set up job", "Complete job"} or name.startswith(("Post ", "Pre ")):
+            raise ValueError("source step collides with runner lifecycle identity")
+        required.append({"name": name, "kind": kind})
     for line in text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         if line.startswith("      - "):
-            if commands is not None and commands != 1:
-                raise ValueError("step must have exactly one run or uses command")
-            match = re.fullmatch(r"      - (name|id|uses|run): .+", line)
+            if fields is not None:
+                finish()
+            match = re.fullmatch(r"      - (name|id|uses|run): (.+)", line)
             if match is None:
                 raise ValueError("unsupported source step declaration")
-            commands = int(match[1] in {"run", "uses"})
+            fields = {match[1]: match[2]}
         elif line.startswith("        ") and not line.startswith("          "):
-            match = re.fullmatch(r"        (name|id|uses|run|with|env|shell|working-directory|timeout-minutes):(?: .+)?", line)
-            if match is None or commands is None:
+            match = re.fullmatch(r"        (name|id|uses|run|with|env|shell|working-directory|timeout-minutes):(?: (.+))?", line)
+            if match is None or fields is None or match[1] in fields:
                 raise ValueError("unapproved or unsupported source step directive")
-            commands += int(match[1] in {"run", "uses"})
+            fields[match[1]] = match[2]
         elif not line.startswith("          "):
             raise ValueError("unsupported source step indentation")
-    if commands != 1:
-        raise ValueError("empty step registry or missing step command")
+    finish()
+    return required
 
 
-def expected_jobs(data, path, event):
+def expected_jobs(data, path, event, with_steps=False):
     """Closed workflow header grammar; unknown matrices/names/conditions refuse."""
     blob = data["sources"][path]
     raw = base64.b64decode(blob["content"].replace("\n", ""), validate=True)
@@ -55,7 +79,7 @@ def expected_jobs(data, path, event):
     blocks = re.split(r"(?m)^  ([A-Za-z_][A-Za-z0-9_-]*):\n", text.split("\njobs:\n", 1)[1])
     if blocks[0] or len(blocks) == 1:
         raise ValueError("empty or unsupported job registry")
-    names = []
+    names = {}
     for job, body in zip(blocks[1::2], blocks[2::2], strict=True):
         header, steps = body.split("    steps:\n", 1)
         header = re.sub(r"(?m)^ *#.*\n", "", header)
@@ -64,7 +88,7 @@ def expected_jobs(data, path, event):
         match = re.fullmatch(pattern, header)
         if not match:
             raise ValueError("unsupported job header or steps layout")
-        check_steps(steps)
+        required_steps = check_steps(steps)
         label, matrix, runner = match.groups()
         if event == "workflow_dispatch" and label is None:
             raise ValueError("manual job lacks an event-bound context name")
@@ -77,7 +101,9 @@ def expected_jobs(data, path, event):
         if matrix is None:
             if not re.fullmatch(r"[A-Za-z0-9_.-]+", runner):
                 raise ValueError("unresolved runner")
-            names.append(job)
+            if job in names:
+                raise ValueError("duplicate configured job")
+            names[job] = required_steps
             continue
         if runner != "${{ matrix.os }}":
             raise ValueError("unbound matrix runner")
@@ -95,10 +121,38 @@ def expected_jobs(data, path, event):
             values = matrix[1:-1].split(", ")
         if not isinstance(values, list) or not values or any(not isinstance(v, str) or not v for v in values):
             raise ValueError("invalid matrix values")
-        names.extend(f"{job} ({value})" for value in values)
-    if len(set(names)) != len(names):
-        raise ValueError("duplicate configured jobs")
-    return sorted(names)
+        expanded = [f"{job} ({value})" for value in values]
+        if len(set(expanded)) != len(expanded) or any(name in names for name in expanded):
+            raise ValueError("duplicate configured jobs")
+        names.update({name: required_steps for name in expanded})
+    return names if with_steps else sorted(names)
+
+
+def verify_steps(required, steps):
+    if not isinstance(steps, list) or not steps or any(
+        not isinstance(s, dict) or s.get("status") != "completed" or s.get("conclusion") != "success"
+        or type(s.get("number")) is not int or s["number"] < 1 or not isinstance(s.get("name"), str) for s in steps
+    ):
+        raise ValueError("missing or non-success step receipt")
+    by_number = {s["number"]: s for s in steps}
+    if len(by_number) != len(steps) or by_number.get(1, {}).get("name") != "Set up job":
+        raise ValueError("duplicate step ordinal or missing runner setup")
+    for number, source in enumerate(required, 2):
+        if by_number.get(number, {}).get("name") != source["name"]:
+            raise ValueError("missing or mismatched source-required step")
+    posts = ["Post " + s["name"] for s in required if s["kind"] == "uses"]
+    complete = 0
+    for number, observed in by_number.items():
+        if number <= len(required) + 1:
+            continue
+        if observed["name"] == "Complete job":
+            complete += 1
+        elif observed["name"] in posts:
+            posts.remove(observed["name"])
+        else:
+            raise ValueError("unexpected runner or source step")
+    if complete != 1:
+        raise ValueError("missing or ambiguous runner completion")
 
 
 def select_runs(data, sha, event):
@@ -134,17 +188,14 @@ def verify(data, sha, event):
     expected = {}
     for path, run in selected.items():
         jobs = data["jobs"][str(run["id"])]
-        expected[path] = expected_jobs(data, path, event)
+        required = expected_jobs(data, path, event, with_steps=True)
+        expected[path] = sorted(required)
         if sorted(j["name"] for j in jobs) != expected[path]:
             raise ValueError(f"missing, duplicate or unexpected configured jobs: {path}")
         if not jobs or any(j["status"] != "completed" or j["conclusion"] != "success" for j in jobs):
             raise ValueError(f"missing, failed, pending, skipped or cancelled jobs: {path}")
         for job in jobs:
-            steps = job.get("steps")
-            if not isinstance(steps, list) or not steps or any(
-                not isinstance(s, dict) or s.get("status") != "completed" or s.get("conclusion") != "success" for s in steps
-            ):
-                raise ValueError(f"missing or non-success step receipt: {path}")
+            verify_steps(required[job["name"]], job.get("steps"))
         count += len(jobs)
     return {"verified": True, "sha": sha, "event": event, "workflow_count": len(selected),
             "job_count": count, "run_ids": [r["id"] for r in selected.values()], "expected_jobs": expected}
