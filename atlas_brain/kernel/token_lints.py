@@ -17,8 +17,9 @@ def _tail(node: ast.AST) -> str:
 def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...]], frozenset[ast.AST]]:
     """Bind local successors without certifying optional or intercepted execution.
 
-    Handler dispatch and context-manager behavior are unproven. A function body
-    starts its own execution scope; a try's else is outside its own handlers.
+    A single handler after an unconditional raise runs or failure escapes.
+    Other handler entries are optional; a leaf-only try body proves else entry.
+    A function body starts its own execution scope; finalizers may override exits.
     Test-controlled branches and loop bodies/else blocks may never execute.
     """
     following: dict[ast.stmt, tuple[ast.stmt, ...]] = {}
@@ -31,6 +32,11 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
         if protected:
             intercepted.add(owner)
         catching = any(field == 'handlers' and bool(value) for field, value in fields)
+        raising = any(field == 'body' and isinstance(value, list) and len(value) == 1
+                      and isinstance(cast(list[object], value)[0], ast.Raise) for field, value in fields)
+        single_handler = any(field == 'handlers' and isinstance(value, list) and len(value) == 1 for field, value in fields)
+        leaf_body = any(field == 'body' and isinstance(value, list) and bool(value) and all(
+            isinstance(child, ast.stmt) and not tuple(ast.iter_fields(child)) for child in cast(list[object], value)) for field, value in fields)
         finalizing = any(field == 'finalbody' and bool(value) for field, value in fields)
         managing = any(field == 'items' and bool(value) for field, value in fields)
         conditional = any(field in ('test', 'iter') and isinstance(value, ast.AST) for field, value in fields)
@@ -42,10 +48,17 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
                 children = tuple(child for child in cast(list[object], value) if isinstance(child, ast.AST))
             block = tuple(child for child in children if isinstance(child, ast.stmt))
             following.update((statement, block[index + 1:]) for index, statement in enumerate(block))
-            blocked = protected or (field == 'body' and (catching or managing)) or (
+            blocked = protected or (field == 'handlers' and not (raising and single_handler)) or (
+                field == 'orelse' and catching and not leaf_body) or (field == 'body' and (catching or managing)) or (
                 field in ('body', 'orelse', 'handlers') and finalizing) or (
                 field in ('body', 'orelse') and conditional)
-            pending.extend((child, blocked) for child in children)
+            unreachable: set[ast.AST] = set()
+            terminated = False
+            for statement in block:
+                if terminated:
+                    unreachable.add(statement)
+                terminated = terminated or isinstance(statement, (ast.Return, ast.Raise))
+            pending.extend((child, blocked or child in unreachable) for child in children)
     return following, frozenset(intercepted)
 
 
