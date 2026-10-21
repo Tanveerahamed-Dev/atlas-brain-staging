@@ -393,7 +393,7 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
         aliases, exports, declarations = import_bindings(tree, path)
-        index = ImportIndex({**(sources or {}), path: source}, () if path in SCOPED_API else scoped_modules)
+        index = ImportIndex({path: source, **(sources or {})}, () if path in SCOPED_API else scoped_modules)
     except ValueError:
         return {"unresolved-provenance"}
     def admitted(name):
