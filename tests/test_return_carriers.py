@@ -110,7 +110,6 @@ def test_actual_cli_returned_function_union_keeps_capabilities(tmp_path, choice,
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
     using.write_text(source, encoding="utf-8")
-    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import factory, public_data\n", encoding="utf-8")
     # Uncertain exports can refuse at the bridge import; keep the baseline data-only.
     (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import public_data\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
@@ -130,7 +129,7 @@ def test_actual_cli_returned_function_union_keeps_capabilities(tmp_path, choice,
         probe.write_text(prefix + f"factory()({args})\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
         result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
-        assert result.returncode == 1 and "atlas_brain/" in result.stdout
+        assert result.returncode == 1 and ("atlas_brain/probe.py" if ordinary_callable else "atlas_brain/") in result.stdout
         (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import public_data\n", encoding="utf-8")
 
 
