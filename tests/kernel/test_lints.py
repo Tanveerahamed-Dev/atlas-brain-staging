@@ -31,6 +31,10 @@ from atlas_brain.kernel.lints import lint
     ('value = tokens.pop(token, "up")', 3),
     ('value = states[raw] if raw in states else "up"', 3),
     ('states = {"up": "up"}\ndef map_state(raw: str) -> str:\n if raw in states: return states[raw]\n return "up"', 3),
+    ('states = {"up": "up"}\ndefaults = {"healthy": "up"}\ndef map_state(raw: str) -> str:\n if raw not in states: return defaults["healthy"]\n raise ValueError("unmapped")', 3),
+    ('def mapped(key):\n if key not in mapping: return "up"\n return mapping[key]', 3),
+    ('def mapped(key):\n if key in mapping: return other[key]\n raise ValueError("unmapped")', 3),
+    ('def mapped(key, other):\n if key in mapping: return mapping[other]\n raise ValueError("unmapped")', 3),
     ('def mapped(packet):\n value = "up"\n if packet.code in registry: value = registry[packet.code]\n return value', 3),
     ('def mapped(entry):\n try:\n  if entry in table: return table[entry]\n  raise ValueError("unmapped")\n except ValueError: return "up"', 3),
     ('match raw:\n case _: value = "up"', 3),
@@ -87,6 +91,8 @@ def test_every_lint_and_alternate_plant(path, rule, source):
     '@dataclass(frozen=True)\nclass Record:\n value: int',
     'value = tokens[token]',
     'def mapped(key):\n if key in mapping: return mapping[key]\n raise ValueError("unmapped")',
+    'from atlas_brain.kernel.states import Unknown as U\ndef mapped(key):\n if key not in mapping: return U()\n return mapping[key]',
+    'def mapped(fields):\n if "state" in fields: return fields["state"]\n raise ValueError("unmapped")',
     'def mapped(raw):\n if raw == "up": return "up"\n raise UnknownToken(raw)',
     'from atlas_brain.kernel.states import Unknown as U\ndef mapped(raw):\n if raw == "up": return "up"\n return U(reason=reason, detail="unmapped", evidence=(), candidates=(), next_evidence=())',
     'values = (1, True, None, Ellipsis, "token", b"bytes")',
@@ -115,7 +121,8 @@ def test_valid_controls(path, source):
 def test_product_tree_passes_all_fifteen_lints():
     failures = [(p.as_posix(), lint(p.read_text(encoding='utf-8'), p.as_posix()))
                 for p in sorted(Path('atlas_brain').rglob('*.py'))]
-    assert not [(p, hits) for p, hits in failures if hits]
+    active = [(p, hits) for p, hits in failures if hits]
+    assert not active, repr(active)
 
 
 def test_constructor_boundary_and_finding_locations():
