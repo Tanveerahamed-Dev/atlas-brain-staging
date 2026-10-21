@@ -219,6 +219,14 @@ def import_bindings(tree, path):
         known, origin = reference(value, scope)
         if not known:
             known, origin = opaque(value, scope)
+        if isinstance(value, ast.Call):
+            targets = calls.origins(value.func, scope)
+            module = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "."
+            results = set().union(*(exports.get(target.removeprefix(module) + ".$return", ())
+                                  for target in targets if target in calls.definitions))
+            if (targets and all(target in calls.definitions for target in targets) and len(results) == 1
+                    and next(iter(results)) in calls.definitions):
+                known, origin = True, next(iter(results))
         elif origin is None:
             _, possible = opaque(value, scope)
             if isinstance(possible, tuple):
@@ -264,11 +272,12 @@ def import_bindings(tree, path):
         if isinstance(value, ast.Call) and origin == "typing.cast":
             carried = value.args[1:] + [item.value for item in value.keywords if item.arg == "val"]
             return set().union(*(returned(part, scope) for part in carried))
-        if not known and isinstance(value, ast.Call):
-            name = dotted(value.func)
-            key = scope + name if scope + name in declarations else name
-            if name and key in declarations:
-                return {path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "." + key}
+        if not known:
+            name = dotted(value.func if isinstance(value, ast.Call) else value)
+            key = next((key for key in scope_keys(name, scope) if key in declarations), "")
+            endpoint = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "." + key
+            if name and key and (isinstance(value, ast.Call) or endpoint in calls.definitions):
+                return {endpoint}
         if known:
             return set(origin if isinstance(origin, tuple) else (origin,))
         # Unknown non-call value carriers retain roots instead of becoming ordinary data.
