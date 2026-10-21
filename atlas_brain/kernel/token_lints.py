@@ -158,9 +158,13 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
                    for statement in node.body + node.orelse for part in ast.walk(statement)
                    if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
     if isinstance(node, ast.Match):
-        return any(not _literal_pattern(case.pattern, facts) and
-                   not _terminal_assertion(case.pattern, case.body, assertions)
-                   for case in node.cases)
+        if any(not _literal_pattern(case.pattern, facts) and
+               not (allow_refusal and _terminal_assertion(case.pattern, case.body, assertions))
+               for case in node.cases):
+            return True
+        finite = all(_literal_pattern(case.pattern) for case in node.cases)
+        terminal = _returned_default(list(following)) or bool(following and isinstance(following[-1], ast.Raise))
+        return finite and terminal and not (allow_refusal and _refusal_tail(following, _qualified(node.subject, {}), unknowns))
     return False
 
 
