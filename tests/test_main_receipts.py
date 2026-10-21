@@ -29,7 +29,8 @@ def test_full_source_derived_class_passes():
 
 
 @pytest.mark.parametrize("plant", ["absent", "one_missing", "stale", "schedule", "failure", "pending",
-                                  "skipped", "cancelled", "no_jobs", "newer_red", "new_gate", "disabled", "truncated"])
+                                  "skipped", "cancelled", "no_jobs", "newer_red", "new_gate", "disabled",
+                                  "duplicate_catalog", "bad_identity", "truncated"])
 def test_main_receipt_refusals(plant):
     data = receipts()
     if plant == "absent":
@@ -54,6 +55,10 @@ def test_main_receipt_refusals(plant):
         data["tree"]["tree"].append({"path": ".github/workflows/new.yml", "type": "blob"})
     elif plant == "disabled":
         data["catalog"][0]["state"] = "disabled_manually"
+    elif plant == "duplicate_catalog":
+        data["catalog"].append(deepcopy(data["catalog"][0]))
+    elif plant == "bad_identity":
+        data["catalog"][0]["id"] = True
     else:
         data["tree"]["truncated"] = True
     with pytest.raises(ValueError):
@@ -68,6 +73,19 @@ def test_real_cli_positive_and_missing_snapshot(tmp_path):
                                  "--snapshot", str(path)], capture_output=True, text=True, check=False)
         assert result.returncode == expected
         assert json.loads(result.stdout)["verified"] is (expected == 0)
+
+
+@pytest.mark.parametrize("sha,expected", [("a293f540eb75d11c8849736302bfeea183cdfb61", 0),
+                                         ("228a16b7197e75253cf2426d700cf23eb8c3b13f", 1)])
+def test_live_published_positive_and_missing_push_history(sha, expected):
+    result = subprocess.run([sys.executable, "-m", "tools.main_receipts", "--sha", sha],
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == expected, result.stdout + result.stderr
+    record = json.loads(result.stdout)
+    assert record["sha"] == sha and record["event"] == "push"
+    assert record["verified"] is (expected == 0)
+    if expected:
+        assert "missing exact-SHA push receipt" in record["reason"]
 
 
 def test_every_workflow_preserves_source_and_context_binding():
