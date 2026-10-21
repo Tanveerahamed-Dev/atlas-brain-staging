@@ -33,6 +33,8 @@ STDLIB_API = {
 # ADR-0003 amends ADR-0002: exact AST endpoints at their actual using paths.
 SCOPED_API = {
     "atlas_brain/kernel/token_lints.py": {
+        "ast.AnnAssign", "ast.Assign", "ast.Compare", "ast.Constant", "ast.Expr", "ast.MatchAs",
+        "ast.MatchMapping", "ast.MatchStar", "ast.Return", "ast.stmt", "ast.Subscript",
         "ast.AST", "ast.Attribute", "ast.Call", "ast.If", "ast.IfExp", "ast.Match", "ast.MatchClass",
         "ast.MatchOr", "ast.MatchSingleton", "ast.MatchValue", "ast.Name", "ast.pattern", "ast.walk",
     },
@@ -45,7 +47,7 @@ SCOPED_API = {
     },
     "atlas_brain/evidence/parsekit/token_lint.py": {
         "ast.AnnAssign", "ast.arg", "ast.Assign", "ast.AST", "ast.AsyncFunctionDef", "ast.Attribute",
-        "ast.Call", "ast.Compare", "ast.Constant", "ast.Dict", "ast.dump", "ast.ExceptHandler", "ast.expr",
+        "ast.Call", "ast.ClassDef", "ast.Compare", "ast.Constant", "ast.Dict", "ast.dump", "ast.ExceptHandler", "ast.expr",
         "ast.FunctionDef", "ast.If", "ast.IfExp", "ast.In", "ast.iter_child_nodes", "ast.Lambda", "ast.List",
         "ast.Match", "ast.MatchAs", "ast.Name", "ast.NotIn", "ast.parse", "ast.Raise", "ast.Return",
         "ast.Slice", "ast.Starred", "ast.stmt", "ast.Subscript", "ast.Tuple", "ast.walk",
@@ -57,7 +59,15 @@ SCOPED_API = {
 }
 
 
+def repository_path(path):
+    parsed = PurePosixPath(path)
+    return (not parsed.is_absolute() and ".." not in parsed.parts and "\\" not in path
+            and not re.match(r"^[A-Za-z]:", path) and path == parsed.as_posix())
+
+
 def allowed(path: str) -> bool:
+    if not repository_path(path):
+        return False
     parts = PurePosixPath(path).parts
     if any(p.lower() in DENIED or PROCESS.search(p.lower()) for p in parts):
         return False
@@ -171,7 +181,7 @@ class ImportIndex:
         return name if any(tail == key or tail.startswith(key + ".") for key in declarations) else None
 
 
-def source_allowed(source: str, sources=None, path="atlas_brain/probe.py") -> bool:
+def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> set[str]:
     tree = ast.parse(source)
     apis = STDLIB_API | SCOPED_API.get(path, set())
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
@@ -179,14 +189,13 @@ def source_allowed(source: str, sources=None, path="atlas_brain/probe.py") -> bo
         aliases = import_bindings(tree, path)[0]
         index = ImportIndex(sources or {}, () if path in SCOPED_API else scoped_modules)
     except ValueError:
-        return False
+        return {"unresolved-provenance"}
     def admitted(name):
         if name is None or (path not in SCOPED_API and any(name == m or name.startswith(m + ".") for m in scoped_modules)):
             return False
         return (index.namespace(name) or name.startswith("atlas_brain.") or name in apis
                                      or any(api.startswith(name + ".") for api in apis))
-    if not all(admitted(index.origin(name)) for name in aliases.values()):
-        return False
+    refused = {name for name in aliases.values() if not admitted(index.origin(name))}
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     def qualified(node):
         if isinstance(node, ast.Name):
@@ -196,43 +205,69 @@ def source_allowed(source: str, sources=None, path="atlas_brain/probe.py") -> bo
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and (node.attr in CODE_ATTRIBUTES
                 or node.attr.startswith("_") and node.attr not in {"__init__", "__init_subclass__"}):
-            return False
+            refused.add(node.attr)
         if isinstance(node, ast.Name) and node.id in DYNAMIC:
-            return False
+            refused.add(node.id)
         if isinstance(node, (ast.Name, ast.Attribute)):
             raw = qualified(node)
             if not raw:
                 continue
             name = index.origin(raw)
             if not admitted(name):
-                return False
+                refused.add(raw)
+                continue
             if index.namespace(name) or any(api.startswith(name + ".") for api in apis):
                 parent = parents.get(node)
                 if not isinstance(parent, ast.Attribute) or parent.value is not node:
-                    return False
-    return True
+                    refused.add(raw)
+    return refused
+
+
+def source_allowed(source: str, sources=None, path="atlas_brain/probe.py") -> bool:
+    return not source_refusals(source, sources, path)
 
 
 def main() -> int:
     paths = sys.argv[1:] or subprocess.check_output(
         ["git", "ls-files", "-z"],
     ).decode("utf-8").rstrip("\0").split("\0")
-    try:
-        failures = sum(not allowed(path) for path in paths)
-        sources = {}
-        for path in paths:
-            if path.startswith("atlas_brain/") and path.endswith(".py"):
+    failures = set()
+    def refuse(path, kind, name):
+        failures.add((path, kind))
+        print(json.dumps({"path": path if repository_path(path) else "<non-repository-path>",
+                          "class": kind, "name": name}, sort_keys=True))
+    sources = {}
+    for path in paths:
+        if not allowed(path):
+            refuse(path, "path", "unapproved-path")
+            continue
+        if path.startswith("atlas_brain/") and path.endswith(".py"):
+            try:
                 if Path(path).is_symlink():
-                    raise ValueError("engine source link refused")
-                sources[path] = Path(path).read_text(encoding="utf-8")
-        failures += sum(not source_allowed(source, sources, path) for path, source in sources.items())
-        for path in paths:
-            if path.startswith("governance/") and allowed(path):
-                failures += not gate_data_allowed(path, json.loads(Path(path).read_text(encoding="utf-8")))
-        failures += not dependencies_allowed(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8")))
-    except (OSError, ValueError, SyntaxError, TypeError):
-        failures = 1
-    print(f"scope fence: {failures} refused paths, imports, dependencies or machine-data files")
+                    refuse(path, "import", "source-link")
+                    continue
+                source = Path(path).read_text(encoding="utf-8")
+                ast.parse(source)
+                sources[path] = source
+            except SyntaxError:
+                refuse(path, "import", "invalid-syntax")
+            except (OSError, ValueError):
+                refuse(path, "import", "unreadable-source")
+        if path.startswith("governance/"):
+            try:
+                if not gate_data_allowed(path, json.loads(Path(path).read_text(encoding="utf-8"))):
+                    refuse(path, "machine-data", "invalid-shape")
+            except (OSError, ValueError, TypeError):
+                refuse(path, "machine-data", "invalid-data")
+    for path, source in sources.items():
+        for name in sorted(source_refusals(source, sources, path)):
+            refuse(path, "import", name)
+    try:
+        if not dependencies_allowed(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))):
+            refuse("pyproject.toml", "dependency", "project.dependencies/optional-dependencies")
+    except (OSError, ValueError, TypeError, AttributeError):
+        refuse("pyproject.toml", "dependency", "invalid-data")
+    print(f"scope fence: {len(failures)} refused paths, imports, dependencies or machine-data files")
     return int(bool(failures))
 
 

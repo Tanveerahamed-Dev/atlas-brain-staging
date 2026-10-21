@@ -38,8 +38,19 @@ def test_pk_ast_and_global_reexports_cannot_escape(source):
 
 
 def test_pk_amendment_lists_exact_inventory_with_bounds():
-    assert len(SCOPED_API[TOKEN]) == 33 and len(SCOPED_API[AUDIT]) == 10
+    assert len(SCOPED_API[TOKEN]) == 34 and len(SCOPED_API[AUDIT]) == 10
     assert not any(api.startswith("ast.") for api in STDLIB_API)
     text = Path("docs/adr/0004-adr0002-pk-ast-amendment.md").read_text(encoding="utf-8")
     assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == SCOPED_API[TOKEN] | SCOPED_API[AUDIT]
+    assert len(text.splitlines()) <= 60 and len(text) <= 4000
+
+
+def test_class_scope_amendment_is_exact_and_bounded():
+    assert source_allowed("import ast; ast.ClassDef", path=TOKEN)
+    assert not source_allowed("import ast; ast.literal_eval('0')", path=TOKEN)
+    assert not source_allowed("import ast; ast.ClassDef", path="atlas_brain/evidence/parsekit/runtime.py")
+    sources = {TOKEN: "import ast\nnode = ast.ClassDef"}
+    assert not source_allowed("from .evidence.parsekit.token_lint import node; node", sources)
+    text = Path("docs/adr/0005-adr0002-pk-class-scope.md").read_text(encoding="utf-8")
+    assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == {"ast.ClassDef"}
     assert len(text.splitlines()) <= 60 and len(text) <= 4000
