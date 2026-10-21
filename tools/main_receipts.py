@@ -10,6 +10,13 @@ from pathlib import Path
 REPO = "Tanveerahamed-Dev/atlas-brain-staging"
 
 
+def workflow_paths(tree):
+    if tree.get("truncated") is not False:
+        raise ValueError("truncated source registry")
+    return {r["path"] for r in tree["tree"] if r["type"] == "blob"
+            and re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", r["path"])}
+
+
 def expected_jobs(data, path, event):
     """Closed workflow header grammar; unknown matrices/names/conditions refuse."""
     blob = data["sources"][path]
@@ -34,6 +41,8 @@ def expected_jobs(data, path, event):
         if not match or any(line and not line.startswith("      ") for line in steps.splitlines()):
             raise ValueError("unsupported job header or steps layout")
         label, matrix, runner = match.groups()
+        if event == "workflow_dispatch" and label is None:
+            raise ValueError("manual job lacks an event-bound context name")
         if label is not None:
             label_match = re.fullmatch(r"\$\{\{ github.event_name == 'workflow_dispatch' && 'manual-([A-Za-z0-9_-]+)'"
                                       r" \|\| '([A-Za-z0-9_-]+)' \}\}( \(\$\{\{ matrix.os \}\}\))?", label)
@@ -68,10 +77,9 @@ def expected_jobs(data, path, event):
 
 
 def select_runs(data, sha, event):
-    if not re.fullmatch(r"[0-9a-f]{40}", sha) or data["tree"].get("truncated") is not False:
-        raise ValueError("unbound SHA or truncated source registry")
-    paths = {r["path"] for r in data["tree"]["tree"] if r["type"] == "blob"
-             and re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", r["path"])}
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("unbound SHA")
+    paths = workflow_paths(data["tree"])
     catalog = {r["path"]: r for r in data["catalog"]}
     if not paths or any(p not in catalog or catalog[p]["state"] != "active" for p in paths):
         raise ValueError("empty, missing or disabled workflow registry")
