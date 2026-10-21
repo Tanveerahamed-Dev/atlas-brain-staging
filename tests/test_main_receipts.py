@@ -170,6 +170,20 @@ def test_every_registered_workflow_has_one_explicit_manual_recovery_trigger():
         assert all(name.startswith("manual-") for name in manual)
 
 
+def test_yaml_workflow_cannot_escape_manual_context_class(tmp_path: Path, monkeypatch):
+    source = Path(".github/workflows/governance.yml").read_text(encoding="utf-8")
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "valid.yml").write_text(source, encoding="utf-8")
+    yaml_path = workflows / "planted.yaml"
+    yaml_path.write_text(source, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    test_every_registered_workflow_has_one_explicit_manual_recovery_trigger()
+    yaml_path.write_text(source.replace("'manual-governance-foundation'", "'governance-foundation'"), encoding="utf-8")
+    with pytest.raises((ValueError, AssertionError)):
+        test_every_registered_workflow_has_one_explicit_manual_recovery_trigger()
+
+
 @pytest.mark.parametrize("event,prefix", [("push", ""), ("schedule", ""), ("workflow_dispatch", "manual-")])
 def test_event_bound_job_names_have_positive_receipts(event, prefix):
     data = receipts()
