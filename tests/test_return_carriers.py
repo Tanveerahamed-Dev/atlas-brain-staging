@@ -22,6 +22,8 @@ CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
             ("return {'cap': CAP}.get('cap')", "factory()"),
             ("box = {'cap': CAP}\n return box.get('cap')", "factory()"),
             ("return cast(object, CAP)", "factory()"),
+            ("carrier = iter\n if flag:\n  carrier = lambda values: values\n return carrier((CAP,))", "next(factory(False))"),
+            ("carrier = iter if flag else iter\n if flag:\n  carrier = len\n return carrier((CAP,))", "next(factory(False))"),
             ("return [CAP for _ in (0,)][0]", "factory()")]
 
 
@@ -30,7 +32,7 @@ CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
 def test_actual_cli_data_positive_then_carried_capability_refusal(tmp_path: Path, capability, body, receiver):
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
-    using.write_text("from zipfile import ZipFile\nfrom typing import cast\ndef factory():\n " + body.replace("CAP", capability)
+    using.write_text("from zipfile import ZipFile\nfrom typing import cast\ndef factory(flag=False):\n " + body.replace("CAP", capability)
                      + "\ndef public_data(): return {'count': 1}\n", encoding="utf-8")
     (tmp_path / "atlas_brain/bridge.py").write_text(
         "from .evidence.archives import factory, public_data\n", encoding="utf-8")
