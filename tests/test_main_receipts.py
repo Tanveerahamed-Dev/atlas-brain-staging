@@ -154,4 +154,3 @@ def test_live_published_positive_and_missing_push_history(sha, expected):
     assert record["verified"] is (expected == 0)
     if expected:
         assert "missing exact-SHA push receipt" in record["reason"]
-
