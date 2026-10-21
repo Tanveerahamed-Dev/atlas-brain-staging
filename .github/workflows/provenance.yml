@@ -1,11 +1,6 @@
 name: Fixture provenance
 on:
   workflow_dispatch:
-    inputs:
-      source_sha:
-        description: 'Optional exact source SHA for labelled recovery; blank tests the workflow head'
-        type: string
-        required: false
   pull_request:
   merge_group:
   push:
@@ -14,7 +9,6 @@ permissions:
   contents: read
 jobs:
   provenance:
-    name: ${{ inputs.source_sha && 'recovery-' || '' }}provenance (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -24,15 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
-      - name: Bind checked source
-        shell: bash
-        env:
-          EXPECTED_SOURCE: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
-        run: |
-          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
-          printf 'verified_source_sha=%s\n' "$EXPECTED_SOURCE"
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: '0.13.1'
