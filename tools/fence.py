@@ -332,6 +332,8 @@ def constructor_members(apis):
     result = {}
     for api in sorted(apis):
         parts = api.split(".")
+        if parts[0] not in sys.stdlib_module_names:
+            raise ValueError("constructor inventory requires a stdlib namespace")
         for length in range(len(parts) - 1, 0, -1):
             module = ".".join(parts[:length])
             try:
