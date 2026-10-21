@@ -157,6 +157,8 @@ def test_uncaught_refusal_in_else_and_separate_function_remains_valid(source):
     'import typing\ndef mapped(raw):\n try:\n  match raw:\n   case "up": return "up"\n   case _ as missing: typing.assert_never(missing)\n except AssertionError: return "up"',
     'def mapped(raw):\n match raw:\n  case "up": return "up"\n  case "down": return "down"\n return "up"',
     'def mapped(raw):\n try:\n  match raw:\n   case "up": return "up"\n  raise ValueError("unmapped")\n except ValueError: return "up"',
+    'import atlas_brain.kernel.states\ndef mapped(fact):\n match fact:\n  case atlas_brain.kernel.states.Known(): return "up"\n return "up"',
+    'import typing\ndef mapped(raw):\n match raw:\n  case _ as missing if False: typing.assert_never(missing)\n return "up"',
 ])
 def test_match_refusals_must_escape_and_literal_arms_cannot_hide_fallthrough(source):
     assert fallback_nodes(ast.parse(source), {}, set())
@@ -165,4 +167,9 @@ def test_match_refusals_must_escape_and_literal_arms_cannot_hide_fallthrough(sou
 @pytest.mark.parametrize('ending', ['raise UnknownToken(raw)', 'return atlas_brain.kernel.states.Unknown()'])
 def test_literal_match_with_explicit_uncaught_unknown_remains_valid(ending):
     source = 'import atlas_brain.kernel.states\ndef mapped(raw):\n match raw:\n  case "up": return "up"\n ' + ending
+    assert not fallback_nodes(ast.parse(source), {}, set())
+
+
+def test_unhandled_exhaustive_assertion_allows_a_known_fact_branch_to_continue():
+    source = 'import typing\nimport atlas_brain.kernel.states\ndef mapped(fact):\n match fact:\n  case atlas_brain.kernel.states.Known(): pass\n  case _ as missing: typing.assert_never(missing)\n return "up"'
     assert not fallback_nodes(ast.parse(source), {}, set())
