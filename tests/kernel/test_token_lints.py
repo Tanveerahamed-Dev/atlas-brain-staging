@@ -148,6 +148,9 @@ def test_enclosing_control_flow_cannot_turn_refusal_into_health(source):
 @pytest.mark.parametrize('source', [
     'def mapped(raw):\n try: pass\n except ValueError: pass\n else:\n  if raw == "up": return "up"\n  raise UnknownToken(raw)',
     'def mapped(raw):\n with manager:\n  def local(raw):\n   if raw == "up": return "up"\n   raise UnknownToken(raw)\n return local(raw)',
+    'def mapped(raw):\n try: raise ValueError("entered")\n except ValueError:\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(raw):\n value = states[raw]\n return value',
+    'def mapped(raw):\n if raw == "up":\n  value = states[raw]\n  return value\n raise ValueError("unmapped")',
 ])
 def test_uncaught_refusal_in_else_and_separate_function_remains_valid(source):
     assert not fallback_nodes(ast.parse(source), {}, set())
@@ -234,6 +237,14 @@ def test_matching_literal_membership_with_explicit_unknown_remains_valid():
     'def mapped(key):\n if ready:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n return "up"',
     'def mapped(key):\n for item in rows: break\n else:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n return "up"',
     'def mapped(key):\n while ready: break\n else:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(raw):\n try: pass\n except ValueError:\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(raw):\n try: raise KeyError("entered")\n except ValueError:\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n except KeyError: return "up"',
+    'def mapped(raw):\n try: raise ValueError("entered")\n except ValueError: pass\n else:\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(raw):\n value = "up"\n for _ in ():\n  value = states[raw]\n return value',
+    'def mapped(raw):\n value: str = "up"\n for _ in ():\n  value: str = states[raw]\n return value',
+    'def mapped(raw):\n value = 0\n for _ in ():\n  value += states[raw]\n return value',
+    'def mapped(raw):\n value = "up"\n for _ in ():\n  (value := states[raw])\n return value',
+    'def mapped(raw):\n return "up"\n if raw in states: return states[raw]\n raise ValueError("unmapped")',
 ])
 def test_optional_execution_cannot_certify_a_function_refusal(source):
     assert fallback_nodes(ast.parse(source), {}, set())
