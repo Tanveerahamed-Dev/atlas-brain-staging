@@ -60,10 +60,11 @@ def test_scoped_class_result_refuses_without_banning_public_factory(monkeypatch)
     assert not source_allowed(prefix + "value = factory()\nvalue(source)", sources)
 
 
-@pytest.mark.parametrize("value", ["isinstance(x, Path)", "bool(x) and isinstance(x, Path)",
-                                  "'path' if isinstance(x, Path) else 'other'"])
-def test_predicates_and_ordinary_records_are_not_foreign_instances(value):
+@pytest.mark.parametrize("value, member", [("isinstance(x, Path)", "bit_length()"),
+    ("bool(x) and isinstance(x, Path)", "bit_length()"),
+    ("'path' if isinstance(x, Path) else 'other'", "upper()")])
+def test_predicates_and_ordinary_records_are_not_foreign_instances(value, member):
     sources = {USING: "from pathlib import Path\ndef plain(x): return " + value}
-    assert source_allowed("from .evidence.admission import plain\nplain(x).real", sources)
+    assert source_allowed("from .evidence.admission import plain\nplain(x)." + member, sources)
     sources[USING] = "class Record:\n field = 1\ndef plain(x): return Record()"
     assert source_allowed("from .evidence.admission import plain\nplain(x).field", sources)
