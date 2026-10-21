@@ -1,0 +1,66 @@
+"""Conservative callable-origin joins and narrow primitive-result proofs; no permissions."""
+import ast
+import builtins
+
+BUILTINS = frozenset(vars(builtins))
+SCALARS = frozenset("bool int float complex str bytes bytearray isinstance issubclass callable len all any hash id repr ascii format bin oct hex ord chr".split())
+SCALAR_APIS = frozenset({"json.dumps", "math.isfinite", "stat.S_ISDIR", "stat.S_ISREG"})
+CARRIERS = frozenset("iter next aiter anext list tuple set frozenset dict reversed enumerate zip sorted".split())
+
+
+class CallableBindings:
+    def __init__(self, module, aliases, exports, declarations):
+        self.module, self.aliases, self.exports, self.declarations = module, aliases, exports, declarations
+        self.possible, self.values, self.definitions = {}, {}, {}
+
+    @staticmethod
+    def scope_keys(name, scope):
+        parts = scope.rstrip(".").split(".") if scope else []
+        return [".".join((*parts[:length], name)) for length in range(len(parts), -1, -1)]
+
+    def origins(self, value, scope):
+        if isinstance(value, ast.Name):
+            for key in self.scope_keys(value.id, scope):
+                if key in self.possible:
+                    return frozenset(self.possible[key])
+                if key in self.exports:
+                    target = self.exports[key]
+                    return frozenset({target if isinstance(target, str) else None})
+                if key in self.declarations:
+                    return frozenset({None})
+            if value.id in self.aliases:
+                return frozenset({self.aliases[value.id]})
+            return frozenset({"builtins." + value.id if value.id in BUILTINS else None})
+        if isinstance(value, ast.Attribute):
+            return frozenset(root + "." + value.attr if root is not None else None
+                             for root in self.origins(value.value, scope))
+        if isinstance(value, ast.IfExp):
+            return self.origins(value.body, scope) | self.origins(value.orelse, scope)
+        if isinstance(value, ast.BoolOp):
+            return frozenset().union(*(self.origins(part, scope) for part in value.values))
+        return frozenset({None})
+
+    def assign(self, name, value, scope):
+        key = scope + name
+        possible = self.origins(value, scope)
+        self.possible.setdefault(key, set()).update(possible)
+        self.values.setdefault(key, []).append((value, scope))
+
+    def argument(self, name, scope):
+        self.possible.setdefault(scope + name, set()).add(None)
+        self.values.setdefault(scope + name, []).append((None, scope))
+
+    def declare(self, node, scope):
+        key, origin = scope + node.name, self.module + "." + scope + node.name
+        self.possible.setdefault(key, set()).add(origin)
+        self.definitions.setdefault(origin, []).append((node, scope + node.name + "."))
+
+    def has_carrier(self, value, scope):
+        return any(root in {"builtins." + name for name in CARRIERS} for root in self.origins(value, scope))
+
+    def primitive_call(self, value, scope):
+        if not isinstance(value, ast.Call):
+            return False
+        origins = self.origins(value.func, scope)
+        scalar = SCALAR_APIS | {"builtins." + name for name in SCALARS}
+        return bool(origins) and all(root in scalar for root in origins)
