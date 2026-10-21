@@ -184,7 +184,8 @@ def test_actual_cli_method_lookup_uses_module_carrier_not_class_scalar(tmp_path,
 
 
 @pytest.mark.parametrize("declarations", ["class Record: pass\ntype Public = Record | int",
-                                        "class Record[T]: pass\ntype Public[T] = Record[T] | None"])
+                                        "class Record[T]: pass\ntype Public[T] = Record[T] | None",
+                                        "class Record: pass\nPublic = Record | int"])
 def test_actual_cli_type_data_and_callable_alias_keep_separate_origins(tmp_path, declarations):
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
@@ -206,12 +207,13 @@ def test_actual_cli_type_data_and_callable_alias_keep_separate_origins(tmp_path,
 
 
 @pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
-def test_actual_cli_class_alias_keeps_its_declared_method_namespace(tmp_path, capability):
+@pytest.mark.parametrize("alias", ["Alias = Reader", "box = {'reader': Reader} | {}\nAlias = box['reader']"])
+def test_actual_cli_class_alias_keeps_its_declared_method_namespace(tmp_path, capability, alias):
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
     using.write_text("from zipfile import ZipFile\nclass Record: pass\ntype Public = Record | int\n"
                      + "class Reader:\n @staticmethod\n def factory(): return " + capability
-                     + "\nAlias = Reader\ndef public_data(): return 1\n", encoding="utf-8")
+                     + "\n" + alias + "\ndef public_data(): return 1\n", encoding="utf-8")
     (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import Alias, Public, public_data\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
