@@ -70,7 +70,7 @@ def test_schema_is_202012_generated_and_integer_bounded():
     verify_revision(schema, changed)
 
 
-@pytest.mark.parametrize("annotation", [float, set[str], object, tuple[int, str]])
+@pytest.mark.parametrize("annotation", [float, set[str], object, tuple[int, ..., str]])
 def test_schema_fails_closed_on_unsupported_types(annotation):
     with pytest.raises(TypeError):
         schema_for(annotation, "0.1.0")
@@ -90,3 +90,21 @@ def test_canonical_recursive_roundtrip_property():
         encoded = canonical(value)
         assert canonical(json.loads(encoded)) == encoded
     roundtrip()
+
+@pytest.mark.parametrize("value,expected", [
+    (None, b"null"), (True, b"true"), (False, b"false"), (0, b"0"), (-1, b"-1"),
+    ("text", b'"text"'), ([], b"[]"), ((), b"[]"), ({}, b"{}"),
+    ((True, 1, None), b"[true,1,null]"),
+    ({"z": {"b": False, "a": []}, "a": (0, "x")},
+        b'{"a":[0,"x"],"z":{"a":[],"b":false}}'),
+])
+def test_writer_structural_dispatch_preserves_canonical_bytes(value, expected):
+    assert canonical(value) == expected
+
+
+@pytest.mark.parametrize("value", [type("IntegerSubclass", (int,), {})(1),
+    type("StringSubclass", (str,), {})("text"), type("ListSubclass", (list,), {})([1]),
+    type("DictionarySubclass", (dict,), {})({"a": 1})])
+def test_writer_rejects_python_subclasses_before_dispatch(value):
+    with pytest.raises(TypeError, match="non_json_type"):
+        canonical(value)
