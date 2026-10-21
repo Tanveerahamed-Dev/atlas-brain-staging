@@ -27,6 +27,20 @@ def _lookup_branch(body: list[ast.stmt]) -> bool:
                if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
 
 
+def _statement_lookup(node: ast.AST) -> bool:
+    if not isinstance(node, ast.stmt):
+        return False
+    for _, value in ast.iter_fields(node):
+        children: tuple[ast.AST, ...] = ()
+        if isinstance(value, ast.AST):
+            children = (value,)
+        elif isinstance(value, list):
+            children = tuple(child for child in cast(list[object], value) if isinstance(child, ast.AST))
+        if any(not isinstance(child, ast.stmt) and _lookup_value(child) for child in children):
+            return True
+    return False
+
+
 def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...]], frozenset[ast.AST]]:
     """Bind local successors without certifying optional or intercepted execution.
 
@@ -224,14 +238,13 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
     assertions, facts = binding_proof(tree, aliases, rebound)
     unknowns, _ = binding_proof(tree, aliases, rebound, call_target='atlas_brain.kernel.states.Unknown')
     following, intercepted = statement_context(tree)
-    proven_returns = frozenset(part for branch in following
+    proven_statements = frozenset(part for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
         and (_finite_subject(branch.test) or _guarded_lookup(branch.test, tuple(branch.body)))
         and _refusal_tail(following[branch], _finite_subject(branch.test), unknowns)
-        for part in branch.body if isinstance(part, ast.Return))
+        for part in branch.body)
     return frozenset(node for node in ast.walk(tree) if fallback_node(node,
         _qualified(node.func, aliases) if isinstance(node, ast.Call) else '', assertions=assertions, facts=facts,
         following=following[node] if isinstance(node, ast.stmt) and node in following else (), unknowns=unknowns,
         allow_refusal=node not in intercepted) or (
-            isinstance(node, ast.Return) and node in intercepted and node not in proven_returns
-            and node.value is not None and _lookup_value(node.value)))
+            node in intercepted and node not in proven_statements and _statement_lookup(node)))
