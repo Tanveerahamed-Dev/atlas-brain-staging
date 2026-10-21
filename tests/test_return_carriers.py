@@ -140,3 +140,26 @@ def test_returned_callable_union_keeps_known_roots_and_evaluation_level(choice):
     index = ImportIndex({USING: source})
     assert index.foreign_roots("atlas_brain.evidence.archives.factory", callable_value=True) == {"zipfile.ZipFile"}
     assert not index.foreign_roots("atlas_brain.evidence.archives.factory", callable_value=True, evaluate_return=False)
+
+
+@pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
+def test_actual_cli_method_lookup_uses_module_carrier_not_class_scalar(tmp_path, capability):
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text("from zipfile import ZipFile\ncarrier = iter\nclass Reader:\n carrier = len\n"
+                     + " @staticmethod\n def factory(): return carrier((" + capability + ",))\n"
+                     + "def public_data(): return 1\n", encoding="utf-8")
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import Reader, public_data\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    probe, tool = tmp_path / "atlas_brain/probe.py", str(Path("tools/fence.py").resolve())
+    args = "source" if capability == "ZipFile" else "archive, entry"
+    for module in (".evidence.archives", ".bridge"):
+        prefix = f"from {module} import Reader, public_data\n"
+        probe.write_text(prefix + "Reader.factory()\npublic_data().bit_length()\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+        probe.write_text(prefix + f"next(Reader.factory())({args})\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
