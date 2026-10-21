@@ -177,3 +177,28 @@ def test_zip64_member_profile_is_refused(tmp_path):
         member.write(b"data")
     with pytest.raises(a.AdmissionRefused, match="unsupported_zip_profile"):
         z.zip_members(path, limits())
+
+
+@pytest.mark.parametrize("compression,declared", [(zipfile.ZIP_STORED, 0),
+                                                  (zipfile.ZIP_STORED, 5),
+                                                  (zipfile.ZIP_DEFLATED, 5)])
+def test_declared_member_size_must_match_payload(tmp_path, compression, declared):
+    path = archive(tmp_path, [("a", b"data")], compression=compression)
+    raw = bytearray(path.read_bytes())
+    central = raw.index(b"PK\1\2")
+    raw[22:26] = raw[central + 24:central + 28] = declared.to_bytes(4, "little")
+    if declared == 0:
+        raw[14:18] = raw[central + 16:central + 20] = b"\0" * 4
+    path.write_bytes(raw)
+    with pytest.raises(a.AdmissionRefused, match="invalid_zip_size"):
+        z.zip_members(path, limits())
+
+
+def test_directory_with_nonempty_crc_refuses(tmp_path):
+    path = archive(tmp_path, [("dir/", b"")])
+    raw = bytearray(path.read_bytes())
+    central = raw.index(b"PK\1\2")
+    raw[14:18] = raw[central + 16:central + 20] = (1).to_bytes(4, "little")
+    path.write_bytes(raw)
+    with pytest.raises(a.AdmissionRefused, match="special_zip_member"):
+        z.zip_members(path, limits())
