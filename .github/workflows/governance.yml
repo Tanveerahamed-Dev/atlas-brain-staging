@@ -39,5 +39,3 @@ jobs:
             BASE=$(git rev-parse HEAD^1)
           fi
           uv run --no-sync python -m tools.governance --base "$BASE" --head HEAD
-      - name: Deliberate red enforcement probe - never merge
-        run: exit 1
