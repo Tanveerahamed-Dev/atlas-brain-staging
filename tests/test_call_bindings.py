@@ -40,3 +40,11 @@ def test_rebound_attribute_cannot_keep_a_primitive_api_proof():
     assert bindings.primitive_call(expression("json.dumps(value)"), "")
     bindings.assign("json.dumps", expression("unknown"), "")
     assert not bindings.primitive_call(expression("json.dumps(value)"), "")
+
+
+def test_declarations_exist_before_a_forward_call_is_analyzed():
+    bindings = CallableBindings("atlas_brain.example", {}, {}, set())
+    tree = ast.parse("def factory(): return helper()\ndef helper(): return 1")
+    bindings.predeclare(tree)
+    assert bindings.origins(expression("helper"), "factory.") == {"atlas_brain.example.helper"}
+    assert len(bindings.definitions["atlas_brain.example.helper"]) == 1
