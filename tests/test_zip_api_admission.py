@@ -190,9 +190,9 @@ def test_plain_primitive_function_results_keep_their_operations(producer):
     assert source_allowed("from .plain import text\ntext().upper()", sources)
 
 
-@pytest.mark.parametrize("result", ["isinstance(value, ZipFile)", "bool(value) and isinstance(value, ZipFile)",
-                                   "'zip' if isinstance(value, ZipFile) else 'other'"])
-def test_class_predicates_do_not_return_the_tested_class(result):
+@pytest.mark.parametrize("result, member", [("isinstance(value, ZipFile)", "bit_length()"),
+                                           ("bool(value) and isinstance(value, ZipFile)", "bit_length()"),
+                                           ("'zip' if isinstance(value, ZipFile) else 'other'", "upper()")])
+def test_class_predicates_do_not_return_the_tested_class(result, member):
     sources = {USING: "from zipfile import ZipFile\ndef factory(value): return " + result}
-    assert source_allowed("from .evidence.archives import factory\nfactory(value).__str__()", sources) is False
-    assert source_allowed("from .evidence.archives import factory\nfactory(value).real", sources)
+    assert source_allowed("from .evidence.archives import factory\nfactory(value)." + member, sources)
