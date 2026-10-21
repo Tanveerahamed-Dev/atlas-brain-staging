@@ -92,3 +92,11 @@ def test_bundle_refuses_noncontract_paths_and_invalid_pack_ids(kind, name):
     with pytest.raises((TypeError, ValueError)):
         result_bundle({}, facts={name: {}} if kind == "facts" else {},
             checks={name: {}} if kind == "checks" else {})
+
+def test_custom_pair_iteration_is_refused_before_it_can_run():
+    class HostilePair(tuple):
+        def __iter__(self):
+            raise AssertionError("custom_iteration_ran")
+
+    with pytest.raises(TypeError, match="non_json_type"):
+        json_lines({HostilePair(("subject", "id")): {}})
