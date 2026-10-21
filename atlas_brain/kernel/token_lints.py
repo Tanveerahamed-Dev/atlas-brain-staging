@@ -145,12 +145,12 @@ def _finite_subject(test: ast.AST) -> str:
 def _refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
     if not following:
         return False
+    last = following[-1]
     # Only further literal equalities on this same input may precede the refusal.
     # An early unconditional return, mutation or unrelated condition is unproven.
     if len(following) > 1 and (not subject or any(
             not isinstance(s, ast.If) or s.orelse or _finite_subject(s.test) != subject for s in following[:-1])):
         return False
-    last = following[-1]
     return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
 
 
