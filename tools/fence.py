@@ -209,6 +209,14 @@ def import_bindings(tree, path):
             exports[key] = (None, *(previous if isinstance(previous, tuple) else (previous,)))
         else:
             declarations.add(key)
+    def returned(value, scope):
+        if isinstance(value, ast.IfExp):
+            return returned(value.body, scope) | returned(value.orelse, scope)
+        if isinstance(value, ast.BoolOp):
+            return set().union(*(returned(part, scope) for part in value.values))
+        # A call returns its callee's result, not its arguments or tested classes.
+        known, origin = reference(value.func if isinstance(value, ast.Call) else value, scope)
+        return set(origin if isinstance(origin, tuple) else (origin,)) if known else set()
     def walk(node, scope=""):
         pairs = []
         if isinstance(node, ast.Import):
@@ -237,7 +245,8 @@ def import_bindings(tree, path):
             assignment(node.name, node.value, scope)
         elif isinstance(node, ast.Return) and node.value is not None:
             # Internal non-identifier key keeps return roots separate from locals.
-            assignment(ast.Name(id="$return", ctx=ast.Store()), node.value, scope)
+            key = scope + "$return"
+            exports[key] = tuple(set(exports.get(key, ())) | returned(node.value, scope))
         elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             assignment(node.target, node.iter, scope)
         elif isinstance(node, ast.withitem) and node.optional_vars is not None:
