@@ -398,7 +398,7 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
         aliases, exports, declarations = import_bindings(tree, path)
-        index = ImportIndex({**(sources or {}), path: source}, () if path in SCOPED_API else scoped_modules)
+        index = ImportIndex({path: source, **(sources or {})}, () if path in SCOPED_API else scoped_modules)
     except ValueError:
         return {"unresolved-provenance"}
     def admitted(name):
@@ -442,7 +442,7 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
                     break
         return {(root, result) for root, result in roots if isinstance(root, str)}
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
+        if isinstance(node, ast.Call) and not isinstance(node.func, ast.Attribute):
             for root, applied in receiver_roots(node.func):
                 origins = index.foreign_roots(root, callable_value=True, evaluate_return=applied)
                 if any(not admitted(origin) for origin in origins):
