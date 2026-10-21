@@ -65,9 +65,23 @@ def test_foreign_capture_type_and_unimplemented_codec_are_refused():
         build_capture(record(codec="latin-1"))
 
 
-def test_complete_capture_with_error_metadata_is_refused():
-    with pytest.raises(ValueError, match="complete_capture_has_error"):
-        build_capture(record(error=ErrorKind.TIMEOUT))
+@pytest.mark.parametrize("integrity", [k.IntegrityState.COMPLETE, k.IntegrityState.EMPTY])
+@pytest.mark.parametrize("error", list(ErrorKind))
+def test_error_metadata_requires_error_integrity(integrity, error):
+    raw = b"" if integrity is k.IntegrityState.EMPTY else RAW
+    with pytest.raises(ValueError, match="capture_error_integrity_mismatch"):
+        build_capture(record(raw=raw, integrity=integrity, error=error))
+
+
+@pytest.mark.parametrize("raw", [RAW, b""])
+@pytest.mark.parametrize("error", list(ErrorKind))
+def test_explicit_capture_errors_never_become_empty_or_observed(raw, error):
+    result = build_capture(record(raw=raw, integrity=k.IntegrityState.ERROR, error=error))
+    for field in (result.uptime, result.image, result.reload_reason, result.boot_epoch):
+        assert isinstance(field, k.Unknown)
+        assert field.reason is k.UnknownReason.CAPTURE_ERROR
+        assert field.evidence
+    assert result.parse.quality == "partial"
 
 
 @pytest.mark.parametrize("integrity,reason,raw", [
