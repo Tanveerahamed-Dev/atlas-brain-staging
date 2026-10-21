@@ -1,6 +1,6 @@
 # ADR-0006: ADR-0002 amendment for K token scope
 
-Status: superseded by ADR-0007
+Status: superseded
 
 Supersedes ADR-0005; all previous global and per-file grants remain unchanged.
 Standing supervisor approval:
