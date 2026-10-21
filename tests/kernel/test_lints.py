@@ -30,6 +30,9 @@ from atlas_brain.kernel.lints import lint
     ('value = tokens.setdefault(token, "up")', 3),
     ('value = tokens.pop(token, "up")', 3),
     ('value = states[raw] if raw in states else "up"', 3),
+    ('states = {"up": "up"}\ndef map_state(raw: str) -> str:\n if raw in states: return states[raw]\n return "up"', 3),
+    ('def mapped(packet):\n value = "up"\n if packet.code in registry: value = registry[packet.code]\n return value', 3),
+    ('def mapped(entry):\n try:\n  if entry in table: return table[entry]\n  raise ValueError("unmapped")\n except ValueError: return "up"', 3),
     ('match raw:\n case _: value = "up"', 3),
     ('def mapped(raw):\n if raw == "up": return "up"\n else: return "up" + ""', 3),
     ('def map_state(raw):\n if raw == "up": return "up"\n else: pass\n return "up"', 3),
@@ -83,6 +86,7 @@ def test_every_lint_and_alternate_plant(path, rule, source):
     ('atlas_brain/packs/example/parser.py', source) for source in [
     '@dataclass(frozen=True)\nclass Record:\n value: int',
     'value = tokens[token]',
+    'def mapped(key):\n if key in mapping: return mapping[key]\n raise ValueError("unmapped")',
     'def mapped(raw):\n if raw == "up": return "up"\n raise UnknownToken(raw)',
     'from atlas_brain.kernel.states import Unknown as U\ndef mapped(raw):\n if raw == "up": return "up"\n return U(reason=reason, detail="unmapped", evidence=(), candidates=(), next_evidence=())',
     'values = (1, True, None, Ellipsis, "token", b"bytes")',
