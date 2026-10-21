@@ -33,3 +33,10 @@ def test_nested_scope_keeps_outer_origins_and_conditional_choices():
     bindings.assign("carrier", expression("iter if flag else len"), "outer.")
     assert bindings.origins(expression("carrier"), "outer.inner.") == {"builtins.iter", "builtins.len"}
     assert not bindings.primitive_call(expression("carrier(value)"), "outer.inner.")
+
+
+def test_rebound_attribute_cannot_keep_a_primitive_api_proof():
+    bindings = CallableBindings("atlas_brain.example", {"json": "json"}, {"json": "json"}, set())
+    assert bindings.primitive_call(expression("json.dumps(value)"), "")
+    bindings.assign("json.dumps", expression("unknown"), "")
+    assert not bindings.primitive_call(expression("json.dumps(value)"), "")
