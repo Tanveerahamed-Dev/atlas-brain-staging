@@ -19,7 +19,8 @@ PRODUCERS = [
     "from pathlib import Path\nvalue = (Path('synthetic'),)[0]",
 ]
 RECEIVERS = ["value", "(value if True else value)", "(value / 'child')",
-             "([value][0])", "(value or value)", "(alias := value)", "(lambda: value)()"]
+             "([value][0])", "(value or value)", "(alias := value)", "(lambda: value)()",
+             "borrowed", "(borrowed if True else borrowed)"]
 
 
 @pytest.mark.parametrize("producer", PRODUCERS)
@@ -62,7 +63,7 @@ def test_factory_arguments_keep_protected_roots_and_engine_data_keeps_public_fie
 def test_expression_receiver_cannot_hide_a_known_imported_capability(receiver):
     sources = {USING: PRODUCERS[0]}
     assert source_allowed("from .evidence.producer import value\nvalue", sources)
-    assert not source_allowed("from .evidence.producer import value\n" + receiver + ".write_text('x')", sources)
+    assert not source_allowed("from .evidence.producer import value\nborrowed = value\n" + receiver + ".write_text('x')", sources)
     ordinary = {USING: "class Record: pass\nvalue = Record()"}
     assert source_allowed("from .evidence.producer import value\n(value if True else value).field", ordinary)
 
@@ -84,14 +85,26 @@ def test_actual_two_file_cli_allows_data_but_refuses_direct_and_bridge_writes(tm
     (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     assert tracked_cli(tmp_path).returncode == 0
-    consumer.write_text("from .evidence.producer import value\n" + receiver + ".write_text('x')\n", encoding="utf-8")
+    consumer.write_text("from .evidence.producer import value\nborrowed = value\n" + receiver + ".write_text('x')\n", encoding="utf-8")
     direct = tracked_cli(tmp_path)
     assert direct.returncode == 1 and "atlas_brain/probe.py" in direct.stdout
     assert "pathlib.Path.write_text" not in STDLIB_API
     (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.producer import value\nexported = value\n", encoding="utf-8")
-    consumer.write_text("from .bridge import exported as value\n" + receiver + ".write_text('x')\n", encoding="utf-8")
+    consumer.write_text("from .bridge import exported as value\nborrowed = value\n" + receiver + ".write_text('x')\n", encoding="utf-8")
     bridge = tracked_cli(tmp_path)
     assert bridge.returncode == 1 and "atlas_brain/probe.py" in bridge.stdout
+
+
+def test_actual_cli_tracks_function_local_data_alias_receivers(tmp_path: Path):
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text(PRODUCERS[0], encoding="utf-8")
+    (tmp_path / "atlas_brain/probe.py").write_text(
+        "from .evidence.producer import value\ndef write():\n borrowed = value\n (borrowed if True else borrowed).write_text('x')\nwrite()\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    result = tracked_cli(tmp_path)
+    assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
 
 
 @pytest.mark.parametrize("kind", ["outside", "noncontract"])
