@@ -13,16 +13,17 @@ type Rows = Mapping[tuple[str, str], dict[str, object]]
 def _key(value: object) -> None:
     if not isinstance(value, tuple):
         raise TypeError("record_key_pair_required")
-    left, right = cast("tuple[object, ...]", value)
+    pair = cast("tuple[object, ...]", value)
+    canonical(pair)  # Refuse custom tuple/string hooks before unpacking or sorting.
+    left, right = pair
     if not isinstance(left, str) or not isinstance(right, str):
         raise TypeError("record_key_strings_required")
-    canonical(value)  # Refuse custom tuple/string ordering hooks before sorting.
 
 
 def _object_bytes(value: object) -> bytes:
     if not isinstance(value, dict):
         raise TypeError("record_object_required")
-    return canonical(value)
+    return canonical(cast(dict[object, object], value))
 
 
 def _name(value: object) -> str:
