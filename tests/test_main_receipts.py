@@ -131,7 +131,7 @@ def test_main_receipt_refusals(plant):
         verify(data, SHA, "push")
 
 
-def test_real_cli_positive_and_missing_snapshot(tmp_path):
+def test_real_cli_positive_and_missing_snapshot(tmp_path: Path):
     path = tmp_path / "receipts.json"
     omitted = receipts()
     omitted["jobs"]["10"].pop(1)
