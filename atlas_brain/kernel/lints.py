@@ -1,4 +1,5 @@
 """Nested repetition shape support for the regex lint; no engine execution."""
+import ast
 import re
 
 
@@ -33,3 +34,24 @@ def nested_unbounded(pattern: str) -> bool:
             stack[-1] = True
         last_group = False
     return False
+
+
+def resolved_name(node: ast.AST, aliases: dict[str, str]) -> str:
+    """Resolve an AST name using the scanner's supplied import environment."""
+    if isinstance(node, ast.Name):
+        if node.id not in aliases:
+            return node.id
+        return aliases[node.id]
+    if isinstance(node, ast.Attribute):
+        return resolved_name(node.value, aliases) + '.' + node.attr
+    if isinstance(node, ast.Subscript):
+        return resolved_name(node.value, aliases)
+    return ''
+
+
+def resolved_tail(node: ast.AST, aliases: dict[str, str]) -> str:
+    return resolved_name(node, aliases).split('.')[-1]
+
+
+def contains_name(node: ast.AST, names: tuple[str, ...], aliases: dict[str, str]) -> bool:
+    return any(resolved_tail(part, aliases) in names for part in ast.walk(node))
