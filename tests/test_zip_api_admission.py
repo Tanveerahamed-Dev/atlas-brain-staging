@@ -58,6 +58,48 @@ def test_zip_capability_reexports_refuse_without_blocking_public_declarations(ap
 
 
 @pytest.mark.parametrize("api", sorted(APIS))
+@pytest.mark.parametrize("shape", ["plain", "chain", "annotated", "tuple", "module", "conditional", "class"])
+def test_assigned_zip_capabilities_keep_their_origin(api, shape):
+    module, name = api.rsplit(".", 1)
+    prefix = f"from {module} import {name}\n"
+    assignments = {"plain": f"leaked = {name}", "chain": f"first = {name}\nleaked = first",
+                   "annotated": f"leaked: object = {name}", "tuple": f"leaked, other = {name}, 0",
+                   "module": f"import {module}\nleaked = {api}",
+                   "conditional": f"leaked = {name} if flag else {name}",
+                   "class": f"class Holder:\n    leaked = {name}"}
+    symbol = "Holder.leaked" if shape == "class" else "leaked"
+    sources = {USING: prefix + assignments[shape] + "\ndef zip_members(path): return path\nclass PublicRecord: pass",
+               "atlas_brain/bridge.py": "from .evidence import archives\nexported = archives." + symbol}
+    assert source_allowed("from .evidence.archives import zip_members, PublicRecord; zip_members(path); PublicRecord()", sources)
+    assert not source_allowed("from .evidence import archives; archives." + symbol, sources)
+    assert not source_allowed("from .bridge import exported; exported", sources)
+
+
+@pytest.mark.parametrize("api", sorted(APIS))
+def test_actual_tracked_cli_refuses_direct_and_bridge_assignment_aliases(tmp_path: Path, api):
+    module, name = api.rsplit(".", 1)
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text(f"from {module} import {name}\nleaked = {name}\ndef zip_members(value): return value\nclass PublicRecord: pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    consumer = tmp_path / "atlas_brain/probe.py"
+    consumer.write_text("from .evidence.archives import zip_members, PublicRecord\n", encoding="utf-8")
+    tool = str(Path("tools/fence.py").resolve())
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+    consumer.write_text("from .evidence.archives import leaked\nleaked(source)\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    direct = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert direct.returncode == 1 and "atlas_brain/probe.py" in direct.stdout
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import leaked\nexported = leaked\n", encoding="utf-8")
+    consumer.write_text("from .bridge import exported\nexported(source)\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    bridge = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert bridge.returncode == 1 and "atlas_brain/probe.py" in bridge.stdout and "atlas_brain/bridge.py" in bridge.stdout
+
+
+@pytest.mark.parametrize("api", sorted(APIS))
 def test_real_tracked_cli_uses_exact_zip_file_scope(tmp_path: Path, api):
     module, name = api.rsplit(".", 1)
     source = f"from {module} import {name}; {name}\n"
