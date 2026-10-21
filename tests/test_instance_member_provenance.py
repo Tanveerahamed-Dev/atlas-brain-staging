@@ -54,7 +54,7 @@ def test_factory_arguments_keep_protected_roots_and_engine_data_keeps_public_fie
     protected = {USING: "from typing import cast\nfrom zipfile import ZipFile\nvalue = cast(object, ZipFile)"}
     assert ImportIndex(protected).origin(MODULE) is None
     assert not source_allowed("from .evidence.producer import value", protected)
-    ordinary = {"atlas_brain/records.py": "class Record: pass",
+    ordinary = {"atlas_brain/records.py": "class Record:\n field = 1",
                 USING: "from ..records import Record\nvalue = Record()"}
     assert source_allowed("from .evidence.producer import value\nvalue.field", ordinary)
 
@@ -64,7 +64,7 @@ def test_expression_receiver_cannot_hide_a_known_imported_capability(receiver):
     sources = {USING: PRODUCERS[0]}
     assert source_allowed("from .evidence.producer import value\nvalue", sources)
     assert not source_allowed("from .evidence.producer import value\nborrowed = value\n" + receiver + ".write_text('x')", sources)
-    ordinary = {USING: "class Record: pass\nvalue = Record()"}
+    ordinary = {USING: "class Record:\n field = 1\nvalue = Record()"}
     assert source_allowed("from .evidence.producer import value\n(value if True else value).field", ordinary)
 
 
