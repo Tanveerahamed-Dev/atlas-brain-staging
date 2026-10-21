@@ -132,3 +132,22 @@ def test_following_healthy_or_unproven_default_is_refused(source):
 def test_following_unknown_witness_rejects_rebinding():
     tree = ast.parse('import atlas_brain.kernel.states\ndef mapped(raw):\n if raw == "up": return "up"\n return atlas_brain.kernel.states.Unknown()')
     assert fallback_nodes(tree, {}, {'atlas_brain.kernel.states.Unknown'})
+
+
+@pytest.mark.parametrize('source', [
+    'def map_state(raw):\n try:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")\n except ValueError:\n  return "up"',
+    'def mapped(raw):\n try:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")\n finally:\n  return "up"',
+    'import atlas_brain.kernel.states\ndef mapped(raw):\n try:\n  if raw == "up": return "up"\n  return atlas_brain.kernel.states.Unknown()\n finally:\n  return "up"',
+    'def mapped(raw):\n with manager:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(raw):\n try:\n  try:\n   if raw == "up": return "up"\n   raise ValueError("unmapped")\n  finally: pass\n except ValueError: return "up"',
+])
+def test_enclosing_control_flow_cannot_turn_refusal_into_health(source):
+    assert fallback_nodes(ast.parse(source), {}, set())
+
+
+@pytest.mark.parametrize('source', [
+    'def mapped(raw):\n try: pass\n except ValueError: pass\n else:\n  if raw == "up": return "up"\n  raise UnknownToken(raw)',
+    'def mapped(raw):\n with manager:\n  def local(raw):\n   if raw == "up": return "up"\n   raise UnknownToken(raw)\n return local(raw)',
+])
+def test_uncaught_refusal_in_else_and_separate_function_remains_valid(source):
+    assert not fallback_nodes(ast.parse(source), {}, set())
