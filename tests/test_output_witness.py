@@ -98,7 +98,7 @@ def test_early_success_or_swallowed_violation_cannot_pass(tmp_path, plant):
     if plant == "late_write_exit":
         source = ("import atexit\nfrom pathlib import Path\ndef later():\n try:\n  Path("
                   + repr(str(tmp_path / "forbidden")) + ").write_text('x', encoding='utf-8')\n except RuntimeError:\n  pass\natexit.register(later)")
-    assert source_allowed(source) is (plant not in {"silent_exit", "late_write_exit"})
+    assert source_allowed(source) is (plant not in {"silent_exit", "late_write_exit", "caught_write_exit", "caught_write_continue"})
     last = "from pathlib import Path\nPath(" + repr(str(tmp_path / "contract/result.json")) + ").write_text('{}', encoding='utf-8')"
     files = {"__init__.py": source if plant == "root_exit" else "",
              "aa_first.py": "" if plant == "root_exit" else source, "zz_last.py": last}
