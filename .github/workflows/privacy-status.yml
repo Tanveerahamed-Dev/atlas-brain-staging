@@ -32,7 +32,7 @@ jobs:
           version: '0.13.1'
           enable-cache: false
       - run: uv sync --locked
-      - run: uv run --no-sync pytest -q tests/test_fence.py tests/test_fence_diagnostics.py tests/test_privacy.py tests/test_ast_admission.py tests/test_pk_ast_admission.py tests/test_output_witness.py
+      - run: uv run --no-sync pytest -q tests/test_fence.py tests/test_fence_diagnostics.py tests/test_privacy.py tests/test_ast_admission.py tests/test_pk_ast_admission.py tests/test_output_witness.py tests/test_assignment_provenance.py
       - run: uv run --no-sync python tools/fence.py
       - run: git fetch --no-tags --depth=1 origin df6016ef31d086ef836d5666d629aad132a66890 fb1ce4754a1fa9d2e43f121b6a82cb7d832e3c5b 1b2661492e19387ba0bd602d085d0e93ee1ee177 7082fec06a7253d028b359ada44423d2c0391587
       - run: uv run --no-sync python -m tools.check_ast_inventory
