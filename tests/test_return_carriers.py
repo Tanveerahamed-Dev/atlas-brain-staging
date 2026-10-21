@@ -1,11 +1,12 @@
 """Known scoped capabilities cannot disappear inside dict or generator values."""
+import ast
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from tools.fence import source_allowed
+from tools.fence import import_bindings, source_allowed
 
 USING = "atlas_brain/evidence/archives.py"
 CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
@@ -89,3 +90,10 @@ def test_actual_cli_explicit_scope_carrier_cannot_be_certified_scalar(tmp_path, 
         subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
         result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
         assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
+
+
+def test_named_closure_binding_keeps_the_returned_function_level():
+    source = "from zipfile import ZipFile\ndef outer():\n def factory(): return ZipFile\n return factory\nfactory = outer()\n"
+    _, exports, _ = import_bindings(ast.parse(source), USING)
+    assert exports["outer.$return"] == ("atlas_brain.evidence.archives.outer.factory",)
+    assert exports["factory"] == "atlas_brain.evidence.archives.outer.factory"
