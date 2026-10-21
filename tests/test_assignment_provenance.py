@@ -1,4 +1,5 @@
 """Assignments preserve import provenance; opaque protected roots fail closed."""
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,15 @@ SHAPES = {
     "boolean": "leaked = capability or capability",
     "named": "leaked = (other := capability)",
     "container": "leaked = (capability,)[0]",
+}
+BINDINGS = {
+    "loop": "for leaked in (capability,):\n    pass",
+    "unpack_loop": "for leaked, other in ((capability, 0),):\n    pass",
+    "context": "with capability() as leaked:\n    pass",
+    "augmented": "leaked = []\nleaked += [capability]",
+    "subscript": "leaked = {}\nleaked['api'] = capability",
+    "pattern": "match capability:\n    case leaked: pass",
+    "annotation": "leaked: object",
 }
 
 
@@ -67,6 +77,54 @@ def test_actual_cli_keeps_globally_admitted_producers_and_public_declarations(tm
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
     using.write_text("from pathlib import Path\nvalue = " + rhs + "\ndef public(value): return value\nclass Record: pass\n", encoding="utf-8")
+    (tmp_path / "atlas_brain/probe.py").write_text("from .evidence.producer import value, public, Record\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    result = subprocess.run([sys.executable, str(Path("tools/fence.py").resolve())], cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert result.returncode == 0 and "scope fence: 0 refused" in result.stdout
+
+
+@pytest.mark.parametrize("binding", BINDINGS.values())
+def test_other_binding_forms_do_not_create_unproven_public_declarations(binding):
+    sources = {USING: "from zipfile import ZipFile as capability\n" + binding,
+               "atlas_brain/bridge.py": "from .evidence.producer import leaked\nexported = leaked"}
+    index = ImportIndex(sources)
+    assert index.origin(MODULE + "leaked") in {None, "zipfile.ZipFile"}
+    assert index.origin("atlas_brain.bridge.exported") in {None, "zipfile.ZipFile"}
+    assert not source_allowed("from .evidence.producer import leaked", sources)
+    assert not source_allowed("from .bridge import exported", sources)
+
+
+@pytest.mark.parametrize("binding", [BINDINGS["loop"], BINDINGS["unpack_loop"],
+                                   BINDINGS["context"], BINDINGS["augmented"], BINDINGS["subscript"], BINDINGS["pattern"]])
+def test_actual_cli_reports_consumer_and_bridge_binding_refusals(tmp_path: Path, binding):
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text("from zipfile import ZipFile as capability\n" + binding + "\ndef public(value): return value\nclass Record: pass\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    consumer = tmp_path / "atlas_brain/probe.py"
+    consumer.write_text("from .evidence.producer import public, Record\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    tool = str(Path("tools/fence.py").resolve())
+    def refused_paths():
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert result.returncode == 1
+        return {json.loads(line)["path"] for line in result.stdout.splitlines() if line.startswith("{")}
+    # A grants no ZIP API: distinguish the existing producer refusal from each consumer refusal.
+    assert refused_paths() == {USING}
+    consumer.write_text("from .evidence.producer import leaked\n", encoding="utf-8")
+    assert refused_paths() == {USING, "atlas_brain/probe.py"}
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.producer import leaked\nexported = leaked\n", encoding="utf-8")
+    consumer.write_text("from .bridge import exported\n", encoding="utf-8")
+    assert refused_paths() == {USING, "atlas_brain/probe.py", "atlas_brain/bridge.py"}
+
+
+def test_actual_cli_keeps_ordinary_loop_bindings_and_public_declarations(tmp_path: Path):
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text("for value in (1, 2):\n    pass\ndef public(value): return value\nclass Record: pass\n", encoding="utf-8")
     (tmp_path / "atlas_brain/probe.py").write_text("from .evidence.producer import value, public, Record\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
