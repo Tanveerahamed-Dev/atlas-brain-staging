@@ -54,6 +54,8 @@ def test_actual_cli_data_positive_then_carried_capability_refusal(tmp_path: Path
     ("return {'ok': isinstance(value, ZipFile)}['ok']", "factory(value)"),
     ("yield isinstance(value, ZipFile)", "next(factory(value))"),
     ("return type(value) is ZipFile", "factory(value)"),
+    ("box = {'ok': isinstance(value, ZipFile)}\n return box.get('ok')", "factory(value)"),
+    ("it = iter\n return next(it((isinstance(value, ZipFile),)))", "factory(value)"),
     ("return (1 for _ in (0,) if isinstance(value, ZipFile))", "next(factory(value))")])
 def test_ordinary_predicate_and_generator_data_remain_public(body, receiver):
     sources = {USING: "from zipfile import ZipFile\ndef factory(value):\n " + body}
