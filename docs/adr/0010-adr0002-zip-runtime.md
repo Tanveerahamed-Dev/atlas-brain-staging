@@ -2,7 +2,7 @@
 
 Status: accepted
 
-Supersedes ADR-0009; its AST and global grants remain unchanged.
+Supersedes ADR-0009; its two path reads, AST and global grants remain unchanged.
 Standing safe per-file stdlib approval: owner prompt 2026-10-20 22:15.
 Bounded sequencing decision:
 https://github.com/Tanveerahamed-Dev/atlas-brain-staging/issues/89#issuecomment-6314092860
@@ -21,8 +21,11 @@ SHA-256: 2c882be101d184cdfde60fdcfbff866ff8c0a49e5bdb17c8e0e369d8ee77f897.
 | zlib.error | T | Translate decoder refusal via DecompressionError. |
 | zlib.decompressobj | T | Bound decoded bytes and verify real EOF/no unused data. |
 | stat.S_IFMT | T | Refuse archived special-member file types. |
+| zipfile.ZipFile.infolist | T | Inspect member metadata for bounded admission checks. |
+| zipfile.ZipFile.open | T | Read a member stream under the consumer's byte budgets. |
+| pathlib.Path.suffix | T | Identify nested archive names without filesystem access. |
 
-These seven APIs bind only to T in a separate RUNTIME_API map; T remains a
+These ten APIs bind only to T in a separate RUNTIME_API map; T remains a
 normal runtime module whose public declarations may be imported. Direct,
 module and bridge API re-exports and wrong-file/unlisted uses must refuse.
 All 22 globals and K29/32/PK34/10 AST grants remain unchanged.
@@ -32,3 +35,6 @@ or runtime-thread grant is added. This admission does not certify ZIP runtime,
 stream limits, hostile-code containment or historical CI recovery.
 Independent REV and Linux/Windows proof, then E's separate full functional
 proof and recorded ZIP-merge disposition, remain mandatory.
+The three explicit member names preserve this same pinned source under the
+accepted constructor gate. Their scope classification awaits recorded REV
+decision before this refreshed successor is published; no grant is accepted.

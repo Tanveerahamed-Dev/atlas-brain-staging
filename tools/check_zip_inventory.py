@@ -54,13 +54,20 @@ def main():
     if hashlib.sha256(payload).hexdigest() != DIGEST:
         raise ValueError("ZIP using source digest mismatch")
     tree = ast.parse(payload.decode("utf-8"))
-    bindings = import_bindings(tree, USING)[0]
-    def qualified(node):
+    bindings, exports, _ = import_bindings(tree, USING)
+    def qualified(node, scope):
         if isinstance(node, ast.Name):
-            return bindings.get(node.id, "")
-        base = qualified(node.value) if isinstance(node, ast.Attribute) else ""
+            origin = exports.get(scope + node.id, bindings.get(node.id, ""))
+            if isinstance(origin, tuple):
+                return origin[0] if len(origin) == 1 and isinstance(origin[0], str) else ""
+            return origin if isinstance(origin, str) else ""
+        if isinstance(node, ast.Call):
+            return qualified(node.func, scope)
+        base = qualified(node.value, scope) if isinstance(node, ast.Attribute) else ""
         return base + "." + node.attr if base else ""
-    used = {api for node in ast.walk(tree) if (api := qualified(node)) in RUNTIME_API[USING]}
+    used = {api for top in tree.body for node in ast.walk(top)
+            if (api := qualified(node, top.name + "." if isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef)) else ""))
+            in RUNTIME_API[USING]}
     if used != RUNTIME_API[USING]:
         raise ValueError("ZIP grant differs from actual using-source inventory")
     print(json.dumps({"path": USING, "source_head": REVISION, "source_sha256": DIGEST,

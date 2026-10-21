@@ -70,6 +70,7 @@ RUNTIME_API = {
     },
     "atlas_brain/evidence/archives.py": {
         "zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
+        "zipfile.ZipFile.infolist", "zipfile.ZipFile.open", "pathlib.Path.suffix",
         "zlib.error", "zlib.decompressobj", "stat.S_IFMT",
     },
 }
