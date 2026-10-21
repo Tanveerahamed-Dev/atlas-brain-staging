@@ -15,7 +15,13 @@ def archive(tmp_path, rows, *, compression=zipfile.ZIP_STORED):
     path = tmp_path / "bundle.zip"
     with zipfile.ZipFile(path, "w", compression=compression) as stream:
         for name, raw in rows:
-            stream.writestr(name, raw)
+            if isinstance(name, str):
+                entry = zipfile.ZipInfo(name)
+                entry.filename = name  # Keep hostile bytes that ZipInfo normalizes on Windows.
+                entry.compress_type = compression
+            else:
+                entry = name
+            stream.writestr(entry, raw)
     return path
 
 
@@ -223,7 +229,7 @@ def test_deflate_end_marker_is_required(tmp_path, directory):
         z.zip_members(path, limits())
 
 
-@pytest.mark.parametrize("payload", [b"", bytes(range(256)) * 300])
+@pytest.mark.parametrize("payload", [b"", bytes(range(256)) * 300], ids=["empty", "multi_chunk"])
 def test_complete_deflate_empty_and_multiple_output_chunks_pass(tmp_path, payload):
     path = archive(tmp_path, [("a", payload)], compression=zipfile.ZIP_DEFLATED)
     assert z.zip_members(path, limits(compression_ratio=1000)) == {"a": payload}
