@@ -103,9 +103,13 @@ def test_missing_one_of_two_source_steps_refuses_then_complete_pair_passes():
     data["tree"]["tree"][0]["sha"] = blob["sha"]
     with pytest.raises(ValueError):
         verify(data, SHA, "push")
-    steps = data["jobs"]["10"][0]["steps"]
-    steps[-1]["number"] = 4
-    steps.insert(2, {"number": 3, "name": "Run uv run pytest", "status": "completed", "conclusion": "success"})
+    for index, job in enumerate(data["jobs"]["10"][:2]):
+        steps = job["steps"]
+        steps[-1]["number"] = 4
+        steps.insert(2, {"number": 3, "name": "Run uv run pytest", "status": "completed", "conclusion": "success"})
+        if index == 0:
+            with pytest.raises(ValueError):
+                verify(data, SHA, "push")
     assert verify(data, SHA, "push")["job_count"] == 9
 
 
@@ -137,11 +141,13 @@ def test_action_post_receipts_are_separate_from_required_source_steps():
     blob = source_blob(SOURCE.replace("      - run: echo synthetic\n", "      - uses: actions/example@abc # pinned\n", 1))
     data["sources"][path] = blob
     data["tree"]["tree"][0]["sha"] = blob["sha"]
-    steps = data["jobs"]["10"][0]["steps"]
-    steps[1]["name"] = "Run actions/example@abc"
-    steps[-1]["number"] = 5
-    steps.insert(2, {"number": 4, "name": "Post Run actions/example@abc", "status": "completed", "conclusion": "success"})
+    for job in data["jobs"]["10"][:2]:
+        steps = job["steps"]
+        steps[1]["name"] = "Run actions/example@abc"
+        steps[-1]["number"] = 5
+        steps.insert(2, {"number": 4, "name": "Post Run actions/example@abc", "status": "completed", "conclusion": "success"})
     assert verify(data, SHA, "push")["job_count"] == 9
+    steps = data["jobs"]["10"][0]["steps"]
     steps[1]["name"] = "Post Run actions/example@abc"
     with pytest.raises(ValueError):
         verify(data, SHA, "push")

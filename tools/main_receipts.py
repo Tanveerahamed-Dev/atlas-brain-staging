@@ -19,7 +19,7 @@ def workflow_paths(tree):
 
 def step_scalar(value):
     if not isinstance(value, str):
-        raise ValueError("unsupported step scalar")
+        raise TypeError("unsupported step scalar")
     if value.startswith('"'):
         value = json.loads(value)
     elif value.startswith("'"):
@@ -42,6 +42,8 @@ def check_steps(text):
         if len(kinds) != 1:
             raise ValueError("step must have exactly one run or uses command")
         kind = next(iter(kinds))
+        if fields[kind] is None or ("name" in fields and fields["name"] is None):
+            raise ValueError("missing source step command or name")
         name = step_scalar(fields["name"]) if "name" in fields else "Run " + step_scalar(fields[kind])
         if (name in {"Set up job", "Complete job"} or name.startswith(("Post ", "Pre "))
                 or any(s["name"] == name for s in required)):
