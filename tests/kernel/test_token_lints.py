@@ -2,7 +2,12 @@ import ast
 
 import pytest
 
-from atlas_brain.kernel.token_lints import binding_proof, bound_names, fallback_node, fallback_nodes
+from atlas_brain.kernel.token_lints import (
+    binding_proof,
+    bound_names,
+    fallback_node,
+    fallback_nodes,
+)
 
 
 @pytest.mark.parametrize('source', [
