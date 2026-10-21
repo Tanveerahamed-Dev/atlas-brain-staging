@@ -235,6 +235,9 @@ def import_bindings(tree, path):
             assignment(node.target, node.value, scope)
         elif isinstance(node, ast.TypeAlias):
             assignment(node.name, node.value, scope)
+        elif isinstance(node, ast.Return) and node.value is not None:
+            # Internal non-identifier key keeps return roots separate from locals.
+            assignment(ast.Name(id="$return", ctx=ast.Store()), node.value, scope)
         elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             assignment(node.target, node.iter, scope)
         elif isinstance(node, ast.withitem) and node.optional_vars is not None:
@@ -298,7 +301,9 @@ class ImportIndex:
         tail = name[len(module) + 1:]
         binding = max((key for key in exports if tail == key or tail.startswith(key + ".")), key=len, default="")
         if not binding:
-            return set()
+            binding = tail + ".$return"
+            if binding not in exports:
+                return set()
         target = exports[binding]
         if isinstance(target, tuple):
             return set().union(*(self.foreign_roots(root, seen | {name}) for root in target))
