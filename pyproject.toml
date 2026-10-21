@@ -11,6 +11,7 @@ dev = [
   "ruff==0.17.1",
   "import-linter==2.15",
   "hypothesis==6.170.2",
+  "jsonschema==4.26.0",
 ]
 
 [tool.pyright]
