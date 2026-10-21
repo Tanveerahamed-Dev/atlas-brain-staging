@@ -1,5 +1,6 @@
 name: Governance foundation
 on:
+  workflow_dispatch:
   pull_request:
   merge_group:
   push:
@@ -13,6 +14,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   governance-foundation:
+    name: recovery-governance-foundation (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -22,8 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: 228a16b7197e75253cf2426d700cf23eb8c3b13f
           fetch-depth: 0
+      - name: Verify exact historical source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "228a16b7197e75253cf2426d700cf23eb8c3b13f"
+          printf 'verified_source_sha=%s\n' "$(git rev-parse HEAD)"
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: '0.13.1'
