@@ -132,6 +132,7 @@ def import_bindings(tree, path, class_roots=frozenset()):
     aliases, exports, declarations = {}, {}, set()
     containers = {}
     calls = CallableBindings(path.removesuffix(".py").replace("/", ".").removesuffix(".__init__"), aliases, exports, declarations)
+    calls.predeclare(tree)
     constructors = set(class_roots) | constructor_members(frozenset(STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values()))).keys()
     def dotted(node):
         if isinstance(node, ast.Name):
