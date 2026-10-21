@@ -112,3 +112,43 @@ def test_unattested_period_variant_stays_unknown_and_no_failure_claims_family():
 def test_documented_build_and_release_annotations_are_detected(version):
     result = detect(BANNER.rstrip(b"\n") + b" \n  NXOS: version " + version + b" \n", CAP)
     assert isinstance(result, Known) and result.value == "nxos"
+
+
+@pytest.mark.parametrize("folder, raw_digest, record_digest", [
+    ("show-interface-status",
+     "3296040bf6d8fec6ae4db793794ab66d5fd36137ec0df3ab05069354e7f88094",
+     "88f25797047fd08186cd269ccb21ec0067837c34965d558feca058a9da63aae3"),
+    ("show-port-channel-summary",
+     "eab67a5365f4d02f54db0db9e5b79a6ee24a1112ed3d7d8f6fbe16e402a9a5d3",
+     "af29014eb2f00c9c3b2aacab02df30e4f8bf0892daf7085f9e76a2e36759f265"),
+])
+def test_second_q_pair_preserves_custody_and_cannot_supply_detection(folder, raw_digest, record_digest):
+    root = Path("fixtures/tier-p/nxos") / folder
+    raw = (root / "raw.txt").read_bytes()
+    provenance = (root / "provenance.yaml").read_bytes()
+    assert sha256(raw).hexdigest() == raw_digest
+    assert sha256(provenance).hexdigest() == record_digest
+    assert b"tier: P\n" in provenance and b"format_floor: false\n" in provenance
+    assert isinstance(detect(raw, CAP), Unknown)
+    assert classify(raw) is IntegrityState.UNKNOWN_FORMAT
+
+
+def test_q_status_printed_management_and_breakout_names_are_preserved():
+    raw = Path("fixtures/tier-p/nxos/show-interface-status/raw.txt").read_bytes()
+    rows = raw.splitlines()[3:]
+    names = [row.split()[0] for row in rows]
+    expected = [b"mgmt0", *(f"Eth1/{port}".encode() for port in range(1, 9)),
+                *(f"Eth51/1/{port}".encode() for port in range(1, 5))]
+    assert names == expected
+    assert all(interface_name(name) == name.decode("ascii") for name in names)
+
+
+def test_q_summary_keeps_aggregate_shorthand_outside_the_subset():
+    raw = Path("fixtures/tier-p/nxos/show-port-channel-summary/raw.txt").read_bytes()
+    rows = [line.split() for line in raw.splitlines()[-2:]]
+    aggregates = [row[1].split(b"(", 1)[0] for row in rows]
+    members = [token.split(b"(", 1)[0] for row in rows for token in row[4:]]
+    assert aggregates == [b"Po1", b"Po2"]
+    assert all(interface_name(name) is None for name in aggregates)
+    assert members == [f"Eth1/{port}".encode() for port in range(1, 6)]
+    assert all(interface_name(name) == name.decode("ascii") for name in members)
