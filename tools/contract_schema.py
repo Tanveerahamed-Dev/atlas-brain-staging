@@ -3,7 +3,15 @@ import re
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from types import UnionType
-from typing import Literal, NewType, TypeAliasType, Union, get_args, get_origin, get_type_hints
+from typing import (
+    Literal,
+    NewType,
+    TypeAliasType,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from atlas_brain.contract.canonical import canonical
 
