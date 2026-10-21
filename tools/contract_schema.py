@@ -43,6 +43,8 @@ def schema_for(root: type, version: str) -> dict:
             return {"anyOf": [describe(arg) for arg in args]}
         if (origin is list and len(args) != 1) or (origin is dict and (len(args) != 2 or args[0] is not str)):
             raise TypeError("unsupported_contract_type")
+        if origin is tuple and args[-1:] == (Ellipsis,) and len(args) != 2:
+            raise TypeError("unsupported_contract_type")
         if origin is tuple and args[-1:] != (Ellipsis,):
             if not args:
                 return {"type": "array", "maxItems": 0}
