@@ -1,5 +1,6 @@
 name: C1 gates
 on:
+  workflow_dispatch:
   pull_request:
   merge_group:
   push:
@@ -8,14 +9,17 @@ on:
     - cron: '17 22 * * *'
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: c1-${{ github.workflow }}-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: false
 env:
+  GH_TOKEN: ${{ github.token }}
   UV_VERSION: '0.13.1'
   ATLAS_TEST_MARKER: ${{ github.run_id }}-synthetic-canary
 jobs:
   lock:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'manual-lock' || 'lock' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8 # budget: 4 minutes
     steps:
@@ -36,11 +40,12 @@ jobs:
       - run: git diff --exit-code -- uv.lock
       - run: uv lock --check
   static:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'manual-static' || 'static' }} (${{ matrix.os }})
     # BOOTSTRAP_PR_LINUX_ONLY defaults true; set repository variable false to restore Windows PRs.
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'push' || github.event_name == 'schedule' || vars.BOOTSTRAP_PR_LINUX_ONLY == 'false') && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || vars.BOOTSTRAP_PR_LINUX_ONLY == 'false') && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10 # budget: 5 minutes (S6 A1)
     steps:
@@ -58,6 +63,7 @@ jobs:
       - run: uv run --no-sync python tools/fence.py
       - run: uv run --no-sync pytest -q
   privacy:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'manual-privacy' || 'privacy' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8 # budget: 4 minutes (S6 A2)
     steps:
