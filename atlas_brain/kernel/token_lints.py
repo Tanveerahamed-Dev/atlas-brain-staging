@@ -145,7 +145,7 @@ def fallback_node(node: ast.AST, called: str = '') -> bool:
     return False
 
 
-def _finite_subject(test: ast.AST) -> str:
+def finite_subject(test: ast.AST) -> str:
     if isinstance(test, ast.Compare) and len(test.ops) == len(test.comparators) == 1 and isinstance(test.ops[0], ast.Eq):
         left, right = test.left, test.comparators[0]
         if isinstance(right, ast.Constant) and type(right.value) is str:
@@ -162,7 +162,7 @@ def _same_operand(left: ast.AST, right: ast.AST) -> bool:
     return bool(name) and name == _qualified(right, {})
 
 
-def _guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool = False) -> bool:
+def guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool = False) -> bool:
     if not isinstance(test, ast.Compare) or len(test.ops) != 1 or len(test.comparators) != 1:
         return False
     if not isinstance(test.ops[0], ast.NotIn if inverse else ast.In):
