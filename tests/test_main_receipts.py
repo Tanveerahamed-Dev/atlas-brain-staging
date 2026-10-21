@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.main_receipts import expected_jobs, verify
+from tools.main_receipts import expected_jobs, verify, workflow_paths
 
 SHA = "a" * 40
 SOURCE = """name: Synthetic
@@ -157,9 +157,11 @@ def test_live_published_positive_and_missing_push_history(sha, expected):
 
 
 def test_every_registered_workflow_has_one_explicit_manual_recovery_trigger():
-    for path in Path(".github/workflows").iterdir():
-        if path.suffix not in {".yml", ".yaml"}:
-            continue
+    paths = workflow_paths({"truncated": False, "tree": [
+        {"path": p.as_posix(), "type": "blob"} for p in Path(".github/workflows").iterdir() if p.is_file()]})
+    assert paths
+    for name in sorted(paths):
+        path = Path(name)
         text = path.read_text(encoding="utf-8")
         assert text.count("  workflow_dispatch:\n") == 1
         assert "github.event.pull_request.head.sha || github.sha" in text
@@ -172,7 +174,8 @@ def test_every_registered_workflow_has_one_explicit_manual_recovery_trigger():
         assert all(name.startswith("manual-") for name in manual)
 
 
-def test_yaml_workflow_cannot_escape_manual_context_class(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize("plant", ["collision", "unlabelled"])
+def test_yaml_workflow_cannot_escape_manual_context_class(tmp_path: Path, monkeypatch, plant):
     source = Path(".github/workflows/governance.yml").read_text(encoding="utf-8")
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
@@ -181,9 +184,34 @@ def test_yaml_workflow_cannot_escape_manual_context_class(tmp_path: Path, monkey
     yaml_path.write_text(source, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     test_every_registered_workflow_has_one_explicit_manual_recovery_trigger()
-    yaml_path.write_text(source.replace("'manual-governance-foundation'", "'governance-foundation'"), encoding="utf-8")
+    bad = (source.replace("'manual-governance-foundation'", "'governance-foundation'") if plant == "collision"
+           else "\n".join(line for line in source.splitlines() if not line.startswith("    name:")) + "\n")
+    yaml_path.write_text(bad, encoding="utf-8")
     with pytest.raises((ValueError, AssertionError)):
         test_every_registered_workflow_has_one_explicit_manual_recovery_trigger()
+
+
+@pytest.mark.parametrize("kind", ["matrix", "single"])
+def test_real_verifier_refuses_unlabelled_manual_yaml_receipts(kind):
+    data = receipts()
+    path = ".github/workflows/extra.yaml"
+    raw = SOURCE.replace("on: [push]", "on: [push, workflow_dispatch]").replace("  check:", "  governance-foundation:")
+    jobs = data["jobs"]["10"]
+    for job in jobs[:2]:
+        job["name"] = job["name"].replace("check", "governance-foundation")
+    if kind == "single":
+        raw = "name: Synthetic\non: [push, workflow_dispatch]\njobs:\n  audit:\n" + SOURCE.split("  audit:\n")[1]
+        jobs = jobs[2:]
+    blob = source_blob(raw)
+    data["tree"]["tree"] = [{"path": path, "type": "blob", "sha": blob["sha"]}]
+    data["sources"] = {path: blob}
+    data["catalog"] = [{**data["catalog"][0], "path": path}]
+    data["runs"] = data["runs"][:1]
+    data["jobs"] = {"10": jobs}
+    assert verify(data, SHA, "push")["job_count"] == len(jobs)
+    data["runs"][0]["event"] = "workflow_dispatch"
+    with pytest.raises(ValueError, match="manual"):
+        verify(data, SHA, "workflow_dispatch")
 
 
 @pytest.mark.parametrize("event,prefix", [("push", ""), ("schedule", ""), ("workflow_dispatch", "manual-")])
