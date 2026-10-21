@@ -181,3 +181,10 @@ def test_public_factory_result_cannot_export_zip_members(tmp_path: Path, member,
         subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
         refused = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
         assert refused.returncode == 1 and "atlas_brain/probe.py" in refused.stdout
+
+
+@pytest.mark.parametrize("producer", ["from hashlib import sha256\ndef text(): return sha256(b'x').hexdigest()",
+                                      "import json\ndef text(): return json.dumps('x')"])
+def test_plain_primitive_function_results_keep_their_operations(producer):
+    sources = {"atlas_brain/plain.py": producer}
+    assert source_allowed("from .plain import text\ntext().upper()", sources)
