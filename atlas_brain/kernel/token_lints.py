@@ -86,9 +86,15 @@ def binding_proof(tree: ast.AST, aliases: dict[str, str], rebound: set[str], *, 
     return calls, facts
 
 
+def _irrefutable(pattern: ast.pattern) -> bool:
+    if isinstance(pattern, ast.MatchAs):
+        return pattern.pattern is None or _irrefutable(pattern.pattern)
+    return isinstance(pattern, ast.MatchOr) and any(_irrefutable(part) for part in pattern.patterns)
+
+
 def _terminal_assertion(pattern: ast.pattern, body: list[ast.stmt], assertions: frozenset[ast.Call]) -> bool:
     bound = bound_names(pattern)
-    if len(body) != 1 or not isinstance(body[0], ast.Expr):
+    if not _irrefutable(pattern) or len(body) != 1 or not isinstance(body[0], ast.Expr):
         return False
     call = body[0].value
     return (isinstance(call, ast.Call) and call in assertions and
