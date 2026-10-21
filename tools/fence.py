@@ -129,7 +129,7 @@ def import_bindings(tree, path):
         if isinstance(node, ast.Attribute):
             known, base = reference(node.value, scope)
             return known, (base + "." + node.attr if isinstance(base, str) else
-                           tuple(root + "." + node.attr for root in base) if isinstance(base, tuple) else None)
+                           tuple(root + "." + node.attr if root is not None else None for root in base) if isinstance(base, tuple) else None)
         if isinstance(node, ast.Call):
             return opaque(node, scope)
         if isinstance(node, ast.NamedExpr):
@@ -152,9 +152,10 @@ def import_bindings(tree, path):
                 continue
             found, base = reference(part, scope)
             if found:
-                ambiguous |= base is None
-                roots.update(base if isinstance(base, tuple) else (base,) if base is not None else ())
-        return bool(roots or ambiguous), None if ambiguous else tuple(sorted(roots))
+                items = base if isinstance(base, tuple) else (base,)
+                ambiguous |= None in items
+                roots.update(root for root in items if root is not None)
+        return bool(roots or ambiguous), (None, *sorted(roots)) if ambiguous and roots else None if ambiguous else tuple(sorted(roots))
     def assignment(target, value, scope):
         if isinstance(target, ast.Subscript):
             assignment(target.value, value, scope)
@@ -176,13 +177,21 @@ def import_bindings(tree, path):
         known, origin = reference(value, scope)
         if not known:
             known, origin = opaque(value, scope)
+        elif origin is None:
+            _, possible = opaque(value, scope)
+            if isinstance(possible, tuple):
+                origin = (None, *possible)
         if known:
             if key in declarations or key in exports and exports[key] != origin:
-                origin = None
+                previous = exports.get(key)
+                combined = (*previous,) if isinstance(previous, tuple) else (previous,)
+                combined += origin if isinstance(origin, tuple) else (origin,)
+                origin = (None, *sorted({root for root in combined if root is not None}))
             exports[key] = origin
             declarations.discard(key)
         elif key in exports:
-            exports[key] = None
+            previous = exports[key]
+            exports[key] = (None, *(previous if isinstance(previous, tuple) else (previous,)))
         else:
             declarations.add(key)
     def walk(node, scope=""):
@@ -261,6 +270,24 @@ class ImportIndex:
     def namespace(self, name):
         return name in self.modules or any(module.startswith(name + ".") for module in self.modules)
 
+    def foreign_roots(self, name, seen=frozenset()):
+        if name is None or name in seen:
+            return set()
+        if not name.startswith("atlas_brain.") and name != "atlas_brain":
+            return {name}
+        module = max((m for m in self.modules if name.startswith(m + ".")), key=len, default="")
+        if not module:
+            return set()
+        exports = self.modules[module][0]
+        tail = name[len(module) + 1:]
+        binding = max((key for key in exports if tail == key or tail.startswith(key + ".")), key=len, default="")
+        if not binding:
+            return set()
+        target = exports[binding]
+        if isinstance(target, tuple):
+            return set().union(*(self.foreign_roots(root, seen | {name}) for root in target))
+        return self.foreign_roots(target + tail[len(binding):], seen | {name}) if target is not None else set()
+
     def origin(self, name, seen=frozenset()):
         if any(name == module or name.startswith(module + ".") for module in self.forbidden):
             return None
@@ -279,6 +306,8 @@ class ImportIndex:
         if binding:
             target = exports[binding]
             if isinstance(target, tuple):
+                if None in target:
+                    return None
                 roots = [self.origin(root, seen | {name}) for root in target]
                 if not all(root is not None and (root.startswith("atlas_brain.") or root in STDLIB_API) for root in roots):
                     return None
@@ -339,11 +368,9 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
                                 break
                             if key in declarations:
                                 break
-                        if None in candidates:
-                            refused.add("unresolved-provenance")
                         roots.update(root for root in candidates if isinstance(root, str) and root.startswith("atlas_brain."))
                     for root in roots:
-                        if not admitted(index.origin(root + "." + node.attr)):
+                        if any(not admitted(factory + "." + node.attr) for factory in index.foreign_roots(root)):
                             refused.add(root + "." + node.attr)
                 continue
             name = index.origin(raw)
