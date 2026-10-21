@@ -52,3 +52,11 @@ def test_homogeneous_arrays_keep_the_existing_unbounded_shape(annotation):
 def test_malformed_or_unsupported_generic_shapes_refuse(annotation):
     with pytest.raises(TypeError, match="unsupported_contract_type"):
         schema_for(annotation, "0.1.0")
+
+
+@pytest.mark.parametrize("annotation", [tuple[str, int, ...], tuple[str, float, ...],
+    tuple[str, ..., ...], tuple[..., str, ...], list[tuple[str, int, ...]],
+    dict[str, tuple[str, int, ...]]])
+def test_variadic_tuple_requires_exactly_one_element_type(annotation):
+    with pytest.raises(TypeError, match="unsupported_contract_type"):
+        schema_for(annotation, "0.1.0")
