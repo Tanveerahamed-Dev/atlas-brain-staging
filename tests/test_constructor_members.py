@@ -18,6 +18,8 @@ def test_registered_class_namespace_is_derived_not_a_mutator_name_list():
     members = constructor_members(frozenset(STDLIB_API))
     assert members["pathlib.Path"] == {name for name in dir(Path) if name.isidentifier() and not name.startswith("_")}
     assert {"write_text", "write_bytes", "open", "unlink"} <= members["pathlib.Path"]
+    with pytest.raises(ValueError, match="stdlib"):
+        constructor_members(frozenset({"atlas_brain.probe.Record"}))
     for member in members["pathlib.Path"]:
         assert not source_allowed("from pathlib import Path\nPath('synthetic')." + member)
 
