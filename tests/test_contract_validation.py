@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator, ValidationError
+from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 from atlas_brain.contract.canonical import canonical
 from atlas_brain.contract.header import AnalysisAsOf, EffectiveSemantics, ResultHeader, encode_header
@@ -89,12 +89,15 @@ def test_contract_numeric_policy_is_stricter_than_schema_integer_semantics(wire)
         validate_wire({"type": "integer"}, wire)
 
 
-def test_external_schema_references_refuse_before_any_network(monkeypatch):
+@pytest.mark.parametrize("schema", [{"$ref": "https://example.invalid/schema"},
+    {"$id": "https://example.invalid/schema", "$ref": "#"},
+    {"$defs": {"R": {"$dynamicRef": "https://example.invalid/schema"}}}])
+def test_external_schema_references_refuse_before_any_network(monkeypatch, schema):
     def network_forbidden(*args, **kwargs):
         raise AssertionError("network_attempted")
     monkeypatch.setattr(socket, "socket", network_forbidden)
     with pytest.raises(ValueError, match="external_schema_reference"):
-        validate_wire({"$ref": "https://example.invalid/schema"}, b"{}")
+        validate_wire(schema, b"{}")
     validate_wire(generated_header(), encode_header(header()))
 
 
@@ -112,3 +115,7 @@ def test_real_consumer_cli_success_and_refusal(tmp_path):
     assert failed.returncode == 1
     assert b"contract validation refused" in failed.stdout
     assert Path("docs/contract/header.schema.json").is_file()
+
+def test_invalid_schema_is_not_a_vacuous_empty_jsonl_success():
+    with pytest.raises(SchemaError):
+        validate_wire({"type": "not_a_json_type"}, b"", jsonl=True)
