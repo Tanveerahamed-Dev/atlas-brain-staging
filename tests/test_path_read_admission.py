@@ -12,7 +12,11 @@ APIS = {"pathlib.PurePosixPath.is_absolute", "pathlib.PurePosixPath.parts"}
 
 
 def test_read_admission_is_exact_and_all_previous_grants_remain():
-    assert RUNTIME_API == {USING: APIS}
+    assert RUNTIME_API == {USING: APIS, "atlas_brain/evidence/archives.py": {
+        "zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
+        "zlib.error", "zlib.decompressobj", "stat.S_IFMT", "zipfile.ZipFile.infolist",
+        "zipfile.ZipFile.open", "pathlib.Path.suffix",
+    }}
     assert len(STDLIB_API) == 22
     assert len(SCOPED_API["atlas_brain/kernel/token_lints.py"]) == 29
     assert len(SCOPED_API["atlas_brain/kernel/lints.py"]) == 32
