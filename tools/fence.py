@@ -295,7 +295,7 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
     apis = STDLIB_API | SCOPED_API.get(path, set())
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
-        aliases = import_bindings(tree, path)[0]
+        aliases, exports, declarations = import_bindings(tree, path)
         index = ImportIndex(sources or {}, () if path in SCOPED_API else scoped_modules)
     except ValueError:
         return {"unresolved-provenance"}
@@ -322,9 +322,26 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
             if not raw:
                 if isinstance(node, ast.Attribute):
                     # An opaque expression must not erase a known engine-export capability.
-                    roots = {aliases[part.id] for part in ast.walk(node.value)
-                             if isinstance(part, ast.Name) and part.id in aliases
-                             and aliases[part.id].startswith("atlas_brain.")}
+                    roots = set()
+                    for part in ast.walk(node.value):
+                        if not isinstance(part, ast.Name):
+                            continue
+                        scope, ancestor = [], parents.get(part)
+                        while ancestor is not None:
+                            if isinstance(ancestor, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                                scope.insert(0, ancestor.name)
+                            ancestor = parents.get(ancestor)
+                        candidates = [aliases[part.id]] if part.id in aliases else []
+                        for length in range(len(scope), -1, -1):
+                            key = ".".join((*scope[:length], part.id))
+                            if key in exports:
+                                candidates.extend(exports[key] if isinstance(exports[key], tuple) else (exports[key],))
+                                break
+                            if key in declarations:
+                                break
+                        if None in candidates:
+                            refused.add("unresolved-provenance")
+                        roots.update(root for root in candidates if isinstance(root, str) and root.startswith("atlas_brain."))
                     for root in roots:
                         if not admitted(index.origin(root + "." + node.attr)):
                             refused.add(root + "." + node.attr)
