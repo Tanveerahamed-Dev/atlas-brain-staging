@@ -1,5 +1,11 @@
 name: CT contract
 on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Optional exact source SHA for labelled recovery; blank tests the workflow head'
+        type: string
+        required: false
   pull_request:
   merge_group:
   push:
@@ -11,6 +17,7 @@ permissions:
   contents: read
 jobs:
   contract:
+    name: ${{ inputs.source_sha && 'recovery-' || '' }}contract (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -20,8 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+      - name: Bind checked source
+        shell: bash
+        env:
+          EXPECTED_SOURCE: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
+        run: |
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          printf 'verified_source_sha=%s\n' "$EXPECTED_SOURCE"
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: '0.13.1'
@@ -32,7 +47,7 @@ jobs:
       - run: uv run --no-sync python -m tools.publish_contract_schema --write
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: contract-schema-${{ matrix.os }}-${{ github.event.pull_request.head.sha || github.sha }}
+          name: contract-schema-${{ matrix.os }}-${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
           path: docs/contract/header.schema.json
           if-no-files-found: error
       - name: Verify schema against the actual baseline
