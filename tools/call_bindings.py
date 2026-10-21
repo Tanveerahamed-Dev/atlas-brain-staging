@@ -8,6 +8,20 @@ SCALAR_APIS = frozenset({"json.dumps", "math.isfinite", "stat.S_ISDIR", "stat.S_
 CARRIERS = frozenset("iter next aiter anext list tuple set frozenset dict reversed enumerate zip sorted".split())
 
 
+def declared_classes(tree, module):
+    result = set()
+    def walk(node, scope=""):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            key = scope + node.name
+            if isinstance(node, ast.ClassDef):
+                result.add(module + "." + key)
+            scope = key + "."
+        for child in ast.iter_child_nodes(node):
+            walk(child, scope)
+    walk(tree)
+    return result
+
+
 class CallableBindings:
     def __init__(self, module, aliases, exports, declarations):
         self.module, self.aliases, self.exports, self.declarations = module, aliases, exports, declarations
@@ -72,3 +86,11 @@ class CallableBindings:
         origins = self.origins(value.func, scope)
         scalar = SCALAR_APIS | {"builtins." + name for name in SCALARS}
         return bool(origins) and all(root in scalar for root in origins)
+
+    def constructor_call(self, value, scope, classes):
+        if not isinstance(value, ast.Call):
+            return False
+        local = {origin for origin, definitions in self.definitions.items()
+                 if all(isinstance(node, ast.ClassDef) for node, _ in definitions)}
+        origins = self.origins(value.func, scope)
+        return bool(origins) and all(root in classes or root in local for root in origins)
