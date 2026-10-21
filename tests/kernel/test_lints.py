@@ -36,6 +36,8 @@ from atlas_brain.kernel.lints import lint
     ('def mapped(raw):\n try: pass\n except ValueError:\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n return "up"', 3),
     ('def mapped(raw, ready):\n try: raise ValueError("entered")\n except ValueError:\n  if ready: return "up"\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")', 3),
     ('def mapped(raw, ready):\n if ready: return "up"\n if raw == "up": return "up"\n raise ValueError("unmapped")', 3),
+    ('def mapped(raw):\n if raw == "mystery": raw = "down"\n if raw == "down": return "down"\n raise ValueError("unmapped")', 3),
+    ('def mapped(packet):\n if packet.state == "mystery": packet.state = "down"\n if packet.state == "down": return "down"\n raise ValueError("unmapped")', 3),
     ('def mapped(raw):\n if raw == "up": return "up"\n if raw == "mystery": raw = "down"\n if raw == "down": return "down"\n raise ValueError("unmapped")', 3),
     ('def mapped(packet):\n if packet.state == "up": return "up"\n if packet.state == "mystery": packet.state = "down"\n if packet.state == "down": return "down"\n raise ValueError("unmapped")', 3),
     ('import atlas_brain.kernel.states\ndef mapped(raw, ready):\n if ready: return "up"\n if raw not in states: return atlas_brain.kernel.states.Unknown()\n return states[raw]', 3),
