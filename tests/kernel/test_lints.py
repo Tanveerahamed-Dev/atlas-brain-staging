@@ -37,6 +37,8 @@ from atlas_brain.kernel.lints import lint
     ('def mapped(raw, ready):\n try: raise ValueError("entered")\n except ValueError:\n  if ready: return "up"\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")', 3),
     ('def mapped(raw, ready):\n if ready: return "up"\n if raw == "up": return "up"\n raise ValueError("unmapped")', 3),
     ('def mapped(raw):\n if raw == "mystery": raw = "down"\n if raw == "down": return "down"\n raise ValueError("unmapped")', 3),
+    ('def mapped(raw):\n if raw == "mystery":\n  raw = "down"\n  pass\n if raw == "down": return "down"\n raise ValueError("unmapped")', 3),
+    ('def normalize(packet): packet.state = "down"\ndef mapped(packet):\n if packet.state == "mystery": normalize(packet)\n if packet.state == "down": return "down"\n raise ValueError("unmapped")', 3),
     ('def mapped(packet):\n if packet.state == "mystery": packet.state = "down"\n if packet.state == "down": return "down"\n raise ValueError("unmapped")', 3),
     ('def mapped(raw):\n if raw == "up": return "up"\n if raw == "mystery": raw = "down"\n if raw == "down": return "down"\n raise ValueError("unmapped")', 3),
     ('def mapped(packet):\n if packet.state == "up": return "up"\n if packet.state == "mystery": packet.state = "down"\n if packet.state == "down": return "down"\n raise ValueError("unmapped")', 3),
