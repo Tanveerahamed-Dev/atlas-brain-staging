@@ -320,6 +320,14 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
         if isinstance(node, (ast.Name, ast.Attribute)):
             raw = qualified(node)
             if not raw:
+                if isinstance(node, ast.Attribute):
+                    # An opaque expression must not erase a known engine-export capability.
+                    roots = {aliases[part.id] for part in ast.walk(node.value)
+                             if isinstance(part, ast.Name) and part.id in aliases
+                             and aliases[part.id].startswith("atlas_brain.")}
+                    for root in roots:
+                        if not admitted(index.origin(root + "." + node.attr)):
+                            refused.add(root + "." + node.attr)
                 continue
             name = index.origin(raw)
             if not admitted(name):
