@@ -171,3 +171,16 @@ def guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool =
         return False
     lookup = body[0].value
     return _same_operand(test.left, lookup.slice) and _same_operand(test.comparators[0], lookup.value)
+
+
+def refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
+    """Prove an escaping tail; the caller supplies canonical Unknown call witnesses."""
+    if not following:
+        return False
+    last = following[-1]
+    # Each same-input arm must exit; an arm that mutates and continues is unproven.
+    if len(following) > 1 and (not subject or any(
+            not isinstance(s, ast.If) or s.orelse or finite_subject(s.test) != subject
+            or len(s.body) != 1 or not isinstance(s.body[0], (ast.Return, ast.Raise)) for s in following[:-1])):
+        return False
+    return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
