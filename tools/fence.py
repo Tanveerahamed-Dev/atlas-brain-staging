@@ -63,16 +63,13 @@ SCOPED_API = {
 }
 
 
-# Runtime API grants do not put their modules behind the AST-tooling import ban.
-RUNTIME_API = {
-    "atlas_brain/evidence/admission.py": {
-        "pathlib.PurePosixPath.is_absolute", "pathlib.PurePosixPath.parts",
-    },
-    "atlas_brain/evidence/archives.py": {
-        "zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
-        "zipfile.ZipFile.infolist", "zipfile.ZipFile.open", "pathlib.Path.suffix",
-        "zlib.error", "zlib.decompressobj", "stat.S_IFMT",
-    },
+RUNTIME_API = {"atlas_brain/evidence/admission.py": {
+    "pathlib.PurePosixPath.is_absolute", "pathlib.PurePosixPath.parts",
+}}
+RUNTIME_API["atlas_brain/evidence/archives.py"] = {
+    "zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
+    "zlib.error", "zlib.decompressobj", "stat.S_IFMT", "zipfile.ZipFile.infolist",
+    "zipfile.ZipFile.open", "pathlib.Path.suffix",
 }
 
 
@@ -306,7 +303,7 @@ class ImportIndex:
     def namespace(self, name):
         return name in self.modules or any(module.startswith(name + ".") for module in self.modules)
 
-    def foreign_roots(self, name, seen=frozenset()):
+    def foreign_roots(self, name, seen=frozenset(), *, callable_value=False, evaluate_return=True):
         """Trace known foreign API roots of exported data without running engine code."""
         if name is None or name in seen:
             return set()
@@ -320,15 +317,18 @@ class ImportIndex:
         binding = max((key for key in exports if tail == key or tail.startswith(key + ".")), key=len, default="")
         returned = not binding
         if not binding:
+            if not evaluate_return:
+                return set()
             binding = tail + ".$return"
             if binding not in exports:
                 return set()
         target = exports[binding]
         if isinstance(target, tuple):
-            roots = set().union(*(self.foreign_roots(root, seen | {name}) for root in target))
+            roots = set().union(*(self.foreign_roots(root, seen | {name}, callable_value=callable_value) for root in target))
         else:
-            roots = self.foreign_roots(target + tail[len(binding):], seen | {name}) if target is not None else set()
-        if returned:
+            roots = self.foreign_roots(target + tail[len(binding):], seen | {name},
+                callable_value=callable_value, evaluate_return=evaluate_return) if target is not None else set()
+        if returned and not callable_value:
             # Only known class endpoints imply a returned instance, not primitive operations.
             admitted = STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values())
             roots.intersection_update(constructor_members(frozenset(admitted)))
@@ -398,7 +398,7 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
         aliases, exports, declarations = import_bindings(tree, path)
-        index = ImportIndex(sources or {}, () if path in SCOPED_API else scoped_modules)
+        index = ImportIndex({**(sources or {}), path: source}, () if path in SCOPED_API else scoped_modules)
     except ValueError:
         return {"unresolved-provenance"}
     def admitted(name):
@@ -413,7 +413,40 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
             return aliases.get(node.id, "")
         base = qualified(node.value) if isinstance(node, ast.Attribute) else ""
         return base + "." + node.attr if base else ""
+    def receiver_roots(value):
+        roots = set()
+        applied = any(isinstance(part, ast.Call) for part in ast.walk(value))
+        for part in ast.walk(value):
+            if isinstance(part, ast.Attribute) and (name := qualified(part)):
+                roots.add((name, applied))
+            if not isinstance(part, ast.Name):
+                continue
+            scope, ancestor = [], parents.get(part)
+            while ancestor is not None:
+                if isinstance(ancestor, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    scope.insert(0, ancestor.name)
+                ancestor = parents.get(ancestor)
+            if part.id in aliases:
+                roots.add((aliases[part.id], applied))
+            for length in range(len(scope), -1, -1):
+                key = ".".join((*scope[:length], part.id))
+                if key in exports:
+                    target = exports[key]
+                    if isinstance(target, tuple):
+                        roots.update((root, True) for root in target if isinstance(root, str))
+                    else:
+                        roots.add((target, applied))
+                    break
+                if key in declarations:
+                    roots.add((path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "." + key, applied))
+                    break
+        return {(root, result) for root, result in roots if isinstance(root, str)}
     for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            for root, applied in receiver_roots(node.func):
+                origins = index.foreign_roots(root, callable_value=True, evaluate_return=applied)
+                if any(not admitted(origin) for origin in origins):
+                    refused.add(root + "()")
         if isinstance(node, ast.Attribute) and (node.attr in CODE_ATTRIBUTES
                 or node.attr.startswith("_") and node.attr not in {"__init__", "__init_subclass__"}):
             refused.add(node.attr)
@@ -424,28 +457,7 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
             if not raw:
                 if isinstance(node, ast.Attribute):
                     # An opaque expression must not erase a known engine-export capability.
-                    roots = set()
-                    for part in ast.walk(node.value):
-                        if not isinstance(part, ast.Name):
-                            continue
-                        scope, ancestor = [], parents.get(part)
-                        while ancestor is not None:
-                            if isinstance(ancestor, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                                scope.insert(0, ancestor.name)
-                            ancestor = parents.get(ancestor)
-                        candidates = [aliases[part.id]] if part.id in aliases else []
-                        for length in range(len(scope), -1, -1):
-                            key = ".".join((*scope[:length], part.id))
-                            if key in exports:
-                                candidates.extend(exports[key] if isinstance(exports[key], tuple) else (exports[key],))
-                                break
-                            if key in declarations:
-                                break
-                        roots.update(root for root in candidates if isinstance(root, str) and root.startswith("atlas_brain."))
-                        roots.update(root for root in candidates if root in factories)
-                    roots.update(qualified(part) for part in ast.walk(node.value)
-                                 if isinstance(part, ast.Attribute) and qualified(part) in factories)
-                    for root in roots:
+                    for root, _ in receiver_roots(node.value):
                         origins = index.foreign_roots(root) if root.startswith("atlas_brain.") else {root}
                         if any(not admitted(factory + "." + node.attr) for factory in origins
                                if root.startswith("atlas_brain.") or node.attr in factories.get(factory, ())):
