@@ -126,8 +126,12 @@ def import_bindings(tree, path):
                 return True, exports[name]
             if isinstance(node, ast.Name):
                 return (True, aliases[node.id]) if node.id in aliases else (False, None)
+        if isinstance(node, ast.Attribute):
             known, base = reference(node.value, scope)
-            return known, base + "." + node.attr if isinstance(base, str) else base
+            return known, (base + "." + node.attr if isinstance(base, str) else
+                           tuple(root + "." + node.attr for root in base) if isinstance(base, tuple) else None)
+        if isinstance(node, ast.Call):
+            return opaque(node, scope)
         if isinstance(node, ast.NamedExpr):
             return reference(node.value, scope)
         if isinstance(node, ast.IfExp):
@@ -139,6 +143,18 @@ def import_bindings(tree, path):
             origins = [origin for known, origin in values if known]
             return bool(origins), origins[0] if len(origins) == len(values) and all(o == origins[0] for o in origins) else None
         return False, None
+    def opaque(value, scope):
+        parents = {child: parent for parent in ast.walk(value) for child in ast.iter_child_nodes(parent)}
+        roots = set()
+        ambiguous = False
+        for part in ast.walk(value):
+            if not isinstance(part, (ast.Name, ast.Attribute)) or isinstance(parents.get(part), ast.Attribute):
+                continue
+            found, base = reference(part, scope)
+            if found:
+                ambiguous |= base is None
+                roots.update(base if isinstance(base, tuple) else (base,) if base is not None else ())
+        return bool(roots or ambiguous), None if ambiguous else tuple(sorted(roots))
     def assignment(target, value, scope):
         if isinstance(target, ast.Subscript):
             assignment(target.value, value, scope)
@@ -159,18 +175,7 @@ def import_bindings(tree, path):
         key = scope + name
         known, origin = reference(value, scope)
         if not known:
-            parents = {child: parent for parent in ast.walk(value) for child in ast.iter_child_nodes(parent)}
-            roots = set()
-            ambiguous = False
-            for part in ast.walk(value):
-                if not isinstance(part, (ast.Name, ast.Attribute)) or isinstance(parents.get(part), ast.Attribute):
-                    continue
-                found, base = reference(part, scope)
-                if found:
-                    ambiguous |= base is None
-                    roots.update(base if isinstance(base, tuple) else (base,) if base is not None else ())
-            if roots or ambiguous:
-                known, origin = True, None if ambiguous else tuple(sorted(roots))
+            known, origin = opaque(value, scope)
         if known:
             if key in declarations or key in exports and exports[key] != origin:
                 origin = None
@@ -275,7 +280,12 @@ class ImportIndex:
             target = exports[binding]
             if isinstance(target, tuple):
                 roots = [self.origin(root, seen | {name}) for root in target]
-                return name if all(root is not None and (root.startswith("atlas_brain.") or root in STDLIB_API) for root in roots) else None
+                if not all(root is not None and (root.startswith("atlas_brain.") or root in STDLIB_API) for root in roots):
+                    return None
+                suffix = tail[len(binding):]
+                if suffix and any(not root.startswith("atlas_brain.") for root in roots):
+                    return roots[0] + suffix if len(roots) == 1 else None
+                return name
             return self.origin(target + tail[len(binding):], seen | {name}) if target is not None else None
         return name if any(tail == key or tail.startswith(key + ".") for key in declarations) else None
 
