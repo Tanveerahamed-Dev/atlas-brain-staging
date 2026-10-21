@@ -12,8 +12,10 @@ import pytest
 from tools.fence import RUNTIME_API, SCOPED_API, STDLIB_API, source_allowed
 
 USING = "atlas_brain/evidence/archives.py"
-APIS = {"zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
-        "zlib.error", "zlib.decompressobj", "stat.S_IFMT"}
+IMPORTED_APIS = {"zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
+                 "zlib.error", "zlib.decompressobj", "stat.S_IFMT"}
+MEMBER_APIS = {"zipfile.ZipFile.infolist", "zipfile.ZipFile.open", "pathlib.Path.suffix"}
+APIS = IMPORTED_APIS | MEMBER_APIS
 
 
 def test_zip_amendment_and_existing_bounds_are_exact():
@@ -26,7 +28,7 @@ def test_zip_amendment_and_existing_bounds_are_exact():
     assert len(text.splitlines()) <= 60 and len(text) <= 4000
 
 
-@pytest.mark.parametrize("api", sorted(APIS))
+@pytest.mark.parametrize("api", sorted(IMPORTED_APIS))
 def test_exact_zip_using_file_and_outside_refusal(api):
     module, name = api.rsplit(".", 1)
     source = f"from {module} import {name} as value; value"
@@ -46,7 +48,7 @@ def test_all_actual_unlisted_zip_namespace_names_refuse(module):
     assert not source_allowed("import subprocess", path=USING)
 
 
-@pytest.mark.parametrize("api", sorted(APIS))
+@pytest.mark.parametrize("api", sorted(IMPORTED_APIS))
 def test_zip_capability_reexports_refuse_without_blocking_public_declarations(api):
     module, name = api.rsplit(".", 1)
     sources = {USING: f"from {module} import {name} as leaked\ndef zip_members(path): return path",
@@ -57,7 +59,7 @@ def test_zip_capability_reexports_refuse_without_blocking_public_declarations(ap
     assert not source_allowed("from .bridge import leaked; leaked", sources)
 
 
-@pytest.mark.parametrize("api", sorted(APIS))
+@pytest.mark.parametrize("api", sorted(IMPORTED_APIS))
 @pytest.mark.parametrize("shape", ["plain", "chain", "annotated", "tuple", "module", "conditional", "class",
                                   "boolean", "named", "container", "loop"])
 def test_assigned_zip_capabilities_keep_their_origin(api, shape):
@@ -78,7 +80,7 @@ def test_assigned_zip_capabilities_keep_their_origin(api, shape):
     assert not source_allowed("from .bridge import exported; exported", sources)
 
 
-@pytest.mark.parametrize("api", sorted(APIS))
+@pytest.mark.parametrize("api", sorted(IMPORTED_APIS))
 @pytest.mark.parametrize("shape", ["plain", "boolean", "container", "loop"])
 def test_actual_tracked_cli_refuses_direct_and_bridge_assignment_aliases(tmp_path: Path, api, shape):
     module, name = api.rsplit(".", 1)
@@ -105,7 +107,7 @@ def test_actual_tracked_cli_refuses_direct_and_bridge_assignment_aliases(tmp_pat
     assert bridge.returncode == 1 and "atlas_brain/probe.py" in bridge.stdout and "atlas_brain/bridge.py" in bridge.stdout
 
 
-@pytest.mark.parametrize("api", sorted(APIS))
+@pytest.mark.parametrize("api", sorted(IMPORTED_APIS))
 def test_real_tracked_cli_uses_exact_zip_file_scope(tmp_path: Path, api):
     module, name = api.rsplit(".", 1)
     source = f"from {module} import {name}; {name}\n"
@@ -122,3 +124,33 @@ def test_real_tracked_cli_uses_exact_zip_file_scope(tmp_path: Path, api):
     result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
     assert result.returncode == 1 and "scope fence: 1 refused" in result.stdout
     assert api in result.stdout and "atlas_brain/probe.py" in result.stdout
+
+
+@pytest.mark.parametrize("api", sorted(MEMBER_APIS))
+def test_exact_zip_member_uses_and_reexports(tmp_path: Path, api):
+    endpoint, member = api.rsplit(".", 1)
+    module, name = endpoint.rsplit(".", 1)
+    # Source-only probes: no archive is opened and no consumer is imported.
+    expression = f"{name}(source).{member}"
+    text = f"from {module} import {name}\nvalue = {expression}\n"
+    assert source_allowed(text, path=USING)
+    assert not source_allowed(text, path="atlas_brain/probe.py")
+    unlisted = "write_text" if name == "Path" else "extractall"
+    assert not source_allowed(f"from {module} import {name}\n{name}(source).{unlisted}", path=USING)
+    sources = {USING: f"from {module} import {name}\nleaked = {name}.{member}\ndef zip_members(x): return x",
+               "atlas_brain/bridge.py": "from .evidence.archives import leaked"}
+    assert source_allowed("from .evidence.archives import zip_members", sources)
+    assert not source_allowed("from .evidence.archives import leaked; leaked", sources)
+    assert not source_allowed("from .bridge import leaked; leaked", sources)
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text(text, encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    tool = str(Path("tools/fence.py").resolve())
+    subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+    (tmp_path / "atlas_brain/probe.py").write_text(text, encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
