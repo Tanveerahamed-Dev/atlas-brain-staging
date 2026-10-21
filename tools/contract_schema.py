@@ -3,7 +3,7 @@ import re
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from types import UnionType
-from typing import Literal, NewType, Union, get_args, get_origin, get_type_hints
+from typing import Literal, NewType, TypeAliasType, Union, get_args, get_origin, get_type_hints
 
 from atlas_brain.contract.canonical import canonical
 
@@ -20,6 +20,8 @@ def schema_for(root: type, version: str) -> dict:
 
     def describe(annotation):
         origin, args = get_origin(annotation), get_args(annotation)
+        if isinstance(annotation, TypeAliasType):
+            return describe(annotation.__value__)
         if isinstance(annotation, NewType):
             return describe(annotation.__supertype__)
         if annotation is int:
@@ -31,6 +33,13 @@ def schema_for(root: type, version: str) -> dict:
             return {"enum": list(args)}
         if origin in (Union, UnionType):
             return {"anyOf": [describe(arg) for arg in args]}
+        if (origin is list and len(args) != 1) or (origin is dict and (len(args) != 2 or args[0] is not str)):
+            raise TypeError("unsupported_contract_type")
+        if origin is tuple and args[-1:] != (Ellipsis,):
+            if not args:
+                return {"type": "array", "maxItems": 0}
+            return {"type": "array", "prefixItems": [describe(arg) for arg in args],
+                "minItems": len(args), "maxItems": len(args)}
         if origin in (list, tuple) and (origin is list or args[-1:] == (Ellipsis,)):
             return {"type": "array", "items": describe(args[0])}
         if origin is dict and args[0] is str:
