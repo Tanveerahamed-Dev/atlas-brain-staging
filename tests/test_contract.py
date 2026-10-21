@@ -70,7 +70,7 @@ def test_schema_is_202012_generated_and_integer_bounded():
     verify_revision(schema, changed)
 
 
-@pytest.mark.parametrize("annotation", [float, set[str], object, tuple[int, str]])
+@pytest.mark.parametrize("annotation", [float, set[str], object, tuple[int, ..., str]])
 def test_schema_fails_closed_on_unsupported_types(annotation):
     with pytest.raises(TypeError):
         schema_for(annotation, "0.1.0")
