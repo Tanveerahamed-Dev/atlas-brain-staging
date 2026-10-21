@@ -211,10 +211,10 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
     assertions, facts = binding_proof(tree, aliases, rebound)
     unknowns, _ = binding_proof(tree, aliases, rebound, call_target='atlas_brain.kernel.states.Unknown')
     following, intercepted = statement_context(tree)
-    proven_returns = frozenset(part for branch in ast.walk(tree)
+    proven_returns = frozenset(part for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
         and (_finite_subject(branch.test) or _guarded_lookup(branch.test, tuple(branch.body)))
-        and _refusal_tail(following[branch] if branch in following else (), _finite_subject(branch.test), unknowns)
+        and _refusal_tail(following[branch], _finite_subject(branch.test), unknowns)
         for part in branch.body if isinstance(part, ast.Return))
     return frozenset(node for node in ast.walk(tree) if fallback_node(node,
         _qualified(node.func, aliases) if isinstance(node, ast.Call) else '', assertions=assertions, facts=facts,
