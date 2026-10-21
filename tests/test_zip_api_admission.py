@@ -58,7 +58,8 @@ def test_zip_capability_reexports_refuse_without_blocking_public_declarations(ap
 
 
 @pytest.mark.parametrize("api", sorted(APIS))
-@pytest.mark.parametrize("shape", ["plain", "chain", "annotated", "tuple", "module", "conditional", "class"])
+@pytest.mark.parametrize("shape", ["plain", "chain", "annotated", "tuple", "module", "conditional", "class",
+                                  "boolean", "named", "container"])
 def test_assigned_zip_capabilities_keep_their_origin(api, shape):
     module, name = api.rsplit(".", 1)
     prefix = f"from {module} import {name}\n"
@@ -66,7 +67,8 @@ def test_assigned_zip_capabilities_keep_their_origin(api, shape):
                    "annotated": f"leaked: object = {name}", "tuple": f"leaked, other = {name}, 0",
                    "module": f"import {module}\nleaked = {api}",
                    "conditional": f"leaked = {name} if flag else {name}",
-                   "class": f"class Holder:\n    leaked = {name}"}
+                   "class": f"class Holder:\n    leaked = {name}", "boolean": f"leaked = {name} or {name}",
+                   "named": f"leaked = (other := {name})", "container": f"leaked = ({name},)[0]"}
     symbol = "Holder.leaked" if shape == "class" else "leaked"
     sources = {USING: prefix + assignments[shape] + "\ndef zip_members(path): return path\nclass PublicRecord: pass",
                "atlas_brain/bridge.py": "from .evidence import archives\nexported = archives." + symbol}
