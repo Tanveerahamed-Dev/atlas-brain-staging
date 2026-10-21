@@ -203,3 +203,26 @@ def test_actual_cli_type_data_and_callable_alias_keep_separate_origins(tmp_path,
         subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
         result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
         assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
+
+
+@pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
+def test_actual_cli_class_alias_keeps_its_declared_method_namespace(tmp_path, capability):
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text("from zipfile import ZipFile\nclass Record: pass\ntype Public = Record | int\n"
+                     + "class Reader:\n @staticmethod\n def factory(): return " + capability
+                     + "\nAlias = Reader\ndef public_data(): return 1\n", encoding="utf-8")
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import Alias, Public, public_data\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    probe, tool = tmp_path / "atlas_brain/probe.py", str(Path("tools/fence.py").resolve())
+    args = "source" if capability == "ZipFile" else "archive, entry"
+    for module in (".evidence.archives", ".bridge"):
+        prefix = f"from {module} import Alias, Public, public_data\n"
+        probe.write_text(prefix + "value: Public\nAlias.factory()\npublic_data()\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+        probe.write_text(prefix + f"Alias.factory()({args})\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
