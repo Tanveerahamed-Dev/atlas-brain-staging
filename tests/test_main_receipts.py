@@ -57,6 +57,17 @@ def test_full_source_derived_class_passes():
     assert result["workflow_count"] == 3 and result["job_count"] == 9
 
 
+def test_matrix_values_come_from_source_not_an_os_list():
+    data = receipts()
+    for entry in data["tree"]["tree"]:
+        blob = source_blob(SOURCE.replace("windows-latest", "other-runner"))
+        data["sources"][entry["path"]] = blob
+        entry["sha"] = blob["sha"]
+    for jobs in data["jobs"].values():
+        jobs[1]["name"] = "check (other-runner)"
+    assert verify(data, SHA, "push")["job_count"] == 9
+
+
 @pytest.mark.parametrize("plant", ["windows", "job", "duplicate", "extra", "unbound", "tampered",
                                   "dynamic", "include", "condition", "renamed", "controller"])
 def test_exact_source_job_inventory_refusals(plant):
@@ -122,7 +133,9 @@ def test_main_receipt_refusals(plant):
 
 def test_real_cli_positive_and_missing_snapshot(tmp_path):
     path = tmp_path / "receipts.json"
-    for data, expected in ((receipts(), 0), ({**receipts(), "runs": []}, 1)):
+    omitted = receipts()
+    omitted["jobs"]["10"].pop(1)
+    for data, expected in ((receipts(), 0), ({**receipts(), "runs": []}, 1), (omitted, 1)):
         path.write_text(json.dumps(data), encoding="utf-8")
         result = subprocess.run([sys.executable, "-m", "tools.main_receipts", "--sha", SHA,
                                  "--snapshot", str(path)], capture_output=True, text=True, check=False)
