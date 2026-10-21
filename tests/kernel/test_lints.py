@@ -35,6 +35,8 @@ from atlas_brain.kernel.lints import lint
     ('def map_state(raw):\n if raw == "up": return "up"\n else: pass\n return "up"', 3),
     ('def map_state(raw):\n if raw == "up": return "up"\n if raw == "down": return "down"\n return "up"', 3),
     ('class Known(str): pass\nmatch raw:\n case Known(): value = "up"', 3),
+    ('def Unknown(*args): return "up"\ndef mapped(raw):\n if raw == "up": return "up"\n return Unknown(raw)', 3),
+    ('def mapped(raw):\n if raw != "up": return "up"\n raise UnknownToken(raw)', 3),
     ('def assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
     ('from typing import assert_never\ndef assert_never(value): pass\ndef mapped(raw):\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
     ('from typing import assert_never\ndef mapped(fact, raw):\n match fact:\n  case Known(value=assert_never): pass\n match raw:\n  case _ as missing: assert_never(missing)\n return "up"', 3),
@@ -73,6 +75,8 @@ def test_every_lint_and_alternate_plant(path, rule, source):
     ('atlas_brain/packs/example/parser.py', source) for source in [
     '@dataclass(frozen=True)\nclass Record:\n value: int',
     'value = tokens[token]',
+    'def mapped(raw):\n if raw == "up": return "up"\n raise UnknownToken(raw)',
+    'from atlas_brain.kernel.states import Unknown as U\ndef mapped(raw):\n if raw == "up": return "up"\n return U(reason=reason, detail="unmapped", evidence=(), candidates=(), next_evidence=())',
     'values = (1, True, None, Ellipsis, "token", b"bytes")',
     'match token:\n case "up": value = 1\n case "down": value = 0',
     'from atlas_brain.kernel.states import Known\nfrom typing import assert_never\nmatch fact:\n case Known(): pass\n case _ as impossible: assert_never(impossible)',
