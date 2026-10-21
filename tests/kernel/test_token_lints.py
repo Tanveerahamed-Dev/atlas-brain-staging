@@ -149,6 +149,7 @@ def test_enclosing_control_flow_cannot_turn_refusal_into_health(source):
     'def mapped(raw):\n try: pass\n except ValueError: pass\n else:\n  if raw == "up": return "up"\n  raise UnknownToken(raw)',
     'def mapped(raw):\n with manager:\n  def local(raw):\n   if raw == "up": return "up"\n   raise UnknownToken(raw)\n return local(raw)',
     'def mapped(raw):\n try: raise ValueError("entered")\n except ValueError:\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n return "up"',
+    'def mapped(raw):\n try: raise ValueError("entered")\n except ValueError:\n  def other(): return "up"\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")',
     'def mapped(raw):\n value = states[raw]\n return value',
     'def mapped(raw):\n if raw == "up":\n  value = states[raw]\n  return value\n raise ValueError("unmapped")',
 ])
@@ -249,6 +250,11 @@ def test_matching_literal_membership_with_explicit_unknown_remains_valid():
     'def mapped(raw):\n value = "up"\n for _ in ():\n  @states[raw]\n  def ignored(): pass\n return value',
 ])
 def test_optional_execution_cannot_certify_a_function_refusal(source):
+    assert fallback_nodes(ast.parse(source), {}, set())
+
+
+def test_entered_handler_conditional_early_return_cannot_certify_later_membership():
+    source = 'def mapped(raw, ready):\n try: raise ValueError("entered")\n except ValueError:\n  if ready: return "up"\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")'
     assert fallback_nodes(ast.parse(source), {}, set())
 
 
