@@ -1,6 +1,6 @@
 # ADR-0008: ADR-0002 amendment for K membership operators
 
-Status: accepted
+Status: superseded
 
 Supersedes ADR-0007; all prior per-file and global grants remain unchanged.
 Standing public per-file AST approval:

@@ -41,6 +41,24 @@ def _statement_lookup(node: ast.AST) -> bool:
     return False
 
 
+def _may_return(node: ast.AST) -> bool:
+    """Find a possible early return without entering a separately defined function."""
+    pending = [node]
+    while pending:
+        part = pending.pop()
+        if isinstance(part, ast.Return):
+            return True
+        fields = tuple(ast.iter_fields(part))
+        if any(field == 'args' and isinstance(value, ast.AST) for field, value in fields):
+            continue
+        for _, value in fields:
+            if isinstance(value, ast.AST):
+                pending.append(value)
+            elif isinstance(value, list):
+                pending.extend(child for child in cast(list[object], value) if isinstance(child, ast.AST))
+    return False
+
+
 def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...]], frozenset[ast.AST]]:
     """Bind local successors without certifying optional or intercepted execution.
 
@@ -81,11 +99,11 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
                 field in ('body', 'orelse') and conditional)
             blocked = blocked and not (function_scope and field == 'body')
             unreachable: set[ast.AST] = set()
-            terminated = False
+            may_skip = False
             for statement in block:
-                if terminated:
+                if may_skip:
                     unreachable.add(statement)
-                terminated = terminated or isinstance(statement, (ast.Return, ast.Raise))
+                may_skip = may_skip or isinstance(statement, ast.Raise) or _may_return(statement)
             pending.extend((child, blocked or child in unreachable) for child in children)
     return following, frozenset(intercepted)
 
