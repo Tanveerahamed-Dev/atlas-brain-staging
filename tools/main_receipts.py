@@ -17,6 +17,30 @@ def workflow_paths(tree):
             and re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", r["path"])}
 
 
+def check_steps(text):
+    """Closed step mappings: conditional/soft-failure/alias/flow forms refuse."""
+    commands = None
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line.startswith("      - "):
+            if commands is not None and commands != 1:
+                raise ValueError("step must have exactly one run or uses command")
+            match = re.fullmatch(r"      - (name|id|uses|run): .+", line)
+            if match is None:
+                raise ValueError("unsupported source step declaration")
+            commands = int(match[1] in {"run", "uses"})
+        elif line.startswith("        ") and not line.startswith("          "):
+            match = re.fullmatch(r"        (name|id|uses|run|with|env|shell|working-directory|timeout-minutes):(?: .+)?", line)
+            if match is None or commands is None:
+                raise ValueError("unapproved or unsupported source step directive")
+            commands += int(match[1] in {"run", "uses"})
+        elif not line.startswith("          "):
+            raise ValueError("unsupported source step indentation")
+    if commands != 1:
+        raise ValueError("empty step registry or missing step command")
+
+
 def expected_jobs(data, path, event):
     """Closed workflow header grammar; unknown matrices/names/conditions refuse."""
     blob = data["sources"][path]
@@ -38,8 +62,9 @@ def expected_jobs(data, path, event):
         pattern = (r"(?:    name: (.+)\n)?(?:    strategy:\n      fail-fast: false\n      matrix:\n        os: (.+)\n)?"
                    r"    runs-on: (.+)\n    timeout-minutes: [1-9][0-9]*(?: #[^\n]*)?\n")
         match = re.fullmatch(pattern, header)
-        if not match or any(line and not line.startswith("      ") for line in steps.splitlines()):
+        if not match:
             raise ValueError("unsupported job header or steps layout")
+        check_steps(steps)
         label, matrix, runner = match.groups()
         if event == "workflow_dispatch" and label is None:
             raise ValueError("manual job lacks an event-bound context name")
@@ -114,6 +139,12 @@ def verify(data, sha, event):
             raise ValueError(f"missing, duplicate or unexpected configured jobs: {path}")
         if not jobs or any(j["status"] != "completed" or j["conclusion"] != "success" for j in jobs):
             raise ValueError(f"missing, failed, pending, skipped or cancelled jobs: {path}")
+        for job in jobs:
+            steps = job.get("steps")
+            if not isinstance(steps, list) or not steps or any(
+                not isinstance(s, dict) or s.get("status") != "completed" or s.get("conclusion") != "success" for s in steps
+            ):
+                raise ValueError(f"missing or non-success step receipt: {path}")
         count += len(jobs)
     return {"verified": True, "sha": sha, "event": event, "workflow_count": len(selected),
             "job_count": count, "run_ids": [r["id"] for r in selected.values()], "expected_jobs": expected}
