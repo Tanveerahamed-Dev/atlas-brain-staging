@@ -200,3 +200,28 @@ def test_plain_primitive_function_results_keep_their_operations(producer):
 def test_class_predicates_do_not_return_the_tested_class(result, member):
     sources = {USING: "from zipfile import ZipFile\ndef factory(value): return " + result}
     assert source_allowed("from .evidence.archives import factory\nfactory(value)." + member, sources)
+
+
+@pytest.mark.parametrize("returned", ["ZipFile", "ZipFile.open"])
+@pytest.mark.parametrize("shape", ["direct", "assigned", "conditional"])
+def test_actual_cli_refuses_returned_zip_class_and_member_calls(tmp_path: Path, returned, shape):
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text("from zipfile import ZipFile\ndef opener(): return " + returned + "\n", encoding="utf-8")
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import opener\n", encoding="utf-8")
+    probe = tmp_path / "atlas_brain/probe.py"
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    tool = str(Path("tools/fence.py").resolve())
+    args = "source" if returned == "ZipFile" else "archive, entry"
+    consumer = {"direct": f"opener()({args})", "assigned": f"callback = opener()\ncallback({args})",
+                "conditional": f"(opener() if flag else opener())({args})"}[shape]
+    for module in (".evidence.archives", ".bridge"):
+        prefix = f"from {module} import opener\n"
+        probe.write_text(prefix + "opener()\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+        probe.write_text(prefix + consumer + "\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        refused = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert refused.returncode == 1 and "atlas_brain/probe.py" in refused.stdout
