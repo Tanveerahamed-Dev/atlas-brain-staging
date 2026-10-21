@@ -1,8 +1,9 @@
-"""Source-bound evidence-loss candidates; never admitted bundles or Tier-M truth."""
+"""Source-bound mutation candidates; never admitted bundles or Tier-M truth."""
 import json
 from hashlib import sha256
 from pathlib import Path
 
+from tools.mutations import _span, apply_span
 from tools.provenance import parse, record, relative, validate_tree
 
 
@@ -84,3 +85,38 @@ def drop_form(root: Path, provenance: str, expected_sha256: str,
         origins.add(origin)
     stable = tuple(sorted(context, key=lambda item: item["provenance"]))
     return None, _candidate("drop-form", parent, raw, 0, None, stable)
+
+
+def mutate_fixture(root: Path, parent: tuple[str, str], operator: str,
+                   start: int, end: int, after: bytes, witness: tuple[str, str],
+                   witness_start: int, witness_end: int) -> tuple[bytes, dict]:
+    """Bind an unqualified state edit to two public-M0 fixture snapshots, not caller records."""
+    raw, source = _snapshot(root, *parent)
+    donor, token = _snapshot(root, *witness)
+    left, right = source["platform"], token["platform"]
+    if (any(ref["declared_source_tier"] not in {"P", "S"} for ref in (source, token))
+            or left["family"] not in {"iosxe", "nxos"}
+            or any(platform["version_basis"] == "unknown" or platform["version"].lower() in
+                   {"unknown", "unstated"} for platform in (left, right))
+            or (left["family"], left["version"]) != (right["family"], right["version"])):
+        raise ValueError("matching stated public-M0 family/train declarations required")
+    same_path = source["provenance"] == token["provenance"]
+    if ((same_path and source != token) or (not same_path and
+            (source["fixture_id"] == token["fixture_id"]
+             or source["source"]["repository"] == token["source"]["repository"]))):
+        raise ValueError("conflicting or aliased fixture identity")
+    if _span(donor, witness_start, witness_end) != after:
+        raise ValueError("replacement absent at complete witness token span")
+    output = apply_span(raw, operator, start, end, after)
+    receipt = {
+        "qualification": "unqualified", "operator": operator, "parent": source,
+        "witness_status": "lexical_only", "capture_relationship": "not_verified",
+        "token_witness": {"snapshot": token, "span": [witness_start, witness_end],
+                          "token_hex": after.hex()},
+        "edit": {"start": start, "end": end, "before_hex": raw[start:end].hex(),
+                 "after_hex": after.hex()},
+        "sha256": sha256(output).hexdigest(),
+    }
+    encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+    receipt["derivation_id"] = sha256(encoded).hexdigest()
+    return output, receipt
