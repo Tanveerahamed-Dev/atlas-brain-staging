@@ -165,7 +165,8 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
                 _enum_comparison(node.test))
     if isinstance(node, ast.If):
         lookup = _lookup_branch(node.body + node.orelse)
-        if allow_refusal and not node.orelse and _refusal_tail(following, _finite_subject(node.test), unknowns):
+        subject = _finite_subject(node.test)
+        if allow_refusal and not node.orelse and (subject or lookup) and _refusal_tail(following, subject, unknowns):
             return False
         return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
                 _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or lookup
