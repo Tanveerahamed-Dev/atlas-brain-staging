@@ -28,12 +28,18 @@ def expected_jobs(data, path, event):
     for job, body in zip(blocks[1::2], blocks[2::2], strict=True):
         header, steps = body.split("    steps:\n", 1)
         header = re.sub(r"(?m)^ *#.*\n", "", header)
-        pattern = (r"(?:    strategy:\n      fail-fast: false\n      matrix:\n        os: (.+)\n)?"
+        pattern = (r"(?:    name: (.+)\n)?(?:    strategy:\n      fail-fast: false\n      matrix:\n        os: (.+)\n)?"
                    r"    runs-on: (.+)\n    timeout-minutes: [1-9][0-9]*(?: #[^\n]*)?\n")
         match = re.fullmatch(pattern, header)
         if not match or any(line and not line.startswith("      ") for line in steps.splitlines()):
             raise ValueError("unsupported job header or steps layout")
-        matrix, runner = match.groups()
+        label, matrix, runner = match.groups()
+        if label is not None:
+            label_match = re.fullmatch(r"\$\{\{ github.event_name == 'workflow_dispatch' && 'manual-([A-Za-z0-9_-]+)'"
+                                      r" \|\| '([A-Za-z0-9_-]+)' \}\}( \(\$\{\{ matrix.os \}\}\))?", label)
+            if not label_match or label_match[1] != job or label_match[2] != job or bool(label_match[3]) != bool(matrix):
+                raise ValueError("unbound or colliding manual job context")
+            job = ("manual-" if event == "workflow_dispatch" else "") + job
         if matrix is None:
             if not re.fullmatch(r"[A-Za-z0-9_.-]+", runner):
                 raise ValueError("unresolved runner")
@@ -43,11 +49,12 @@ def expected_jobs(data, path, event):
             raise ValueError("unbound matrix runner")
         if matrix.startswith("${{"):
             expression = re.fullmatch(r"\$\{\{ fromJSON\(\(github.event_name == 'push' \|\| github.event_name == 'schedule'"
+                                      r"( \|\| github.event_name == 'workflow_dispatch')?"
                                       r" \|\| vars.BOOTSTRAP_PR_LINUX_ONLY == 'false'\) && '(\[[^']+\])'"
                                       r" \|\| '(\[[^']+\])'\) \}\}", matrix)
-            if not expression or event not in {"push", "schedule"}:
+            if not expression or not (event in {"push", "schedule"} or (event == "workflow_dispatch" and expression[1])):
                 raise ValueError("unresolved matrix expression for event")
-            values = json.loads(expression[1])
+            values = json.loads(expression[2])
         else:
             if not re.fullmatch(r"\[[A-Za-z0-9_.-]+(?:, [A-Za-z0-9_.-]+)*\]", matrix):
                 raise ValueError("unsupported matrix")

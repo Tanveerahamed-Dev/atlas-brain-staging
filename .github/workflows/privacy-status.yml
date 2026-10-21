@@ -1,5 +1,6 @@
 name: Privacy and gate-data regressions
 on:
+  workflow_dispatch:
   pull_request:
   merge_group:
   push:
@@ -15,6 +16,7 @@ env:
   ATLAS_TEST_MARKER: ${{ github.run_id }}-synthetic-canary
 jobs:
   privacy-status:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'manual-privacy-status' || 'privacy-status' }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
