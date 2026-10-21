@@ -12,14 +12,26 @@ class CallableBindings:
     def __init__(self, module, aliases, exports, declarations):
         self.module, self.aliases, self.exports, self.declarations = module, aliases, exports, declarations
         self.possible, self.values, self.definitions = {}, {}, {}
+        self.external = set()
 
     @staticmethod
     def scope_keys(name, scope):
         parts = scope.rstrip(".").split(".") if scope else []
         return [".".join((*parts[:length], name)) for length in range(len(parts), -1, -1)]
 
+    def external_name(self, name, scope):
+        return any(key in self.external for key in self.scope_keys(name.split(".")[0], scope))
+
     def origins(self, value, scope):
         if isinstance(value, ast.Name):
+            if self.external_name(value.id, scope):
+                # Explicit outer bindings can be mutated outside this lexical walk.
+                # Over-approximate named alternatives; never certify a scalar from them.
+                roots = {None}
+                for key, alternatives in self.possible.items():
+                    if key.rsplit(".", 1)[-1] == value.id:
+                        roots.update(alternatives)
+                return frozenset(roots)
             for key in self.scope_keys(value.id, scope):
                 if key in self.possible:
                     return frozenset(self.possible[key])
@@ -67,6 +79,8 @@ class CallableBindings:
 
     def predeclare(self, tree):
         def walk(node, scope=""):
+            if isinstance(node, (ast.Global, ast.Nonlocal)):
+                self.external.update(scope + name for name in node.names)
             if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.declare(node, scope)
                 self.declarations.add(scope + node.name)
@@ -82,5 +96,10 @@ class CallableBindings:
         if not isinstance(value, ast.Call):
             return False
         origins = self.origins(value.func, scope)
+        root = value.func
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if isinstance(root, ast.Name) and self.external_name(root.id, scope):
+            return False
         scalar = SCALAR_APIS | {"builtins." + name for name in SCALARS}
         return bool(origins) and all(root in scalar for root in origins)
