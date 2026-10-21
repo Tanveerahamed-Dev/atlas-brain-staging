@@ -47,7 +47,10 @@ def receipts():
             "runs": [{"id": i + 10, "workflow_id": i + 1, "head_sha": SHA, "event": "push",
                       "run_number": 1, "run_attempt": 1, "status": "completed", "conclusion": "success"}
                      for i in range(3)],
-            "jobs": {str(i + 10): [{"name": n, "status": "completed", "conclusion": "success"}
+            "jobs": {str(i + 10): [{"name": n, "status": "completed", "conclusion": "success",
+                                   "steps": [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success"},
+                                             {"number": 2, "name": "Run echo synthetic", "status": "completed", "conclusion": "success"},
+                                             {"number": 3, "name": "Complete job", "status": "completed", "conclusion": "success"}]}
                                   for n in ("check (ubuntu-latest)", "check (windows-latest)", "audit")]
                      for i in range(3)}}
 
@@ -55,6 +58,115 @@ def receipts():
 def test_full_source_derived_class_passes():
     result = verify(receipts(), SHA, "push")
     assert result["workflow_count"] == 3 and result["job_count"] == 9
+
+
+@pytest.mark.parametrize("step", [
+    "      - run: exit 1\n        continue-on-error: true\n",
+    "      - run: uv run pytest\n        if: false\n",
+    "      - if: false\n        run: uv run pytest\n",
+    '      - run: exit 1\n        "continue-on-error": true\n',
+    "      - {run: exit 1, continue-on-error: true}\n",
+    "      - run: uv run pytest\n        <<: *skip_gate\n",
+])
+def test_source_step_bypasses_cannot_hide_behind_green_jobs(step):
+    data = receipts()
+    path = data["catalog"][0]["path"]
+    blob = source_blob(SOURCE.replace("      - run: echo synthetic\n", step, 1))
+    data["sources"][path] = blob
+    data["tree"]["tree"][0]["sha"] = blob["sha"]
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
+
+
+@pytest.mark.parametrize("plant", ["missing", "empty", "skipped", "failure", "cancelled", "pending"])
+def test_green_job_requires_successful_step_receipts(plant):
+    data = receipts()
+    job = data["jobs"]["10"][0]
+    if plant == "missing":
+        del job["steps"]
+    elif plant == "empty":
+        job["steps"] = []
+    elif plant == "pending":
+        job["steps"][1]["status"] = "in_progress"
+    else:
+        job["steps"][1]["conclusion"] = plant
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
+
+
+def test_missing_one_of_two_source_steps_refuses_then_complete_pair_passes():
+    data = receipts()
+    path = data["catalog"][0]["path"]
+    blob = source_blob(SOURCE.replace("      - run: echo synthetic\n",
+                                     "      - run: echo synthetic\n      - run: uv run pytest\n", 1))
+    data["sources"][path] = blob
+    data["tree"]["tree"][0]["sha"] = blob["sha"]
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
+    for index, job in enumerate(data["jobs"]["10"][:2]):
+        steps = job["steps"]
+        steps[-1]["number"] = 4
+        steps.insert(2, {"number": 3, "name": "Run uv run pytest", "status": "completed", "conclusion": "success"})
+        if index == 0:
+            with pytest.raises(ValueError):
+                verify(data, SHA, "push")
+    assert verify(data, SHA, "push")["job_count"] == 9
+
+
+@pytest.mark.parametrize("plant", ["missing", "duplicate", "name", "number", "extra", "setup", "boolean"])
+def test_source_step_identity_is_unambiguous(plant):
+    data = receipts()
+    steps = data["jobs"]["10"][0]["steps"]
+    if plant == "missing":
+        steps.pop(1)
+    elif plant == "duplicate":
+        steps.append(deepcopy(steps[1]))
+    elif plant == "name":
+        steps[1]["name"] = "Run a different gate"
+    elif plant == "number":
+        steps[1]["number"] = 4
+    elif plant == "extra":
+        steps.append({**steps[1], "number": 4, "name": "Run unexpected gate"})
+    elif plant == "setup":
+        steps.pop(0)
+    else:
+        steps[0]["number"] = True
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
+
+
+def test_action_post_receipts_are_separate_from_required_source_steps():
+    data = receipts()
+    path = data["catalog"][0]["path"]
+    blob = source_blob(SOURCE.replace("      - run: echo synthetic\n", "      - uses: actions/example@abc # pinned\n", 1))
+    data["sources"][path] = blob
+    data["tree"]["tree"][0]["sha"] = blob["sha"]
+    for job in data["jobs"]["10"][:2]:
+        steps = job["steps"]
+        steps[1]["name"] = "Run actions/example@abc"
+        steps[-1]["number"] = 5
+        steps.insert(2, {"number": 4, "name": "Post Run actions/example@abc", "status": "completed", "conclusion": "success"})
+    assert verify(data, SHA, "push")["job_count"] == 9
+    steps = data["jobs"]["10"][0]["steps"]
+    steps[1]["name"] = "Post Run actions/example@abc"
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
+
+
+@pytest.mark.parametrize("step", [
+    "      - run: echo synthetic\n      - run: echo synthetic\n",
+    "      - run: echo synthetic\n        name:\n",
+    "      - name: Set up job\n        run: echo synthetic\n",
+    "      - name: ${{ github.sha }}\n        run: echo synthetic\n",
+])
+def test_ambiguous_source_step_names_refuse(step):
+    data = receipts()
+    path = data["catalog"][0]["path"]
+    blob = source_blob(SOURCE.replace("      - run: echo synthetic\n", step, 1))
+    data["sources"][path] = blob
+    data["tree"]["tree"][0]["sha"] = blob["sha"]
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
 
 
 def test_matrix_values_come_from_source_not_an_os_list():
