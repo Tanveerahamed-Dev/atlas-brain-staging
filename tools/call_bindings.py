@@ -14,11 +14,13 @@ class CallableBindings:
         self.possible, self.values, self.definitions = {}, {}, {}
         self.external = set()
         self.external_roots, self.class_scopes = set(), set()
+        self.function_scopes = set()
 
     def scope_keys(self, name, scope):
         parts = scope.rstrip(".").split(".") if scope else []
         prefixes = [".".join(parts[:length]) + ("." if length else "") for length in range(len(parts), -1, -1)]
-        return [prefix + name for prefix in prefixes if prefix == scope or prefix not in self.class_scopes]
+        return [prefix + name for prefix in prefixes
+                if prefix == scope or prefix not in self.class_scopes or prefix in self.function_scopes]
 
     def external_name(self, name, scope):
         root = name.split(".")[0]
@@ -90,6 +92,8 @@ class CallableBindings:
                 self.external_roots.update(node.names)
             if isinstance(node, ast.ClassDef):
                 self.class_scopes.add(scope + node.name + ".")
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self.function_scopes.add(scope + node.name + ".")
             if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.declare(node, scope)
                 self.declarations.add(scope + node.name)
