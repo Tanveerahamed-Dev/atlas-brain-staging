@@ -52,3 +52,37 @@ def test_all_capture_forms_refuse_spoofed_terminal(source):
 def test_unproven_or_shadowed_fact_name_is_not_a_witness(aliases, rebound):
     tree = ast.parse('match value:\n case K(): pass')
     assert binding_proof(tree, aliases, rebound)[1] == frozenset()
+
+
+@pytest.mark.parametrize('expression,aliases', [
+    ('U()', {'U': 'atlas_brain.kernel.states.Unknown'}),
+    ('s.Unknown()', {'s': 'atlas_brain.kernel.states'}),
+    ('atlas_brain.kernel.states.Unknown()', {}),
+])
+def test_canonical_unknown_calls_are_separate_from_terminal_assertions(expression, aliases):
+    tree = ast.parse(expression)
+    calls, facts = binding_proof(tree, aliases, set(), call_target='atlas_brain.kernel.states.Unknown')
+    assert calls == frozenset(node for node in ast.walk(tree) if isinstance(node, ast.Call))
+    assert not facts
+    assert not binding_proof(tree, aliases, set())[0]
+
+
+@pytest.mark.parametrize('rebound', [
+    {'atlas_brain'}, {'atlas_brain.kernel.states'},
+    {'atlas_brain.kernel.states.Unknown'}, {'atlas_brain.kernel.states.Unknown.extra'},
+])
+def test_unknown_call_witness_refuses_every_rebinding_level(rebound):
+    tree = ast.parse('U()')
+    assert not binding_proof(tree, {'U': 'atlas_brain.kernel.states.Unknown'}, rebound,
+                             call_target='atlas_brain.kernel.states.Unknown')[0]
+
+
+@pytest.mark.parametrize('source,aliases', [
+    ('Unknown()', {}),
+    ('U()', {'U': 'other.Unknown'}),
+    ('match value:\n case U: pass\nU()', {'U': 'atlas_brain.kernel.states.Unknown'}),
+    ('match value:\n case {"x": x, **U}: pass\nU()', {'U': 'atlas_brain.kernel.states.Unknown'}),
+    ('match value:\n case [*U]: pass\nU()', {'U': 'atlas_brain.kernel.states.Unknown'}),
+])
+def test_unproven_unknown_and_pattern_capture_cannot_certify_refusal(source, aliases):
+    assert not binding_proof(ast.parse(source), aliases, set(), call_target='atlas_brain.kernel.states.Unknown')[0]

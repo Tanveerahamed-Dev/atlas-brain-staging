@@ -1,10 +1,12 @@
 """Tracked paths, standard-library runtime dependencies, and denied engine imports."""
 import ast
+import importlib
 import json
 import re
 import subprocess
 import sys
 import tomllib
+from functools import cache
 from pathlib import Path, PurePosixPath
 
 ROOTS = {"README.md", "LICENSE", ".gitattributes", ".gitignore",
@@ -33,6 +35,7 @@ STDLIB_API = {
 # ADR-0003 amends ADR-0002: exact AST endpoints at their actual using paths.
 SCOPED_API = {
     "atlas_brain/kernel/token_lints.py": {
+        "ast.In", "ast.NotIn",
         "ast.Eq", "ast.Raise", "ast.iter_fields",
         "ast.AnnAssign", "ast.Assign", "ast.Compare", "ast.Constant", "ast.Expr", "ast.MatchAs",
         "ast.MatchMapping", "ast.MatchStar", "ast.Return", "ast.stmt", "ast.Subscript",
@@ -57,6 +60,16 @@ SCOPED_API = {
         "ast.AST", "ast.AsyncFunctionDef", "ast.ClassDef", "ast.FunctionDef", "ast.get_source_segment",
         "ast.Lambda", "ast.Module", "ast.NodeVisitor", "ast.parse", "ast.walk",
     },
+}
+
+
+RUNTIME_API = {"atlas_brain/evidence/admission.py": {
+    "pathlib.PurePosixPath.is_absolute", "pathlib.PurePosixPath.parts",
+}}
+RUNTIME_API["atlas_brain/evidence/archives.py"] = {
+    "zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
+    "zlib.error", "zlib.decompressobj", "stat.S_IFMT", "zipfile.ZipFile.infolist",
+    "zipfile.ZipFile.open", "pathlib.Path.suffix",
 }
 
 
@@ -109,6 +122,107 @@ def gate_data_allowed(path: str, data) -> bool:
 
 def import_bindings(tree, path):
     aliases, exports, declarations = {}, {}, set()
+    def dotted(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        base = dotted(node.value) if isinstance(node, ast.Attribute) else ""
+        return base + "." + node.attr if base else ""
+    def reference(node, scope):
+        name = dotted(node)
+        if name:
+            if scope + name in exports:
+                return True, exports[scope + name]
+            if scope + name in declarations:
+                return False, None
+            if name in exports:
+                return True, exports[name]
+            if isinstance(node, ast.Name):
+                return (True, aliases[node.id]) if node.id in aliases else (False, None)
+        if isinstance(node, ast.Attribute):
+            known, base = reference(node.value, scope)
+            return known, (base + "." + node.attr if isinstance(base, str) else
+                           tuple(root + "." + node.attr if root is not None else None for root in base) if isinstance(base, tuple) else None)
+        if isinstance(node, ast.Call):
+            return opaque(node, scope)
+        if isinstance(node, ast.NamedExpr):
+            return reference(node.value, scope)
+        if isinstance(node, ast.IfExp):
+            left, a = reference(node.body, scope)
+            right, b = reference(node.orelse, scope)
+            return left or right, a if left and right and a == b else None
+        if isinstance(node, ast.BoolOp):
+            values = [reference(value, scope) for value in node.values]
+            origins = [origin for known, origin in values if known]
+            return bool(origins), origins[0] if len(origins) == len(values) and all(o == origins[0] for o in origins) else None
+        return False, None
+    def opaque(value, scope):
+        parents = {child: parent for parent in ast.walk(value) for child in ast.iter_child_nodes(parent)}
+        roots = set()
+        ambiguous = False
+        for part in ast.walk(value):
+            if not isinstance(part, (ast.Name, ast.Attribute)) or isinstance(parents.get(part), ast.Attribute):
+                continue
+            found, base = reference(part, scope)
+            if found:
+                items = base if isinstance(base, tuple) else (base,)
+                ambiguous |= None in items
+                roots.update(root for root in items if root is not None)
+        return bool(roots or ambiguous), (None, *sorted(roots)) if ambiguous and roots else None if ambiguous else tuple(sorted(roots))
+    def assignment(target, value, scope):
+        if isinstance(target, ast.Subscript):
+            assignment(target.value, value, scope)
+            return
+        if isinstance(target, (ast.Tuple, ast.List)):
+            if (isinstance(value, (ast.Tuple, ast.List)) and len(target.elts) == len(value.elts)
+                    and not any(isinstance(item, ast.Starred) for item in target.elts)):
+                for item, origin in zip(target.elts, value.elts, strict=True):
+                    assignment(item, origin, scope)
+            else:
+                for item in ast.walk(target):
+                    if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store):
+                        assignment(item, value, scope)
+            return
+        name = dotted(target)
+        if not name:
+            return
+        key = scope + name
+        known, origin = reference(value, scope)
+        if not known:
+            known, origin = opaque(value, scope)
+        elif origin is None:
+            _, possible = opaque(value, scope)
+            if isinstance(possible, tuple):
+                origin = (None, *possible)
+        if known:
+            if key in declarations or key in exports and exports[key] != origin:
+                previous = exports.get(key)
+                combined = (*previous,) if isinstance(previous, tuple) else (previous,)
+                combined += origin if isinstance(origin, tuple) else (origin,)
+                origin = (None, *sorted({root for root in combined if root is not None}))
+            exports[key] = origin
+            declarations.discard(key)
+        elif key in exports:
+            previous = exports[key]
+            exports[key] = (None, *(previous if isinstance(previous, tuple) else (previous,)))
+        else:
+            declarations.add(key)
+    def returned(value, scope):
+        if isinstance(value, (ast.NamedExpr, ast.Subscript)):
+            return returned(value.value, scope)
+        if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+            return set().union(*(returned(part, scope) for part in value.elts))
+        if isinstance(value, ast.IfExp):
+            return returned(value.body, scope) | returned(value.orelse, scope)
+        if isinstance(value, ast.BoolOp):
+            return set().union(*(returned(part, scope) for part in value.values))
+        # A call returns its callee's result, not its arguments or tested classes.
+        known, origin = reference(value.func if isinstance(value, ast.Call) else value, scope)
+        if not known and isinstance(value, ast.Call):
+            name = dotted(value.func)
+            key = scope + name if scope + name in declarations else name
+            if name and key in declarations:
+                return {path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "." + key}
+        return set(origin if isinstance(origin, tuple) else (origin,)) if known else set()
     def walk(node, scope=""):
         pairs = []
         if isinstance(node, ast.Import):
@@ -128,11 +242,38 @@ def import_bindings(tree, path):
             if name in aliases and aliases[name] != target:
                 raise ValueError("ambiguous import binding")
             aliases[name], exports[scope + name] = target, target
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                assignment(target, node.value, scope)
+        elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+            assignment(node.target, node.value, scope)
+        elif isinstance(node, ast.TypeAlias):
+            assignment(node.name, node.value, scope)
+        elif isinstance(node, ast.Return) and node.value is not None:
+            # Internal non-identifier key keeps return roots separate from locals.
+            key = scope + "$return"
+            exports[key] = tuple(set(exports.get(key, ())) | returned(node.value, scope))
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            assignment(node.target, node.iter, scope)
+        elif isinstance(node, ast.withitem) and node.optional_vars is not None:
+            assignment(node.optional_vars, node.context_expr, scope)
+        elif isinstance(node, ast.AugAssign):
+            assignment(node.target, ast.Tuple(elts=[node.target, node.value], ctx=ast.Load()), scope)
+        elif isinstance(node, ast.Match):
+            for case in node.cases:
+                for pattern in ast.walk(case.pattern):
+                    name = (pattern.name if isinstance(pattern, (ast.MatchAs, ast.MatchStar))
+                            else pattern.rest if isinstance(pattern, ast.MatchMapping) else None)
+                    if name:
+                        assignment(ast.Name(id=name, ctx=ast.Store()), node.subject, scope)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            exports[scope + node.name] = None
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             declarations.add(scope + node.name)
             scope += node.name + "."
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            declarations.add(scope + node.id)
+        if (isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del))
+                and (isinstance(node.ctx, ast.Del) or scope + node.id not in exports and scope + node.id not in declarations)):
+            exports[scope + node.id] = None
         for child in ast.iter_child_nodes(node):
             walk(child, scope)
     walk(tree)
@@ -162,6 +303,37 @@ class ImportIndex:
     def namespace(self, name):
         return name in self.modules or any(module.startswith(name + ".") for module in self.modules)
 
+    def foreign_roots(self, name, seen=frozenset(), *, callable_value=False, evaluate_return=True):
+        """Trace known foreign API roots of exported data without running engine code."""
+        if name is None or name in seen:
+            return set()
+        if not name.startswith("atlas_brain.") and name != "atlas_brain":
+            return {name}
+        module = max((m for m in self.modules if name.startswith(m + ".")), key=len, default="")
+        if not module:
+            return set()
+        exports = self.modules[module][0]
+        tail = name[len(module) + 1:]
+        binding = max((key for key in exports if tail == key or tail.startswith(key + ".")), key=len, default="")
+        returned = not binding
+        if not binding:
+            if not evaluate_return:
+                return set()
+            binding = tail + ".$return"
+            if binding not in exports:
+                return set()
+        target = exports[binding]
+        if isinstance(target, tuple):
+            roots = set().union(*(self.foreign_roots(root, seen | {name}, callable_value=callable_value) for root in target))
+        else:
+            roots = self.foreign_roots(target + tail[len(binding):], seen | {name},
+                callable_value=callable_value, evaluate_return=evaluate_return) if target is not None else set()
+        if returned and not callable_value:
+            # Only known class endpoints imply a returned instance, not primitive operations.
+            admitted = STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values())
+            roots.intersection_update(constructor_members(frozenset(admitted)))
+        return roots
+
     def origin(self, name, seen=frozenset()):
         if any(name == module or name.startswith(module + ".") for module in self.forbidden):
             return None
@@ -178,17 +350,55 @@ class ImportIndex:
         tail = name[len(module) + 1:]
         binding = max((key for key in exports if tail == key or tail.startswith(key + ".")), key=len, default="")
         if binding:
-            return self.origin(exports[binding] + tail[len(binding):], seen | {name})
+            target = exports[binding]
+            if isinstance(target, tuple):
+                if None in target:
+                    return None
+                roots = [self.origin(root, seen | {name}) for root in target]
+                if not all(root is not None and (root.startswith("atlas_brain.") or root in STDLIB_API) for root in roots):
+                    return None
+                suffix = tail[len(binding):]
+                if suffix and any(not root.startswith("atlas_brain.") for root in roots):
+                    return roots[0] + suffix if len(roots) == 1 else None
+                return name
+            return self.origin(target + tail[len(binding):], seen | {name}) if target is not None else None
         return name if any(tail == key or tail.startswith(key + ".") for key in declarations) else None
+
+
+@cache
+def constructor_members(apis):
+    """Inventory trusted admitted stdlib classes; never import consumer modules."""
+    result = {}
+    for api in sorted(apis):
+        parts = api.split(".")
+        if parts[0] not in sys.stdlib_module_names:
+            raise ValueError("constructor inventory requires a stdlib namespace")
+        for length in range(len(parts) - 1, 0, -1):
+            module = ".".join(parts[:length])
+            try:
+                target = importlib.import_module(module)
+            except ModuleNotFoundError as error:
+                if error.name != module and not module.startswith(str(error.name) + "."):
+                    raise
+                continue
+            for name in parts[length:]:
+                target = getattr(target, name)
+            if isinstance(target, type):
+                result[api] = frozenset(name for name in dir(target) if name.isidentifier() and not name.startswith("_"))
+            break
+        else:
+            raise ValueError("admitted API has no closed stdlib namespace")
+    return result
 
 
 def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> set[str]:
     tree = ast.parse(source)
-    apis = STDLIB_API | SCOPED_API.get(path, set())
+    apis = STDLIB_API | SCOPED_API.get(path, set()) | RUNTIME_API.get(path, set())
+    factories = constructor_members(frozenset(apis))
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
-        aliases = import_bindings(tree, path)[0]
-        index = ImportIndex(sources or {}, () if path in SCOPED_API else scoped_modules)
+        aliases, exports, declarations = import_bindings(tree, path)
+        index = ImportIndex({path: source, **(sources or {})}, () if path in SCOPED_API else scoped_modules)
     except ValueError:
         return {"unresolved-provenance"}
     def admitted(name):
@@ -203,7 +413,40 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
             return aliases.get(node.id, "")
         base = qualified(node.value) if isinstance(node, ast.Attribute) else ""
         return base + "." + node.attr if base else ""
+    def receiver_roots(value):
+        roots = set()
+        applied = any(isinstance(part, ast.Call) for part in ast.walk(value))
+        for part in ast.walk(value):
+            if isinstance(part, ast.Attribute) and (name := qualified(part)):
+                roots.add((name, applied))
+            if not isinstance(part, ast.Name):
+                continue
+            scope, ancestor = [], parents.get(part)
+            while ancestor is not None:
+                if isinstance(ancestor, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    scope.insert(0, ancestor.name)
+                ancestor = parents.get(ancestor)
+            if part.id in aliases:
+                roots.add((aliases[part.id], applied))
+            for length in range(len(scope), -1, -1):
+                key = ".".join((*scope[:length], part.id))
+                if key in exports:
+                    target = exports[key]
+                    if isinstance(target, tuple):
+                        roots.update((root, True) for root in target if isinstance(root, str))
+                    else:
+                        roots.add((target, applied))
+                    break
+                if key in declarations:
+                    roots.add((path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "." + key, applied))
+                    break
+        return {(root, result) for root, result in roots if isinstance(root, str)}
     for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and not isinstance(node.func, ast.Attribute):
+            for root, applied in receiver_roots(node.func):
+                origins = index.foreign_roots(root, callable_value=True, evaluate_return=applied)
+                if any(not admitted(origin) for origin in origins):
+                    refused.add(root + "()")
         if isinstance(node, ast.Attribute) and (node.attr in CODE_ATTRIBUTES
                 or node.attr.startswith("_") and node.attr not in {"__init__", "__init_subclass__"}):
             refused.add(node.attr)
@@ -212,12 +455,19 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
         if isinstance(node, (ast.Name, ast.Attribute)):
             raw = qualified(node)
             if not raw:
+                if isinstance(node, ast.Attribute):
+                    # An opaque expression must not erase a known engine-export capability.
+                    for root, _ in receiver_roots(node.value):
+                        origins = index.foreign_roots(root) if root.startswith("atlas_brain.") else {root}
+                        if any(not admitted(factory + "." + node.attr) for factory in origins
+                               if root.startswith("atlas_brain.") or node.attr in factories.get(factory, ())):
+                            refused.add(root + "." + node.attr)
                 continue
             name = index.origin(raw)
             if not admitted(name):
                 refused.add(raw)
                 continue
-            if index.namespace(name) or any(api.startswith(name + ".") for api in apis):
+            if index.namespace(name) or name not in apis and any(api.startswith(name + ".") for api in apis):
                 parent = parents.get(node)
                 if not isinstance(parent, ast.Attribute) or parent.value is not node:
                     refused.add(raw)
