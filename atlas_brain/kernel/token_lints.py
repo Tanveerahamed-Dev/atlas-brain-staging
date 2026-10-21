@@ -93,9 +93,9 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
     if isinstance(node, ast.IfExp):
         return (_lookup_value(node.body) or _lookup_value(node.orelse) or
                 _enum_comparison(node.test))
-    if isinstance(node, ast.If) and node.orelse:
+    if isinstance(node, ast.If):
         return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
-                (_value_branch(node.body) and _value_branch(node.orelse)))) or any(_lookup_value(part.value)
+                (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or bool(node.orelse) and any(_lookup_value(part.value)
                    for statement in node.body + node.orelse for part in ast.walk(statement)
                    if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
     if isinstance(node, ast.Match):
