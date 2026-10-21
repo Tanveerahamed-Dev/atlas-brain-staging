@@ -2,7 +2,7 @@ import ast
 
 import pytest
 
-from atlas_brain.kernel.token_lints import binding_proof, bound_names, fallback_node
+from atlas_brain.kernel.token_lints import binding_proof, bound_names, fallback_node, fallback_nodes
 
 
 @pytest.mark.parametrize('source', [
@@ -97,3 +97,33 @@ def test_canonical_binding_proof_rejects_import_and_capture_shadows():
     assert binding_proof(tree, aliases, {'atlas_brain.kernel.states'})[1] == frozenset()
     shadowed = ast.parse('match fact:\n case K(value=terminal): pass\n case _ as missing: terminal(missing)')
     assert binding_proof(shadowed, aliases, set())[0] == frozenset()
+
+
+@pytest.mark.parametrize('ending', [
+    'raise UnknownToken(raw)',
+    'return atlas_brain.kernel.states.Unknown(reason=reason, detail="unmapped", evidence=(), candidates=(), next_evidence=())',
+])
+@pytest.mark.parametrize('branches', [
+    ' if raw == "up": return "up"\n',
+    ' if raw == "up": return "up"\n if raw == "down": return "down"\n',
+])
+def test_following_explicit_refusal_remains_valid(ending, branches):
+    source = 'import atlas_brain.kernel.states\ndef map_state(raw):\n' + branches + ' ' + ending
+    assert not fallback_nodes(ast.parse(source), {}, set())
+
+
+@pytest.mark.parametrize('source', [
+    'def mapped(raw):\n if raw == "up": pass\n return "up"',
+    'def mapped(raw):\n if raw == "bad": raise UnknownToken(raw)\n return "up"',
+    'def mapped(raw):\n if raw != "up": return "up"\n raise UnknownToken(raw)',
+    'def mapped(raw, other):\n if raw == "up": return "up"\n if other == "down": return "up"\n raise UnknownToken(raw)',
+    'def Unknown(*args): return "up"\ndef mapped(raw):\n if raw == "up": return "up"\n return Unknown(raw)',
+    'def mapped(raw):\n if raw == "up": return "up"\n return "up"\n raise UnknownToken(raw)',
+])
+def test_following_healthy_or_unproven_default_is_refused(source):
+    assert fallback_nodes(ast.parse(source), {}, set())
+
+
+def test_following_unknown_witness_rejects_rebinding():
+    tree = ast.parse('import atlas_brain.kernel.states\ndef mapped(raw):\n if raw == "up": return "up"\n return atlas_brain.kernel.states.Unknown()')
+    assert fallback_nodes(tree, {}, {'atlas_brain.kernel.states.Unknown'})
