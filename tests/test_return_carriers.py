@@ -14,6 +14,14 @@ CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
             ("yield CAP", "next(factory())"),
             ("yield from (CAP,)", "next(factory())"),
             ("return (CAP for _ in (0,))", "next(factory())"),
+            ("yield from iter((CAP,))", "next(factory())"),
+            ("return iter((CAP,))", "next(factory())"),
+            ("it = iter\n yield from it((CAP,))", "next(factory())"),
+            ("return next(iter((CAP,)))", "factory()"),
+            ("return dict(cap=CAP)['cap']", "factory()"),
+            ("return {'cap': CAP}.get('cap')", "factory()"),
+            ("box = {'cap': CAP}\n return box.get('cap')", "factory()"),
+            ("return cast(object, CAP)", "factory()"),
             ("return [CAP for _ in (0,)][0]", "factory()")]
 
 
@@ -22,7 +30,7 @@ CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
 def test_actual_cli_data_positive_then_carried_capability_refusal(tmp_path: Path, capability, body, receiver):
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
-    using.write_text("from zipfile import ZipFile\ndef factory():\n " + body.replace("CAP", capability)
+    using.write_text("from zipfile import ZipFile\nfrom typing import cast\ndef factory():\n " + body.replace("CAP", capability)
                      + "\ndef public_data(): return {'count': 1}\n", encoding="utf-8")
     (tmp_path / "atlas_brain/bridge.py").write_text(
         "from .evidence.archives import factory, public_data\n", encoding="utf-8")
