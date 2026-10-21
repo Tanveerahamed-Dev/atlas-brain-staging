@@ -63,7 +63,11 @@ class EvidenceMutationTests(unittest.TestCase):
             root = Path(folder)
             parent = fixture(root, "parent", b"FULL")
             context = fixture(root, "context", b"population")
-            for references in ((), (parent,), (context, context)):
+            alias = fixture(root, "alias", b"FULL")
+            same_source = fixture(root, "same-source", b"other bytes")
+            same_path = root / same_source[0]
+            same_path.write_bytes(same_path.read_bytes().replace(b"fixtures/same-source/raw.txt", b"fixtures/parent/raw.txt"))
+            for references in ((), (parent,), (context, context), (alias,), (same_source,)):
                 with self.subTest(references=references), self.assertRaises(ValueError):
                     drop_form(root, *parent, references)
             for cut in (-1, 4, 5, True, 1.5):
@@ -99,11 +103,20 @@ class EvidenceMutationTests(unittest.TestCase):
                     admitted = record(candidate)
                     target.write_bytes(target.read_bytes() + b"\n")
                     return admitted
-                with patch("tools.evidence_mutations.record", side_effect=change_after_validation):
-                    with self.assertRaises(ValueError):
-                        truncate(root, *parent, 1)
+                with patch("tools.evidence_mutations.record", side_effect=change_after_validation), self.assertRaises(ValueError):
+                    truncate(root, *parent, 1)
                 path.write_bytes(original)
                 (path.parent / "raw.txt").write_bytes(b"FULL")
+
+    def test_linked_ancestor_is_refused_before_reading_fixture(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            parent = fixture(root, "parent", b"FULL")
+            original = Path.is_symlink
+            def linked(path):
+                return path == root / "fixtures" or original(path)
+            with patch.object(Path, "is_symlink", linked), self.assertRaises(ValueError):
+                truncate(root, *parent, 1)
 
     def test_determinism_ignores_root_and_context_order(self):
         results = []
