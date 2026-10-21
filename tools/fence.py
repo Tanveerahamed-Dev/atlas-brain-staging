@@ -192,7 +192,7 @@ def import_bindings(tree, path):
             key = next((key for key in scope_keys(value.id, scope) if key in exports or key in declarations), "")
             return key in containers
         return False
-    def assignment(target, value, scope):
+    def assignment(target, value, scope, *, type_data=False):
         if isinstance(target, ast.Subscript):
             assignment(target.value, value, scope)
             if isinstance(target.value, ast.Name):
@@ -231,8 +231,7 @@ def import_bindings(tree, path):
         values = callable_values.setdefault(key, set())
         values.update(root[len(CALLABLE_VALUE):] if isinstance(root, str) and root.startswith(CALLABLE_VALUE)
                       else root for root in results or {None})
-        functions = {root for root in values if any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                     for node, _ in calls.definitions.get(root, ()))}
+        functions = values.intersection(calls.definitions) if not type_data and not isinstance(value, ast.BinOp) else set()
         if functions:
             # Join callable values from both direct aliases and call results, preserving UNKNOWN.
             origins = tuple(CALLABLE_VALUE + root if root in functions else root
@@ -323,7 +322,7 @@ def import_bindings(tree, path):
         elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
             assignment(node.target, node.value, scope)
         elif isinstance(node, ast.TypeAlias):
-            assignment(node.name, node.value, scope)
+            assignment(node.name, node.value, scope, type_data=True)
         elif isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)) and node.value is not None:
             # Internal non-identifier key keeps return roots separate from locals.
             key = scope + "$return"
