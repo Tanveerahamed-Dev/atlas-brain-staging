@@ -71,3 +71,43 @@ def test_explicit_outer_attribute_binding_cannot_prove_a_scalar_result():
     bindings = CallableBindings("atlas_brain.example", {"json": "json"}, {"json": "json"}, set())
     bindings.predeclare(ast.parse("def factory():\n global json\n return json.dumps(value)"))
     assert not bindings.primitive_call(expression("json.dumps(value)"), "factory.")
+
+
+@pytest.mark.parametrize("module_value, class_value", [("iter", "len"), ("len", "iter")])
+def test_method_bare_name_skips_class_namespace(module_value, class_value):
+    bindings = CallableBindings("atlas_brain.example", {}, {}, set())
+    bindings.predeclare(ast.parse("class Reader:\n def factory(): pass"))
+    bindings.assign("carrier", expression(module_value), "")
+    bindings.assign("carrier", expression(class_value), "Reader.")
+    assert bindings.origins(expression("carrier"), "Reader.factory.") == {"builtins." + module_value}
+    assert bindings.primitive_call(expression("carrier(values)"), "Reader.factory.") == (module_value == "len")
+    assert "Reader.carrier" not in bindings.scope_keys("carrier", "Reader.factory.")
+
+
+def test_method_keeps_enclosing_function_binding_while_skipping_classes():
+    bindings = CallableBindings("atlas_brain.example", {}, {}, set())
+    bindings.predeclare(ast.parse("def outer():\n class Reader:\n  class Nested:\n   def factory(): pass"))
+    bindings.assign("carrier", expression("len"), "")
+    bindings.assign("carrier", expression("iter"), "outer.")
+    bindings.assign("carrier", expression("len"), "outer.Reader.")
+    bindings.assign("carrier", expression("len"), "outer.Reader.Nested.")
+    assert bindings.origins(expression("carrier"), "outer.Reader.Nested.factory.") == {"builtins.iter"}
+    assert not bindings.primitive_call(expression("carrier(values)"), "outer.Reader.Nested.factory.")
+
+
+def test_class_body_expression_scope_keeps_uncertainty_for_lambdas_and_comprehensions():
+    bindings = CallableBindings("atlas_brain.example", {}, {}, set())
+    bindings.predeclare(ast.parse("class Reader:\n factory = lambda: carrier(values)"))
+    bindings.assign("carrier", expression("iter"), "")
+    bindings.assign("carrier", expression("len"), "Reader.")
+    assert bindings.has_carrier(expression("carrier"), "Reader.")
+    assert not bindings.primitive_call(expression("carrier(values)"), "Reader.")
+
+
+def test_explicit_outer_mutation_stays_uncertain_for_other_readers():
+    bindings = CallableBindings("atlas_brain.example", {}, {}, set())
+    bindings.predeclare(ast.parse("class Reader:\n global carrier\n carrier = iter\n def factory(): pass"))
+    bindings.assign("carrier", expression("len"), "")
+    bindings.assign("carrier", expression("iter"), "Reader.")
+    assert bindings.has_carrier(expression("carrier"), "Reader.factory.")
+    assert not bindings.primitive_call(expression("carrier(values)"), "Reader.factory.")
