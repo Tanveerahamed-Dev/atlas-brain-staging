@@ -61,7 +61,6 @@ def _qualified(node: ast.AST, aliases: dict[str, str]) -> str:
     return ''
 
 
-
 def binding_proof(tree: ast.AST, aliases: dict[str, str], rebound: set[str], *, call_target: str = 'typing.assert_never') -> tuple[frozenset[ast.Call], frozenset[ast.MatchClass]]:
     """Verify names against the import/rebinding environment supplied by the scanner."""
     def symbol(identifier: str) -> str:
@@ -78,7 +77,6 @@ def binding_proof(tree: ast.AST, aliases: dict[str, str], rebound: set[str], *, 
     closed = tuple('atlas_brain.kernel.states.' + state for state in ('Known', 'Absent', 'Unknown', 'NotApplicable'))
     facts = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.MatchClass) and _qualified(n.cls, aliases) in closed and stable(_qualified(n.cls, aliases)))
     return calls, facts
-
 
 
 def _token_subject(node: ast.AST) -> bool:
