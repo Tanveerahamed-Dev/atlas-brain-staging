@@ -149,6 +149,9 @@ def import_bindings(tree, path):
             return bool(origins), origins[0] if len(origins) == len(values) and all(o == origins[0] for o in origins) else None
         return False, None
     def assignment(target, value, scope):
+        if isinstance(target, ast.Subscript):
+            assignment(target.value, value, scope)
+            return
         if isinstance(target, (ast.Tuple, ast.List)):
             if (isinstance(value, (ast.Tuple, ast.List)) and len(target.elts) == len(value.elts)
                     and not any(isinstance(item, ast.Starred) for item in target.elts)):
@@ -184,6 +187,8 @@ def import_bindings(tree, path):
             declarations.discard(key)
         elif key in exports:
             exports[key] = None
+        else:
+            declarations.add(key)
     def walk(node, scope=""):
         pairs = []
         if isinstance(node, ast.Import):
@@ -208,11 +213,29 @@ def import_bindings(tree, path):
                 assignment(target, node.value, scope)
         elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
             assignment(node.target, node.value, scope)
+        elif isinstance(node, ast.TypeAlias):
+            assignment(node.name, node.value, scope)
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            assignment(node.target, node.iter, scope)
+        elif isinstance(node, ast.withitem) and node.optional_vars is not None:
+            assignment(node.optional_vars, node.context_expr, scope)
+        elif isinstance(node, ast.AugAssign):
+            assignment(node.target, ast.Tuple(elts=[node.target, node.value], ctx=ast.Load()), scope)
+        elif isinstance(node, ast.Match):
+            for case in node.cases:
+                for pattern in ast.walk(case.pattern):
+                    name = (pattern.name if isinstance(pattern, (ast.MatchAs, ast.MatchStar))
+                            else pattern.rest if isinstance(pattern, ast.MatchMapping) else None)
+                    if name:
+                        assignment(ast.Name(id=name, ctx=ast.Store()), node.subject, scope)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            exports[scope + node.name] = None
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             declarations.add(scope + node.name)
             scope += node.name + "."
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and scope + node.id not in exports:
-            declarations.add(scope + node.id)
+        if (isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del))
+                and (isinstance(node.ctx, ast.Del) or scope + node.id not in exports and scope + node.id not in declarations)):
+            exports[scope + node.id] = None
         for child in ast.iter_child_nodes(node):
             walk(child, scope)
     walk(tree)
