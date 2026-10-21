@@ -32,10 +32,10 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
         if protected:
             intercepted.add(owner)
         catching = any(field == 'handlers' and bool(value) for field, value in fields)
-        raising = any(field == 'body' and isinstance(value, list) and len(value) == 1
+        raising = any(field == 'body' and isinstance(value, list) and len(cast(list[object], value)) == 1
                       and isinstance(cast(list[object], value)[0], ast.Raise) for field, value in fields)
-        single_handler = any(field == 'handlers' and isinstance(value, list) and len(value) == 1 for field, value in fields)
-        leaf_body = any(field == 'body' and isinstance(value, list) and bool(value) and all(
+        single_handler = any(field == 'handlers' and isinstance(value, list) and len(cast(list[object], value)) == 1 for field, value in fields)
+        leaf_body = any(field == 'body' and isinstance(value, list) and bool(cast(list[object], value)) and all(
             isinstance(child, ast.stmt) and not tuple(ast.iter_fields(child)) for child in cast(list[object], value)) for field, value in fields)
         finalizing = any(field == 'finalbody' and bool(value) for field, value in fields)
         managing = any(field == 'items' and bool(value) for field, value in fields)
