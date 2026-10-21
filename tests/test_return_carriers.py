@@ -22,6 +22,9 @@ CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
             ("return {'cap': CAP}.get('cap')", "factory()"),
             ("box = {'cap': CAP}\n return box.get('cap')", "factory()"),
             ("return cast(object, CAP)", "factory()"),
+            ("return map(lambda item: item, (CAP,))", "next(factory())"),
+            ("return filter(None, (CAP,))", "next(factory())"),
+            ("return passthrough((CAP,))", "next(factory())"),
             ("carrier = iter\n if flag:\n  carrier = lambda values: values\n return carrier((CAP,))", "next(factory(False))"),
             ("carrier = iter if flag else iter\n if flag:\n  carrier = len\n return carrier((CAP,))", "next(factory(False))"),
             ("return [CAP for _ in (0,)][0]", "factory()")]
@@ -32,7 +35,7 @@ CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
 def test_actual_cli_data_positive_then_carried_capability_refusal(tmp_path: Path, capability, body, receiver):
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
-    using.write_text("from zipfile import ZipFile\nfrom typing import cast\ndef factory(flag=False):\n " + body.replace("CAP", capability)
+    using.write_text("from zipfile import ZipFile\nfrom typing import cast\ndef passthrough(values): return values\ndef factory(flag=False):\n " + body.replace("CAP", capability)
                      + "\ndef public_data(): return {'count': 1}\n", encoding="utf-8")
     (tmp_path / "atlas_brain/bridge.py").write_text(
         "from .evidence.archives import factory, public_data\n", encoding="utf-8")
@@ -62,3 +65,13 @@ def test_actual_cli_data_positive_then_carried_capability_refusal(tmp_path: Path
 def test_ordinary_predicate_and_generator_data_remain_public(body, receiver):
     sources = {USING: "from zipfile import ZipFile\ndef factory(value):\n " + body}
     assert source_allowed("from .evidence.archives import factory\n" + receiver + ".bit_length()", sources)
+
+
+def test_ordinary_record_construction_keeps_its_fields():
+    sources = {"atlas_brain/records.py": "from pathlib import Path\nclass Record:\n def __init__(self, path): self.name = 'record'\ndef factory(): return Record(Path('x'))"}
+    assert source_allowed("from .records import factory\nfactory().name.upper()", sources)
+
+
+def test_possible_primitive_predicate_aliases_remain_primitive():
+    sources = {USING: "from zipfile import ZipFile\ndef factory(value, flag):\n predicate = isinstance\n if flag: predicate = issubclass\n return predicate(value, ZipFile)"}
+    assert source_allowed("from .evidence.archives import factory\nfactory(value, flag).bit_length()", sources)
