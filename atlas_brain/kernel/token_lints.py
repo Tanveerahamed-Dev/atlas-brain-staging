@@ -28,10 +28,11 @@ def _lookup_branch(body: list[ast.stmt]) -> bool:
 
 
 def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...]], frozenset[ast.AST]]:
-    """Bind successors to blocks and retain potentially intercepting outer scopes.
+    """Bind local successors without certifying optional or intercepted execution.
 
     Handler dispatch and context-manager behavior are unproven. A function body
     starts its own execution scope; a try's else is outside its own handlers.
+    Test-controlled branches and loop bodies/else blocks may never execute.
     """
     following: dict[ast.stmt, tuple[ast.stmt, ...]] = {}
     intercepted: set[ast.AST] = set()
@@ -45,6 +46,7 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
         catching = any(field == 'handlers' and bool(value) for field, value in fields)
         finalizing = any(field == 'finalbody' and bool(value) for field, value in fields)
         managing = any(field == 'items' and bool(value) for field, value in fields)
+        conditional = any(field in ('test', 'iter') and isinstance(value, ast.AST) for field, value in fields)
         for field, value in fields:
             children: tuple[ast.AST, ...] = ()
             if isinstance(value, ast.AST):
@@ -54,7 +56,8 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
             block = tuple(child for child in children if isinstance(child, ast.stmt))
             following.update((statement, block[index + 1:]) for index, statement in enumerate(block))
             blocked = protected or (field == 'body' and (catching or managing)) or (
-                field in ('body', 'orelse', 'handlers') and finalizing)
+                field in ('body', 'orelse', 'handlers') and finalizing) or (
+                field in ('body', 'orelse') and conditional)
             pending.extend((child, blocked) for child in children)
     return following, frozenset(intercepted)
 

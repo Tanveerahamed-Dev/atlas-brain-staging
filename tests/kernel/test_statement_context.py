@@ -33,4 +33,28 @@ def test_successor_inventory_is_bound_to_each_exact_statement_list():
     assert following[branch] == (tree.body[1],)
     assert following[branch.body[0]] == (branch.body[1],)
     assert following[branch.orelse[0]] == ()
-    assert not intercepted
+    assert branch not in intercepted and tree.body[1] not in intercepted
+    assert intercepted == frozenset(node for statement in branch.body + branch.orelse for node in ast.walk(statement))
+
+
+@pytest.mark.parametrize('source', [
+    'def mapped(key):\n for item in ():\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")',
+    'def mapped(key):\n while ready:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")',
+    'async def mapped(key):\n async for item in rows:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")',
+    'def mapped(key):\n if ready:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")',
+    'def mapped(key):\n for item in rows: break\n else:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")',
+    'def mapped(key):\n while ready: break\n else:\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")',
+])
+def test_optional_blocks_preserve_local_successors_without_certifying_execution(source):
+    following, unproven = statement_context(ast.parse(source))
+    branch = next(node for node in following if isinstance(node, ast.If) and isinstance(node.test, ast.Compare))
+    assert isinstance(following[branch][-1], ast.Raise)
+    assert branch in unproven
+
+
+def test_a_defined_function_has_its_own_execution_scope_inside_an_optional_block():
+    tree = ast.parse('for item in ():\n def mapped(key):\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")')
+    following, unproven = statement_context(tree)
+    branch = next(node for node in following if isinstance(node, ast.If))
+    assert isinstance(following[branch][-1], ast.Raise)
+    assert branch not in unproven
