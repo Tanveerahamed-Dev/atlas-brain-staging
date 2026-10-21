@@ -1,5 +1,7 @@
 """Missing, stale, failed or skipped main receipts cannot imply complete CI."""
 import json
+import base64
+import hashlib
 import subprocess
 import sys
 from copy import deepcopy
@@ -10,20 +12,75 @@ import pytest
 from tools.main_receipts import verify
 
 SHA = "a" * 40
+SOURCE = """name: Synthetic
+on: [push]
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - run: echo synthetic
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: echo synthetic
+"""
+
+
+def source_blob(text):
+    raw = text.encode()
+    digest = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw, usedforsecurity=False).hexdigest()
+    return {"sha": digest, "encoding": "base64", "content": base64.b64encode(raw).decode()}
 
 
 def receipts():
     paths = [f".github/workflows/gate{i}.yml" for i in range(3)]
-    return {"tree": {"truncated": False, "tree": [{"path": p, "type": "blob"} for p in paths]},
+    blob = source_blob(SOURCE)
+    return {"tree": {"truncated": False, "tree": [{"path": p, "type": "blob", "sha": blob["sha"]} for p in paths]},
+            "sources": {p: deepcopy(blob) for p in paths},
             "catalog": [{"id": i + 1, "path": p, "state": "active"} for i, p in enumerate(paths)],
             "runs": [{"id": i + 10, "workflow_id": i + 1, "head_sha": SHA, "event": "push",
                       "run_number": 1, "run_attempt": 1, "status": "completed", "conclusion": "success"}
                      for i in range(3)],
-            "jobs": {str(i + 10): [{"status": "completed", "conclusion": "success"}] for i in range(3)}}
+            "jobs": {str(i + 10): [{"name": n, "status": "completed", "conclusion": "success"}
+                                  for n in ("check (ubuntu-latest)", "check (windows-latest)", "audit")]
+                     for i in range(3)}}
 
 
 def test_full_source_derived_class_passes():
-    assert verify(receipts(), SHA, "push")["workflow_count"] == 3
+    result = verify(receipts(), SHA, "push")
+    assert result["workflow_count"] == 3 and result["job_count"] == 9
+
+
+@pytest.mark.parametrize("plant", ["windows", "job", "duplicate", "extra", "unbound", "tampered",
+                                  "dynamic", "include", "condition", "renamed", "controller"])
+def test_exact_source_job_inventory_refusals(plant):
+    data = receipts()
+    path = data["catalog"][0]["path"]
+    if plant in {"windows", "job"}:
+        data["jobs"]["10"].pop(1 if plant == "windows" else 2)
+    elif plant in {"duplicate", "extra"}:
+        data["jobs"]["10"].append({**data["jobs"]["10"][0], "name": "extra" if plant == "extra" else "audit"})
+    elif plant == "unbound":
+        data["sources"][path]["sha"] = "b" * 40
+    elif plant == "tampered":
+        data["sources"][path]["content"] = base64.b64encode(b"jobs:\n").decode()
+    elif plant == "controller":
+        data["runs"][0]["head_sha"] = "b" * 40
+    else:
+        replacement = {"dynamic": "${{ needs.build.outputs.os }}", "include": "[]\n        include: []",
+                       "condition": "[ubuntu-latest, windows-latest]\n    if: false",
+                       "renamed": "[other-os]"}[plant]
+        blob = source_blob(SOURCE.replace("[ubuntu-latest, windows-latest]", replacement))
+        data["sources"][path] = blob
+        data["tree"]["tree"][0]["sha"] = blob["sha"]
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
 
 
 @pytest.mark.parametrize("plant", ["absent", "one_missing", "stale", "schedule", "failure", "pending",
