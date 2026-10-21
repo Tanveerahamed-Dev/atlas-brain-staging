@@ -15,6 +15,7 @@ _binding_spec = importlib.util.spec_from_file_location("_fence_call_bindings", P
 _binding_module = importlib.util.module_from_spec(_binding_spec)
 _binding_spec.loader.exec_module(_binding_module)
 CallableBindings = _binding_module.CallableBindings
+CALLABLE_VALUE = "$callable:"
 CARRIER_RETURN = "$carrier:"
 
 ROOTS = {"README.md", "LICENSE", ".gitattributes", ".gitignore",
@@ -130,7 +131,7 @@ def gate_data_allowed(path: str, data) -> bool:
 
 def import_bindings(tree, path, class_roots=frozenset()):
     aliases, exports, declarations = {}, {}, set()
-    containers = {}
+    containers, callable_values = {}, {}
     calls = CallableBindings(path.removesuffix(".py").replace("/", ".").removesuffix(".__init__"), aliases, exports, declarations)
     calls.predeclare(tree)
     constructors = set(class_roots) | constructor_members(frozenset(STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values()))).keys()
@@ -193,7 +194,22 @@ def import_bindings(tree, path, class_roots=frozenset()):
             key = next((key for key in scope_keys(value.id, scope) if key in exports or key in declarations), "")
             return key in containers
         return False
-    def assignment(target, value, scope):
+    def plain_type(value, scope):
+        if isinstance(value, ast.Constant) and value.value is None:
+            return True
+        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.BitOr):
+            return plain_type(value.left, scope) and plain_type(value.right, scope)
+        roots = calls.origins(value, scope)
+        for root in roots:
+            if (isinstance(root, str) and root.startswith("builtins.")
+                    and isinstance(getattr(_binding_module.builtins, root.removeprefix("builtins."), None), type)):
+                continue
+            definitions = calls.definitions.get(root, ())
+            if not definitions or any(not isinstance(node, ast.ClassDef) or node.bases or node.keywords or node.decorator_list
+                                      for node, _ in definitions):
+                return False
+        return bool(roots)
+    def assignment(target, value, scope, *, type_data=False):
         if isinstance(target, ast.Subscript):
             assignment(target.value, value, scope)
             if isinstance(target.value, ast.Name):
@@ -221,7 +237,27 @@ def import_bindings(tree, path, class_roots=frozenset()):
         known, origin = reference(value, scope)
         if not known:
             known, origin = opaque(value, scope)
-        elif origin is None:
+        if isinstance(value, ast.Call):
+            targets = calls.origins(value.func, scope)
+            module = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "."
+            results = set().union(*(exports.get(target.removeprefix(module) + ".$return", ())
+                                  for target in targets if target in calls.definitions))
+            results.update({None} if any(target not in calls.definitions for target in targets) else ())
+        else:
+            results = returned(value, scope)
+        values = callable_values.setdefault(key, set())
+        values.update(root[len(CALLABLE_VALUE):] if isinstance(root, str) and root.startswith(CALLABLE_VALUE)
+                      else root for root in results or {None})
+        type_union = isinstance(value, ast.BinOp) and isinstance(value.op, ast.BitOr) and plain_type(value, scope)
+        functions = values.intersection(calls.definitions) if not type_data and not type_union else set()
+        if functions:
+            # Join callable values from both direct aliases and call results, preserving UNKNOWN.
+            origins = tuple(CALLABLE_VALUE + root if root in functions else root
+                            for root in sorted(values, key=lambda item: item or ""))
+            exports[key] = origins[0] if len(origins) == 1 else origins
+            declarations.discard(key)
+            return
+        if not isinstance(value, ast.Call) and origin is None:
             _, possible = opaque(value, scope)
             if isinstance(possible, tuple):
                 origin = (None, *possible)
@@ -266,12 +302,12 @@ def import_bindings(tree, path, class_roots=frozenset()):
         if isinstance(value, ast.Call) and origin == "typing.cast":
             carried = value.args[1:] + [item.value for item in value.keywords if item.arg == "val"]
             return set().union(*(returned(part, scope) for part in carried))
-        if not known and isinstance(value, ast.Call):
-            name = dotted(value.func)
-            key = scope + name if scope + name in declarations else name
-            if name and key in declarations:
-                origin = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "." + key
-                known = True
+        if not known:
+            name = dotted(value.func if isinstance(value, ast.Call) else value)
+            key = next((key for key in scope_keys(name, scope) if key in declarations), "")
+            endpoint = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "." + key
+            if name and key and (isinstance(value, ast.Call) or endpoint in calls.definitions):
+                origin, known = endpoint, True
         if isinstance(value, ast.Call):
             roots = set(origin if isinstance(origin, tuple) else (origin,)) if known else set()
             if not calls.constructor_call(value, scope, constructors):
@@ -282,6 +318,8 @@ def import_bindings(tree, path, class_roots=frozenset()):
             return roots
         if known:
             return set(origin if isinstance(origin, tuple) else (origin,))
+        if isinstance(value, ast.Name):
+            return {None}
         # Unknown non-call value carriers retain roots instead of becoming ordinary data.
         return set() if isinstance(value, ast.Call) else set().union(
             *(returned(child, scope) for child in ast.iter_child_nodes(value)))
@@ -310,7 +348,7 @@ def import_bindings(tree, path, class_roots=frozenset()):
         elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
             assignment(node.target, node.value, scope)
         elif isinstance(node, ast.TypeAlias):
-            assignment(node.name, node.value, scope)
+            assignment(node.name, node.value, scope, type_data=True)
         elif isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)) and node.value is not None:
             # Internal non-identifier key keeps return roots separate from locals.
             key = scope + "$return"
@@ -379,6 +417,9 @@ class ImportIndex:
         if name.startswith(CARRIER_RETURN):
             roots = self.foreign_roots(name[len(CARRIER_RETURN):], seen | {name}, callable_value=True)
             return {root if root.startswith(CARRIER_RETURN) else CARRIER_RETURN + root for root in roots}
+        if name.startswith(CALLABLE_VALUE):
+            return self.foreign_roots(name[len(CALLABLE_VALUE):], seen | {name},
+                callable_value=callable_value, evaluate_return=evaluate_return)
         if not name.startswith("atlas_brain.") and name != "atlas_brain":
             return {name}
         module = max((m for m in self.modules if name.startswith(m + ".")), key=len, default="")
@@ -396,7 +437,9 @@ class ImportIndex:
                 return set()
         target = exports[binding]
         if isinstance(target, tuple):
-            roots = set().union(*(self.foreign_roots(root, seen | {name}, callable_value=callable_value) for root in target))
+            roots = set().union(*(self.foreign_roots(root, seen | {name}, callable_value=callable_value,
+                evaluate_return=evaluate_return if isinstance(root, str) and root.startswith(CALLABLE_VALUE) else True)
+                for root in target))
         else:
             roots = self.foreign_roots(target + tail[len(binding):], seen | {name},
                 callable_value=callable_value, evaluate_return=evaluate_return) if target is not None else set()
@@ -408,6 +451,8 @@ class ImportIndex:
         return roots
 
     def origin(self, name, seen=frozenset()):
+        if name.startswith(CALLABLE_VALUE):
+            return self.origin(name[len(CALLABLE_VALUE):], seen | {name}) if name not in seen else None
         if any(name == module or name.startswith(module + ".") for module in self.forbidden):
             return None
         if not name.startswith("atlas_brain.") and name != "atlas_brain":
