@@ -51,28 +51,31 @@ def bound_names(node: ast.AST) -> frozenset[str]:
         part.rest for part in ast.walk(node) if isinstance(part, ast.MatchMapping) and part.rest)
 
 
-def binding_proof(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> tuple[frozenset[ast.Call], frozenset[ast.MatchClass]]:
+def _qualified(node: ast.AST, aliases: dict[str, str]) -> str:
+    if isinstance(node, ast.Name):
+        if node.id in aliases:
+            return aliases[node.id]
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return _qualified(node.value, aliases) + '.' + node.attr
+    return ''
+
+
+def binding_proof(tree: ast.AST, aliases: dict[str, str], rebound: set[str], *, call_target: str = 'typing.assert_never') -> tuple[frozenset[ast.Call], frozenset[ast.MatchClass]]:
     """Verify names against the import/rebinding environment supplied by the scanner."""
     def symbol(identifier: str) -> str:
         if identifier in aliases:
             return aliases[identifier]
         return identifier
 
-    def qualified(node: ast.AST) -> str:
-        if isinstance(node, ast.Name):
-            return symbol(node.id)
-        if isinstance(node, ast.Attribute):
-            return qualified(node.value) + '.' + node.attr
-        return ''
-
     shadowed = rebound | {symbol(k) for k in sorted(bound_names(tree))}
 
     def stable(name: str) -> bool:
         return not any(name == key or name.startswith(key + '.') or key.startswith(name + '.') for key in sorted(shadowed))
 
-    calls = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.Call) and qualified(n.func) == 'typing.assert_never' and stable(qualified(n.func)))
+    calls = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.Call) and _qualified(n.func, aliases) == call_target and stable(_qualified(n.func, aliases)))
     closed = tuple('atlas_brain.kernel.states.' + state for state in ('Known', 'Absent', 'Unknown', 'NotApplicable'))
-    facts = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.MatchClass) and qualified(n.cls) in closed and stable(qualified(n.cls)))
+    facts = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.MatchClass) and _qualified(n.cls, aliases) in closed and stable(_qualified(n.cls, aliases)))
     return calls, facts
 
 
