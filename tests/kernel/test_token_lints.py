@@ -259,6 +259,14 @@ def test_entered_handler_conditional_early_return_cannot_certify_later_membershi
 
 
 @pytest.mark.parametrize('source', [
+    'def mapped(raw, ready):\n if ready: return "up"\n if raw == "up": return "up"\n raise ValueError("unmapped")',
+    'import atlas_brain.kernel.states\ndef mapped(raw, ready):\n if ready: return "up"\n if raw not in states: return atlas_brain.kernel.states.Unknown()\n return states[raw]',
+])
+def test_a_prior_unrelated_return_cannot_borrow_a_later_refusal(source):
+    assert fallback_nodes(ast.parse(source), {}, set())
+
+
+@pytest.mark.parametrize('source', [
     'def mapped(key):\n for item in ():\n  return mapping[key]\n return "up"',
     'def mapped(key):\n while ready:\n  return mapping[key]\n return "up"',
     'async def mapped(key):\n async for item in rows:\n  return mapping[key]\n return "up"',
