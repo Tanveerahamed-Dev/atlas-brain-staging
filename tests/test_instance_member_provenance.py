@@ -47,6 +47,15 @@ def test_bound_member_aliases_do_not_drop_the_member_suffix(body):
     assert not source_allowed("from .bridge import exported\nexported('x')", sources)
 
 
+def test_factory_arguments_keep_protected_roots_and_engine_data_keeps_public_fields():
+    protected = {USING: "from typing import cast\nfrom zipfile import ZipFile\nvalue = cast(object, ZipFile)"}
+    assert ImportIndex(protected).origin(MODULE) is None
+    assert not source_allowed("from .evidence.producer import value", protected)
+    ordinary = {"atlas_brain/records.py": "class Record: pass",
+                USING: "from ..records import Record\nvalue = Record()"}
+    assert source_allowed("from .evidence.producer import value\nvalue.field", ordinary)
+
+
 def tracked_cli(root):
     subprocess.run(["git", "-C", str(root), "add", "."], check=True)
     return subprocess.run([sys.executable, str(Path("tools/fence.py").resolve())], cwd=root,
