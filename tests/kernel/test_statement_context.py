@@ -13,7 +13,11 @@ from atlas_brain.kernel.token_lints import statement_context
     ('async def mapped(raw):\n async with manager:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', True),
     ('def mapped(raw):\n try:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")\n except* ValueError: pass', True),
     ('def mapped(raw):\n try: pass\n except ValueError: pass\n else:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', False),
-    ('def mapped(raw):\n try: pass\n except ValueError:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', False),
+    ('def mapped(raw):\n try: pass\n except ValueError:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', True),
+    ('def mapped(raw):\n try: raise ValueError("entered")\n except ValueError:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', False),
+    ('def mapped(raw):\n try: raise KeyError("entered")\n except ValueError:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")\n except KeyError: return "up"', True),
+    ('def mapped(raw):\n try: raise ValueError("entered")\n except ValueError: pass\n else:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', True),
+    ('def mapped(raw):\n return "up"\n if raw == "up": return "up"\n raise ValueError("unmapped")', True),
     ('def mapped(raw):\n try:\n  try:\n   if raw == "up": return "up"\n   raise ValueError("unmapped")\n  finally: pass\n except ValueError: return "up"', True),
     ('with manager:\n def mapped(raw):\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', False),
 ])
