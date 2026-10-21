@@ -237,3 +237,17 @@ def test_matching_literal_membership_with_explicit_unknown_remains_valid():
 ])
 def test_optional_execution_cannot_certify_a_function_refusal(source):
     assert fallback_nodes(ast.parse(source), {}, set())
+
+
+@pytest.mark.parametrize('source', [
+    'def mapped(key):\n for item in ():\n  return mapping[key]\n return "up"',
+    'def mapped(key):\n while ready:\n  return mapping[key]\n return "up"',
+    'async def mapped(key):\n async for item in rows:\n  return mapping[key]\n return "up"',
+])
+def test_a_bare_lookup_in_an_optional_body_cannot_hide_healthy_fallthrough(source):
+    assert fallback_nodes(ast.parse(source), {}, set())
+
+
+def test_finite_nonloop_guard_still_proves_a_returned_lookup():
+    source = 'def mapped(key):\n if key == "up": return mapping[key]\n raise ValueError("unmapped")'
+    assert not fallback_nodes(ast.parse(source), {}, set())
