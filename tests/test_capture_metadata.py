@@ -6,7 +6,7 @@ import pytest
 from test_evidence import bundle
 
 from atlas_brain.evidence import admission as a
-from atlas_brain.evidence.capture import CaptureMetadata, Channel, Scope
+from atlas_brain.evidence.capture import Capture, CaptureMetadata, Channel, Scope
 from atlas_brain.kernel import states as k
 from atlas_brain.kernel.time import BoundSource, TimeInterval
 
@@ -111,7 +111,9 @@ def test_planted_invalid_cli_witness_locator_or_digest_refuses(tmp_path, locator
 
 def test_legacy_folder_constructor_keeps_positional_api_and_evidenced_unknown(tmp_path):
     bundle(tmp_path, b"record\n")
-    item = a.import_folder(tmp_path, a.Budgets(10000, 10000, 10)).captures[0]
+    original = a.import_folder(tmp_path, a.Budgets(10000, 10000, 10)).captures[0]
+    item = Capture(original.id, original.source, original.operation, original.rendered, original.codec,
+                   original.raw, original.integrity, original.lines, original.read_scope, original.view)
     assert item.metadata is None
     assert item.collected_utc.reason is k.UnknownReason.AS_OF_MISSING
     assert item.collected_utc.evidence == item.integrity_evidence
