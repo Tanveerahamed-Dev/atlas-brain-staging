@@ -143,3 +143,31 @@ def fallback_node(node: ast.AST, called: str = '') -> bool:
             for pattern in patterns for p in ast.walk(pattern))
         return enumerated and any(not _literal_pattern(pattern) for pattern in patterns)
     return False
+
+
+def _finite_subject(test: ast.AST) -> str:
+    if isinstance(test, ast.Compare) and len(test.ops) == len(test.comparators) == 1 and isinstance(test.ops[0], ast.Eq):
+        left, right = test.left, test.comparators[0]
+        if isinstance(right, ast.Constant) and type(right.value) is str:
+            return _qualified(left, {})
+        if isinstance(left, ast.Constant) and type(left.value) is str:
+            return _qualified(right, {})
+    return ''
+
+
+def _same_operand(left: ast.AST, right: ast.AST) -> bool:
+    if isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
+        return type(left.value) is type(right.value) and left.value == right.value
+    name = _qualified(left, {})
+    return bool(name) and name == _qualified(right, {})
+
+
+def _guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool = False) -> bool:
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1 or len(test.comparators) != 1:
+        return False
+    if not isinstance(test.ops[0], ast.NotIn if inverse else ast.In):
+        return False
+    if len(body) != 1 or not isinstance(body[0], ast.Return) or not isinstance(body[0].value, ast.Subscript):
+        return False
+    lookup = body[0].value
+    return _same_operand(test.left, lookup.slice) and _same_operand(test.comparators[0], lookup.value)
