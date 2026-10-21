@@ -1,10 +1,12 @@
 """Tracked paths, standard-library runtime dependencies, and denied engine imports."""
 import ast
+import importlib
 import json
 import re
 import subprocess
 import sys
 import tomllib
+from functools import cache
 from pathlib import Path, PurePosixPath
 
 ROOTS = {"README.md", "LICENSE", ".gitattributes", ".gitignore",
@@ -325,9 +327,36 @@ class ImportIndex:
         return name if any(tail == key or tail.startswith(key + ".") for key in declarations) else None
 
 
+@cache
+def constructor_members(apis):
+    """Inventory trusted admitted stdlib classes; never import consumer modules."""
+    result = {}
+    for api in sorted(apis):
+        parts = api.split(".")
+        if parts[0] not in sys.stdlib_module_names:
+            raise ValueError("constructor inventory requires a stdlib namespace")
+        for length in range(len(parts) - 1, 0, -1):
+            module = ".".join(parts[:length])
+            try:
+                target = importlib.import_module(module)
+            except ModuleNotFoundError as error:
+                if error.name != module and not module.startswith(str(error.name) + "."):
+                    raise
+                continue
+            for name in parts[length:]:
+                target = getattr(target, name)
+            if isinstance(target, type):
+                result[api] = frozenset(name for name in dir(target) if name.isidentifier() and not name.startswith("_"))
+            break
+        else:
+            raise ValueError("admitted API has no closed stdlib namespace")
+    return result
+
+
 def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> set[str]:
     tree = ast.parse(source)
     apis = STDLIB_API | SCOPED_API.get(path, set()) | RUNTIME_API.get(path, set())
+    factories = constructor_members(frozenset(apis))
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
         aliases, exports, declarations = import_bindings(tree, path)
@@ -375,8 +404,13 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
                             if key in declarations:
                                 break
                         roots.update(root for root in candidates if isinstance(root, str) and root.startswith("atlas_brain."))
+                        roots.update(root for root in candidates if root in factories)
+                    roots.update(qualified(part) for part in ast.walk(node.value)
+                                 if isinstance(part, ast.Attribute) and qualified(part) in factories)
                     for root in roots:
-                        if any(not admitted(factory + "." + node.attr) for factory in index.foreign_roots(root)):
+                        origins = index.foreign_roots(root) if root.startswith("atlas_brain.") else {root}
+                        if any(not admitted(factory + "." + node.attr) for factory in origins
+                               if root.startswith("atlas_brain.") or node.attr in factories.get(factory, ())):
                             refused.add(root + "." + node.attr)
                 continue
             name = index.origin(raw)
