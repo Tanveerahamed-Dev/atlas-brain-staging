@@ -2,6 +2,7 @@
 import stat
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile
+from zlib import decompressobj
 from zlib import error as DecompressionError
 
 from .admission import (
@@ -78,8 +79,7 @@ def zip_members(path: Path, budgets: Budgets) -> dict[str, bytes]:
                     if entry.is_dir():
                         if entry.file_size or entry.CRC or (stat.S_IFMT(mode) and not stat.S_ISDIR(mode)):
                             raise AdmissionRefused("special_zip_member")
-                        continue
-                    if stat.S_IFMT(mode) and not stat.S_ISREG(mode):
+                    elif stat.S_IFMT(mode) and not stat.S_ISREG(mode):
                         raise AdmissionRefused("special_zip_member")
                     chunks: list[bytes] = []
                     member_size = 0
@@ -98,6 +98,37 @@ def zip_members(path: Path, budgets: Budgets) -> dict[str, bytes]:
                             chunks.append(chunk)
                     if member_size != entry.file_size:
                         raise AdmissionRefused("invalid_zip_size")
+                    if entry.compress_type == ZIP_DEFLATED:
+                        # ZipExtFile may stop at declared length; independently require real EOF.
+                        source.seek(entry.header_offset)
+                        local = source.read(30)
+                        if len(local) != 30 or local[:4] != b"PK\x03\x04":
+                            raise AdmissionRefused("invalid_zip")
+                        start = entry.header_offset + 30 + sum(int.from_bytes(local[i:i + 2], "little") for i in (26, 28))
+                        if start + entry.compress_size > offset:
+                            raise AdmissionRefused("invalid_zip")
+                        source.seek(start)
+                        decoder = decompressobj(-15)
+                        remaining, verified = entry.compress_size, 0
+                        while remaining:
+                            coded = source.read(min(65536, remaining))
+                            if not coded:
+                                raise AdmissionRefused("invalid_zip")
+                            remaining -= len(coded)
+                            while True:
+                                decoded = decoder.decompress(coded, min(65536, member_size - verified + 1))
+                                verified += len(decoded)
+                                if verified > member_size:
+                                    raise AdmissionRefused("invalid_zip_size")
+                                if decoder.unused_data:
+                                    raise AdmissionRefused("invalid_zip")
+                                coded = decoder.unconsumed_tail
+                                if not coded and not decoded:
+                                    break
+                        if not decoder.eof or verified != member_size:
+                            raise AdmissionRefused("invalid_zip")
+                    if entry.is_dir():
+                        continue
                     raw = b"".join(chunks)
                     if (Path(name).suffix.casefold() in (".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz")
                             or raw.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08", b"\x1f\x8b"))
