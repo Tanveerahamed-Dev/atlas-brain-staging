@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 from atlas_brain.contract.canonical import canonical
 
@@ -46,7 +46,7 @@ def main() -> int:
     try:
         validate_wire(json.loads(args.schema.read_bytes()), args.result.read_bytes(), jsonl=args.jsonl)
         return 0
-    except Exception as error:  # Tool boundary fails closed, including resolver or decoder failures.
+    except (OSError, ValueError, TypeError, SchemaError, ValidationError) as error:
         print(f"contract validation refused ({type(error).__name__})")
         return 1
 
