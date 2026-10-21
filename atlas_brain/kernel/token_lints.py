@@ -25,28 +25,29 @@ def bound_names(node: ast.AST) -> frozenset[str]:
         part.rest for part in ast.walk(node) if isinstance(part, ast.MatchMapping) and part.rest)
 
 
-def binding_proof(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> tuple[frozenset[ast.Call], frozenset[ast.MatchClass]]:
+def _qualified(node: ast.AST, aliases: dict[str, str]) -> str:
+    if isinstance(node, ast.Name):
+        return aliases[node.id] if node.id in aliases else node.id
+    if isinstance(node, ast.Attribute):
+        return _qualified(node.value, aliases) + '.' + node.attr
+    return ''
+
+
+def binding_proof(tree: ast.AST, aliases: dict[str, str], rebound: set[str], *, call_target: str = 'typing.assert_never') -> tuple[frozenset[ast.Call], frozenset[ast.MatchClass]]:
     """Verify names against the import/rebinding environment supplied by the scanner."""
     def symbol(identifier: str) -> str:
         if identifier in aliases:
             return aliases[identifier]
         return identifier
 
-    def qualified(node: ast.AST) -> str:
-        if isinstance(node, ast.Name):
-            return symbol(node.id)
-        if isinstance(node, ast.Attribute):
-            return qualified(node.value) + '.' + node.attr
-        return ''
-
     shadowed = rebound | {symbol(k) for k in sorted(bound_names(tree))}
 
     def stable(name: str) -> bool:
         return not any(name == key or name.startswith(key + '.') or key.startswith(name + '.') for key in sorted(shadowed))
 
-    calls = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.Call) and qualified(n.func) == 'typing.assert_never' and stable(qualified(n.func)))
+    calls = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.Call) and _qualified(n.func, aliases) == call_target and stable(_qualified(n.func, aliases)))
     closed = tuple('atlas_brain.kernel.states.' + state for state in ('Known', 'Absent', 'Unknown', 'NotApplicable'))
-    facts = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.MatchClass) and qualified(n.cls) in closed and stable(qualified(n.cls)))
+    facts = frozenset(n for n in ast.walk(tree) if isinstance(n, ast.MatchClass) and _qualified(n.cls, aliases) in closed and stable(_qualified(n.cls, aliases)))
     return calls, facts
 
 
@@ -84,7 +85,28 @@ def _returned_default(body: list[ast.stmt]) -> bool:
     return bool(body) and isinstance(body[-1], ast.Return)
 
 
-def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset()) -> bool:
+def _finite_subject(test: ast.AST) -> str:
+    if isinstance(test, ast.Compare) and len(test.ops) == len(test.comparators) == 1 and isinstance(test.ops[0], ast.Eq):
+        left, right = test.left, test.comparators[0]
+        if isinstance(right, ast.Constant) and type(right.value) is str:
+            return _qualified(left, {})
+        if isinstance(left, ast.Constant) and type(left.value) is str:
+            return _qualified(right, {})
+    return ''
+
+
+def _refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
+    if not subject or not following:
+        return False
+    # Only further literal equalities on this same input may precede the refusal.
+    # An early unconditional return, mutation or unrelated condition is unproven.
+    if any(not isinstance(s, ast.If) or s.orelse or _finite_subject(s.test) != subject for s in following[:-1]):
+        return False
+    last = following[-1]
+    return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
+
+
+def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset(), following: tuple[ast.stmt, ...] = (), unknowns: frozenset[ast.Call] = frozenset()) -> bool:
     """Refuse defaults; assertion call witnesses require whole-module binding proof."""
     if isinstance(node, ast.Call):
         short = (called or _tail(node.func)).rsplit('.', 1)[-1]
@@ -94,8 +116,10 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
         return (_lookup_value(node.body) or _lookup_value(node.orelse) or
                 _enum_comparison(node.test))
     if isinstance(node, ast.If):
+        if not node.orelse and _refusal_tail(following, _finite_subject(node.test), unknowns):
+            return False
         return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
-                (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or bool(node.orelse) and any(_lookup_value(part.value)
+                _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or bool(node.orelse) and any(_lookup_value(part.value)
                    for statement in node.body + node.orelse for part in ast.walk(statement)
                    if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
     if isinstance(node, ast.Match):
@@ -103,3 +127,18 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
                    not _terminal_assertion(case.pattern, case.body, assertions)
                    for case in node.cases)
     return False
+
+
+def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> frozenset[ast.AST]:
+    """Inspect statement successors and genuine Unknown bindings for whole-source use."""
+    assertions, facts = binding_proof(tree, aliases, rebound)
+    unknowns, _ = binding_proof(tree, aliases, rebound, call_target='atlas_brain.kernel.states.Unknown')
+    following: dict[ast.stmt, tuple[ast.stmt, ...]] = {}
+    for owner in ast.walk(tree):
+        for _, value in ast.iter_fields(owner):
+            if isinstance(value, list):
+                block = tuple(item for item in value if isinstance(item, ast.stmt))
+                following.update((statement, block[index + 1:]) for index, statement in enumerate(block))
+    return frozenset(node for node in ast.walk(tree) if fallback_node(node,
+        _qualified(node.func, aliases) if isinstance(node, ast.Call) else '', assertions=assertions, facts=facts,
+        following=following[node] if isinstance(node, ast.stmt) and node in following else (), unknowns=unknowns))
