@@ -147,6 +147,22 @@ def test_action_post_receipts_are_separate_from_required_source_steps():
         verify(data, SHA, "push")
 
 
+@pytest.mark.parametrize("step", [
+    "      - run: echo synthetic\n      - run: echo synthetic\n",
+    "      - run: echo synthetic\n        name:\n",
+    "      - name: Set up job\n        run: echo synthetic\n",
+    "      - name: ${{ github.sha }}\n        run: echo synthetic\n",
+])
+def test_ambiguous_source_step_names_refuse(step):
+    data = receipts()
+    path = data["catalog"][0]["path"]
+    blob = source_blob(SOURCE.replace("      - run: echo synthetic\n", step, 1))
+    data["sources"][path] = blob
+    data["tree"]["tree"][0]["sha"] = blob["sha"]
+    with pytest.raises(ValueError):
+        verify(data, SHA, "push")
+
+
 def test_matrix_values_come_from_source_not_an_os_list():
     data = receipts()
     for entry in data["tree"]["tree"]:
