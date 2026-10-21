@@ -181,34 +181,6 @@ def _returned_default(body: list[ast.stmt]) -> bool:
     return bool(body) and isinstance(body[-1], ast.Return)
 
 
-def _finite_subject(test: ast.AST) -> str:
-    if isinstance(test, ast.Compare) and len(test.ops) == len(test.comparators) == 1 and isinstance(test.ops[0], ast.Eq):
-        left, right = test.left, test.comparators[0]
-        if isinstance(right, ast.Constant) and type(right.value) is str:
-            return _qualified(left, {})
-        if isinstance(left, ast.Constant) and type(left.value) is str:
-            return _qualified(right, {})
-    return ''
-
-
-def _same_operand(left: ast.AST, right: ast.AST) -> bool:
-    if isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
-        return type(left.value) is type(right.value) and left.value == right.value
-    name = _qualified(left, {})
-    return bool(name) and name == _qualified(right, {})
-
-
-def _guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool = False) -> bool:
-    if not isinstance(test, ast.Compare) or len(test.ops) != 1 or len(test.comparators) != 1:
-        return False
-    if not isinstance(test.ops[0], ast.NotIn if inverse else ast.In):
-        return False
-    if len(body) != 1 or not isinstance(body[0], ast.Return) or not isinstance(body[0].value, ast.Subscript):
-        return False
-    lookup = body[0].value
-    return _same_operand(test.left, lookup.slice) and _same_operand(test.comparators[0], lookup.value)
-
-
 def _refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
     if not following:
         return False
@@ -216,7 +188,7 @@ def _refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: froze
     # Only further literal equalities on this same input may precede the refusal.
     # An early unconditional return, mutation or unrelated condition is unproven.
     if len(following) > 1 and (not subject or any(
-            not isinstance(s, ast.If) or s.orelse or _finite_subject(s.test) != subject for s in following[:-1])):
+            not isinstance(s, ast.If) or s.orelse or finite_subject(s.test) != subject for s in following[:-1])):
         return False
     return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
 
@@ -232,11 +204,11 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
                 _enum_comparison(node.test))
     if isinstance(node, ast.If):
         lookup = _lookup_branch(node.body + node.orelse) or _lookup_branch(list(following))
-        subject = _finite_subject(node.test)
+        subject = finite_subject(node.test)
         if allow_refusal and not node.orelse:
-            if (subject or _guarded_lookup(node.test, tuple(node.body))) and _refusal_tail(following, subject, unknowns):
+            if (subject or guarded_lookup(node.test, tuple(node.body))) and _refusal_tail(following, subject, unknowns):
                 return False
-            if _guarded_lookup(node.test, following, inverse=True) and _refusal_tail(tuple(node.body), '', unknowns):
+            if guarded_lookup(node.test, following, inverse=True) and _refusal_tail(tuple(node.body), '', unknowns):
                 return False
         return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
                 _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or lookup
@@ -259,13 +231,13 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
     following, intercepted = statement_context(tree)
     roots = frozenset(branch for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
-        and (_finite_subject(branch.test) or _guarded_lookup(branch.test, tuple(branch.body)))
-        and _refusal_tail(following[branch], _finite_subject(branch.test), unknowns))
-    proven_guards = roots | frozenset(later for branch in roots if _finite_subject(branch.test)
+        and (finite_subject(branch.test) or guarded_lookup(branch.test, tuple(branch.body)))
+        and _refusal_tail(following[branch], finite_subject(branch.test), unknowns))
+    proven_guards = roots | frozenset(later for branch in roots if finite_subject(branch.test)
                                      for later in following[branch][:-1])
     inverses = frozenset(branch for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
-        and _guarded_lookup(branch.test, following[branch], inverse=True)
+        and guarded_lookup(branch.test, following[branch], inverse=True)
         and _refusal_tail(tuple(branch.body), '', unknowns))
     proven_statements = frozenset(part for branch in proven_guards if isinstance(branch, ast.If)
                                  for part in branch.body) | frozenset(part for branch in inverses for part in following[branch])
@@ -274,3 +246,31 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
         following=following[node] if isinstance(node, ast.stmt) and node in following else (), unknowns=unknowns,
         allow_refusal=node not in intercepted or node in proven_guards) or (
             node in intercepted and node not in proven_statements and _statement_lookup(node)))
+
+
+def finite_subject(test: ast.AST) -> str:
+    if isinstance(test, ast.Compare) and len(test.ops) == len(test.comparators) == 1 and isinstance(test.ops[0], ast.Eq):
+        left, right = test.left, test.comparators[0]
+        if isinstance(right, ast.Constant) and type(right.value) is str:
+            return _qualified(left, {})
+        if isinstance(left, ast.Constant) and type(left.value) is str:
+            return _qualified(right, {})
+    return ''
+
+
+def _same_operand(left: ast.AST, right: ast.AST) -> bool:
+    if isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
+        return type(left.value) is type(right.value) and left.value == right.value
+    name = _qualified(left, {})
+    return bool(name) and name == _qualified(right, {})
+
+
+def guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool = False) -> bool:
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1 or len(test.comparators) != 1:
+        return False
+    if not isinstance(test.ops[0], ast.NotIn if inverse else ast.In):
+        return False
+    if len(body) != 1 or not isinstance(body[0], ast.Return) or not isinstance(body[0].value, ast.Subscript):
+        return False
+    lookup = body[0].value
+    return _same_operand(test.left, lookup.slice) and _same_operand(test.comparators[0], lookup.value)
