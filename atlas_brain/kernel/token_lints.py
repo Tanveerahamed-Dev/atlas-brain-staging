@@ -142,6 +142,24 @@ def _finite_subject(test: ast.AST) -> str:
     return ''
 
 
+def _same_operand(left: ast.AST, right: ast.AST) -> bool:
+    if isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
+        return type(left.value) is type(right.value) and left.value == right.value
+    name = _qualified(left, {})
+    return bool(name) and name == _qualified(right, {})
+
+
+def _guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool = False) -> bool:
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1 or len(test.comparators) != 1:
+        return False
+    if not isinstance(test.ops[0], ast.NotIn if inverse else ast.In):
+        return False
+    if len(body) != 1 or not isinstance(body[0], ast.Return) or not isinstance(body[0].value, ast.Subscript):
+        return False
+    lookup = body[0].value
+    return _same_operand(test.left, lookup.slice) and _same_operand(test.comparators[0], lookup.value)
+
+
 def _refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
     if not following:
         return False
@@ -164,10 +182,13 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
         return (_lookup_value(node.body) or _lookup_value(node.orelse) or
                 _enum_comparison(node.test))
     if isinstance(node, ast.If):
-        lookup = _lookup_branch(node.body + node.orelse)
+        lookup = _lookup_branch(node.body + node.orelse) or _lookup_branch(list(following))
         subject = _finite_subject(node.test)
-        if allow_refusal and not node.orelse and (subject or lookup) and _refusal_tail(following, subject, unknowns):
-            return False
+        if allow_refusal and not node.orelse:
+            if (subject or _guarded_lookup(node.test, tuple(node.body))) and _refusal_tail(following, subject, unknowns):
+                return False
+            if _guarded_lookup(node.test, following, inverse=True) and _refusal_tail(tuple(node.body), '', unknowns):
+                return False
         return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
                 _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or lookup
     if isinstance(node, ast.Match):
