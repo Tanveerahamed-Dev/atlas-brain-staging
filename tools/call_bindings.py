@@ -3,9 +3,9 @@ import ast
 import builtins
 
 BUILTINS = frozenset(vars(builtins))
-SCALARS = frozenset("bool int float complex str bytes bytearray isinstance issubclass callable len all any hash id repr ascii format bin oct hex ord chr".split())
+SCALARS = frozenset({"bool", "int", "float", "complex", "str", "bytes", "bytearray", "isinstance", "issubclass", "callable", "len", "all", "any", "hash", "id", "repr", "ascii", "format", "bin", "oct", "hex", "ord", "chr"})
 SCALAR_APIS = frozenset({"json.dumps", "math.isfinite", "stat.S_ISDIR", "stat.S_ISREG"})
-CARRIERS = frozenset("iter next aiter anext list tuple set frozenset dict reversed enumerate zip sorted".split())
+CARRIERS = frozenset({"iter", "next", "aiter", "anext", "list", "tuple", "set", "frozenset", "dict", "reversed", "enumerate", "zip", "sorted"})
 
 
 class CallableBindings:
