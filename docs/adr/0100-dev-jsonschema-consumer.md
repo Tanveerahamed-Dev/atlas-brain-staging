@@ -17,17 +17,20 @@ unsafe integers; empty JSONL does not bypass schema validation or imply health.
 Nothing from this dev closure is shipped; preserve the MIT notice if that ever changes.
 Pinned licence: https://github.com/python-jsonschema/jsonschema/blob/a7277432b0f7bcd0551f6e589d30457017125df4/COPYING
 PyPI metadata: https://pypi.org/pypi/jsonschema/4.26.0/json
-Core closure is attrs, jsonschema-specifications, referencing and rpds-py; their
-current PyPI metadata reports MIT. Exact versions/hashes must be the hosted uv.lock.
+Hosted uv.lock pins attrs26.1.0, jsonschema-specifications2025.9.1,
+referencing0.37.0 and rpds-py2026.9.1; their checked PyPI metadata reports MIT.
+The exact lock bytes/hashes come from hosted C1 run39573657895, not local resolution.
 (d) CT proposes; an independent REV2 DA-7 admission decision is required before adoption.
 (e) PyPI JSON reports4.26.0 first uploaded2026-01-07T13:41:05Z, one release in the
 2025-10-21 through2026-10-21 window, and Python>=3.10 including the3.14 classifier.
 PyPI maintenance source: https://pypi.org/pypi/jsonschema/json
 GitHub's release page agrees on v4.26.0 and displays179 commits to main since it:
 https://github.com/python-jsonschema/jsonschema/releases/tag/v4.26.0
-Anonymous REST metadata was rate-limited; archive/latest-default-commit REST fields
-remain UNVERIFIED. This gap is not silently converted to a maintenance attestation;
-the independent admission decision must explicitly resolve the DA-7 evidence boundary.
+REST metadata, initially rate-limited, was successfully checked2026-10-21: archived=false;
+latest GitHub release v4.26.0 was published2026-01-07T13:41:11Z. Latest default commit
+c497561ea0a95f5aac09cd63d15eb1420eb7bbec is dated2026-10-07T10:49:35Z.
+This records maintenance activity from both primary API sources; admission still
+requires the independent verifier's explicit decision and exact-head CI evidence.
 REST sources: https://api.github.com/repos/python-jsonschema/jsonschema
 https://api.github.com/repos/python-jsonschema/jsonschema/releases/latest
 https://api.github.com/repos/python-jsonschema/jsonschema/commits?per_page=1
