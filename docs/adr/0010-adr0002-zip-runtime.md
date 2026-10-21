@@ -35,6 +35,7 @@ or runtime-thread grant is added. This admission does not certify ZIP runtime,
 stream limits, hostile-code containment or historical CI recovery.
 Independent REV and Linux/Windows proof, then E's separate full functional
 proof and recorded ZIP-merge disposition, remain mandatory.
-The three explicit member names preserve this same pinned source under the
-accepted constructor gate. Their scope classification awaits recorded REV
-decision before this refreshed successor is published; no grant is accepted.
+The three member names preserve this same pinned source under the accepted
+constructor gate; REV classified their publication scope under standing22:15:
+https://github.com/Tanveerahamed-Dev/atlas-brain-staging/pull/116#issuecomment-6322054786
+That scope decision is not implementation, merge or ZIP behavior acceptance.
