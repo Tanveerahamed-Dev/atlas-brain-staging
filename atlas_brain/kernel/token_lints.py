@@ -5,6 +5,7 @@ silently manufactures None, so token maps must use checked subscription.
 This is a static shape guard, complemented by the closed parse-kit token map.
 """
 import ast
+from typing import cast
 
 
 def _tail(node: ast.AST) -> str:
@@ -139,7 +140,7 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
     for owner in ast.walk(tree):
         for _, value in ast.iter_fields(owner):
             if isinstance(value, list):
-                block = tuple(item for item in value if isinstance(item, ast.stmt))
+                block = tuple(item for item in cast(list[object], value) if isinstance(item, ast.stmt))
                 following.update((statement, block[index + 1:]) for index, statement in enumerate(block))
     return frozenset(node for node in ast.walk(tree) if fallback_node(node,
         _qualified(node.func, aliases) if isinstance(node, ast.Call) else '', assertions=assertions, facts=facts,
