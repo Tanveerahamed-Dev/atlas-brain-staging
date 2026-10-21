@@ -66,6 +66,11 @@ SCOPED_API = {
 RUNTIME_API = {"atlas_brain/evidence/admission.py": {
     "pathlib.PurePosixPath.is_absolute", "pathlib.PurePosixPath.parts",
 }}
+RUNTIME_API["atlas_brain/evidence/archives.py"] = {
+    "zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
+    "zlib.error", "zlib.decompressobj", "stat.S_IFMT", "zipfile.ZipFile.infolist",
+    "zipfile.ZipFile.open", "pathlib.Path.suffix",
+}
 
 
 def repository_path(path):
