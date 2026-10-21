@@ -41,6 +41,24 @@ def _statement_lookup(node: ast.AST) -> bool:
     return False
 
 
+def _may_return(node: ast.AST) -> bool:
+    """Find a possible early return without entering a separately defined function."""
+    pending = [node]
+    while pending:
+        part = pending.pop()
+        if isinstance(part, ast.Return):
+            return True
+        fields = tuple(ast.iter_fields(part))
+        if any(field == 'args' and isinstance(value, ast.AST) for field, value in fields):
+            continue
+        for _, value in fields:
+            if isinstance(value, ast.AST):
+                pending.append(value)
+            elif isinstance(value, list):
+                pending.extend(child for child in cast(list[object], value) if isinstance(child, ast.AST))
+    return False
+
+
 def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...]], frozenset[ast.AST]]:
     """Bind local successors without certifying optional or intercepted execution.
 
@@ -81,11 +99,11 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
                 field in ('body', 'orelse') and conditional)
             blocked = blocked and not (function_scope and field == 'body')
             unreachable: set[ast.AST] = set()
-            terminated = False
+            may_skip = False
             for statement in block:
-                if terminated:
+                if may_skip:
                     unreachable.add(statement)
-                terminated = terminated or isinstance(statement, (ast.Return, ast.Raise))
+                may_skip = may_skip or isinstance(statement, ast.Raise) or _may_return(statement)
             pending.extend((child, blocked or child in unreachable) for child in children)
     return following, frozenset(intercepted)
 
@@ -163,7 +181,70 @@ def _returned_default(body: list[ast.stmt]) -> bool:
     return bool(body) and isinstance(body[-1], ast.Return)
 
 
-def _finite_subject(test: ast.AST) -> str:
+def _finite_arm(node: ast.If) -> str:
+    if not node.body or not isinstance(node.body[-1], (ast.Return, ast.Raise)):
+        return ''
+    return finite_subject(node.test)
+
+
+def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset(), following: tuple[ast.stmt, ...] = (), unknowns: frozenset[ast.Call] = frozenset(), allow_refusal: bool = False) -> bool:
+    """Refuse defaults; assertion call witnesses require whole-module binding proof."""
+    if isinstance(node, ast.Call):
+        short = (called or _tail(node.func)).rsplit('.', 1)[-1]
+        return short in ('get', 'setdefault', 'defaultdict') or (
+            short == 'pop' and (len(node.args) > 1 or bool(node.keywords)))
+    if isinstance(node, ast.IfExp):
+        return (_lookup_value(node.body) or _lookup_value(node.orelse) or
+                _enum_comparison(node.test))
+    if isinstance(node, ast.If):
+        lookup = _lookup_branch(node.body + node.orelse) or _lookup_branch(list(following))
+        subject = finite_subject(node.test)
+        if subject and len(following) > 1 and not _finite_arm(node) and refusal_tail(following, subject, unknowns):
+            return True
+        if allow_refusal and not node.orelse:
+            if (_finite_arm(node) or guarded_lookup(node.test, tuple(node.body))) and refusal_tail(following, subject, unknowns):
+                return False
+            if guarded_lookup(node.test, following, inverse=True) and refusal_tail(tuple(node.body), '', unknowns):
+                return False
+        return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
+                _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or lookup
+    if isinstance(node, ast.Match):
+        terminals = frozenset(case for case in node.cases if allow_refusal and case.guard is None
+                             and _terminal_assertion(case.pattern, case.body, assertions))
+        if any(not _literal_pattern(case.pattern, facts) and
+               case not in terminals
+               for case in node.cases):
+            return True
+        terminal = _returned_default(list(following)) or bool(following and isinstance(following[-1], ast.Raise))
+        return terminal and not terminals and not (allow_refusal and refusal_tail(following, _qualified(node.subject, {}), unknowns))
+    return False
+
+
+def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> frozenset[ast.AST]:
+    """Inspect statement successors and genuine Unknown bindings for whole-source use."""
+    assertions, facts = binding_proof(tree, aliases, rebound)
+    unknowns, _ = binding_proof(tree, aliases, rebound, call_target='atlas_brain.kernel.states.Unknown')
+    following, intercepted = statement_context(tree)
+    roots = frozenset(branch for branch in following
+        if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
+        and (_finite_arm(branch) or guarded_lookup(branch.test, tuple(branch.body)))
+        and refusal_tail(following[branch], finite_subject(branch.test), unknowns))
+    proven_guards = roots | frozenset(later for branch in roots if finite_subject(branch.test)
+                                     for later in following[branch][:-1])
+    inverses = frozenset(branch for branch in following
+        if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
+        and guarded_lookup(branch.test, following[branch], inverse=True)
+        and refusal_tail(tuple(branch.body), '', unknowns))
+    proven_statements = frozenset(part for branch in proven_guards if isinstance(branch, ast.If)
+                                 for part in branch.body) | frozenset(part for branch in inverses for part in following[branch])
+    return frozenset(node for node in ast.walk(tree) if fallback_node(node,
+        _qualified(node.func, aliases) if isinstance(node, ast.Call) else '', assertions=assertions, facts=facts,
+        following=following[node] if isinstance(node, ast.stmt) and node in following else (), unknowns=unknowns,
+        allow_refusal=node not in intercepted or node in proven_guards) or (
+            node in intercepted and node not in proven_statements and _statement_lookup(node)))
+
+
+def finite_subject(test: ast.AST) -> str:
     if isinstance(test, ast.Compare) and len(test.ops) == len(test.comparators) == 1 and isinstance(test.ops[0], ast.Eq):
         left, right = test.left, test.comparators[0]
         if isinstance(right, ast.Constant) and type(right.value) is str:
@@ -180,7 +261,7 @@ def _same_operand(left: ast.AST, right: ast.AST) -> bool:
     return bool(name) and name == _qualified(right, {})
 
 
-def _guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool = False) -> bool:
+def guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool = False) -> bool:
     if not isinstance(test, ast.Compare) or len(test.ops) != 1 or len(test.comparators) != 1:
         return False
     if not isinstance(test.ops[0], ast.NotIn if inverse else ast.In):
@@ -191,61 +272,14 @@ def _guarded_lookup(test: ast.AST, body: tuple[ast.stmt, ...], *, inverse: bool 
     return _same_operand(test.left, lookup.slice) and _same_operand(test.comparators[0], lookup.value)
 
 
-def _refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
+def refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
+    """Prove an escaping tail; the caller supplies canonical Unknown call witnesses."""
     if not following:
         return False
     last = following[-1]
-    # Only further literal equalities on this same input may precede the refusal.
-    # An early unconditional return, mutation or unrelated condition is unproven.
+    # Each same-input arm must exit; an arm that mutates and continues is unproven.
     if len(following) > 1 and (not subject or any(
-            not isinstance(s, ast.If) or s.orelse or _finite_subject(s.test) != subject for s in following[:-1])):
+            not isinstance(s, ast.If) or s.orelse or finite_subject(s.test) != subject
+            or len(s.body) != 1 or not isinstance(s.body[0], (ast.Return, ast.Raise)) for s in following[:-1])):
         return False
     return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
-
-
-def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset(), following: tuple[ast.stmt, ...] = (), unknowns: frozenset[ast.Call] = frozenset(), allow_refusal: bool = False) -> bool:
-    """Refuse defaults; assertion call witnesses require whole-module binding proof."""
-    if isinstance(node, ast.Call):
-        short = (called or _tail(node.func)).rsplit('.', 1)[-1]
-        return short in ('get', 'setdefault', 'defaultdict') or (
-            short == 'pop' and (len(node.args) > 1 or bool(node.keywords)))
-    if isinstance(node, ast.IfExp):
-        return (_lookup_value(node.body) or _lookup_value(node.orelse) or
-                _enum_comparison(node.test))
-    if isinstance(node, ast.If):
-        lookup = _lookup_branch(node.body + node.orelse) or _lookup_branch(list(following))
-        subject = _finite_subject(node.test)
-        if allow_refusal and not node.orelse:
-            if (subject or _guarded_lookup(node.test, tuple(node.body))) and _refusal_tail(following, subject, unknowns):
-                return False
-            if _guarded_lookup(node.test, following, inverse=True) and _refusal_tail(tuple(node.body), '', unknowns):
-                return False
-        return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
-                _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or lookup
-    if isinstance(node, ast.Match):
-        terminals = frozenset(case for case in node.cases if allow_refusal and case.guard is None
-                             and _terminal_assertion(case.pattern, case.body, assertions))
-        if any(not _literal_pattern(case.pattern, facts) and
-               case not in terminals
-               for case in node.cases):
-            return True
-        terminal = _returned_default(list(following)) or bool(following and isinstance(following[-1], ast.Raise))
-        return terminal and not terminals and not (allow_refusal and _refusal_tail(following, _qualified(node.subject, {}), unknowns))
-    return False
-
-
-def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> frozenset[ast.AST]:
-    """Inspect statement successors and genuine Unknown bindings for whole-source use."""
-    assertions, facts = binding_proof(tree, aliases, rebound)
-    unknowns, _ = binding_proof(tree, aliases, rebound, call_target='atlas_brain.kernel.states.Unknown')
-    following, intercepted = statement_context(tree)
-    proven_statements = frozenset(part for branch in following
-        if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
-        and (_finite_subject(branch.test) or _guarded_lookup(branch.test, tuple(branch.body)))
-        and _refusal_tail(following[branch], _finite_subject(branch.test), unknowns)
-        for part in branch.body)
-    return frozenset(node for node in ast.walk(tree) if fallback_node(node,
-        _qualified(node.func, aliases) if isinstance(node, ast.Call) else '', assertions=assertions, facts=facts,
-        following=following[node] if isinstance(node, ast.stmt) and node in following else (), unknowns=unknowns,
-        allow_refusal=node not in intercepted) or (
-            node in intercepted and node not in proven_statements and _statement_lookup(node)))
