@@ -122,6 +122,7 @@ def gate_data_allowed(path: str, data) -> bool:
 
 def import_bindings(tree, path):
     aliases, exports, declarations = {}, {}, set()
+    wrappers, containers = {}, {}
     def dotted(node):
         if isinstance(node, ast.Name):
             return node.id
@@ -168,9 +169,35 @@ def import_bindings(tree, path):
                 ambiguous |= None in items
                 roots.update(root for root in items if root is not None)
         return bool(roots or ambiguous), (None, *sorted(roots)) if ambiguous and roots else None if ambiguous else tuple(sorted(roots))
+    def scope_keys(name, scope):
+        parts = scope.rstrip(".").split(".") if scope else []
+        return [".".join((*parts[:length], name)) for length in range(len(parts), -1, -1)]
+    def wrapper(value, scope):
+        if not isinstance(value, ast.Name) or value.id in aliases:
+            return ""
+        for key in scope_keys(value.id, scope):
+            if key in wrappers:
+                return wrappers[key]
+            if key in exports or key in declarations:
+                return ""
+        # Transfer rules for existing builtin value carriers, not API permissions.
+        return value.id if value.id in {"iter", "next", "aiter", "anext", "list", "tuple", "set",
+            "frozenset", "dict", "reversed", "enumerate", "zip", "sorted"} else ""
+    def container(value, scope):
+        if isinstance(value, (ast.Dict, ast.List, ast.Tuple, ast.Set, ast.DictComp,
+                              ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+            return True
+        if isinstance(value, ast.Call):
+            return bool(wrapper(value.func, scope))
+        if isinstance(value, ast.Name):
+            key = next((key for key in scope_keys(value.id, scope) if key in exports or key in declarations), "")
+            return key in containers
+        return False
     def assignment(target, value, scope):
         if isinstance(target, ast.Subscript):
             assignment(target.value, value, scope)
+            if isinstance(target.value, ast.Name):
+                containers.setdefault(scope + target.value.id, set()).update(returned(value, scope))
             return
         if isinstance(target, (ast.Tuple, ast.List)):
             if (isinstance(value, (ast.Tuple, ast.List)) and len(target.elts) == len(value.elts)
@@ -186,6 +213,11 @@ def import_bindings(tree, path):
         if not name:
             return
         key = scope + name
+        if isinstance(target, ast.Name):
+            kind, carried = wrapper(value, scope), container(value, scope)
+            wrappers[key] = kind
+            if carried or key in containers:
+                containers.setdefault(key, set()).update(returned(value, scope))
         known, origin = reference(value, scope)
         if not known:
             known, origin = opaque(value, scope)
@@ -207,6 +239,10 @@ def import_bindings(tree, path):
         else:
             declarations.add(key)
     def returned(value, scope):
+        if isinstance(value, ast.Name):
+            key = next((key for key in scope_keys(value.id, scope) if key in exports or key in declarations), "")
+            if key in containers:
+                return set(containers[key])
         if isinstance(value, (ast.Compare, ast.JoinedStr)) or isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.Not):
             return set()
         if isinstance(value, (ast.NamedExpr, ast.Subscript)):
@@ -217,8 +253,17 @@ def import_bindings(tree, path):
             return returned(value.body, scope) | returned(value.orelse, scope)
         if isinstance(value, ast.BoolOp):
             return set().union(*(returned(part, scope) for part in value.values))
+        if isinstance(value, ast.Call) and (wrapper(value.func, scope)
+                or isinstance(value.func, ast.Attribute) and container(value.func.value, scope)):
+            carried = [*value.args, *(item.value for item in value.keywords)]
+            if isinstance(value.func, ast.Attribute):
+                carried.append(value.func.value)
+            return set().union(*(returned(part, scope) for part in carried))
         # A call returns its callee's result, not its arguments or tested classes.
         known, origin = reference(value.func if isinstance(value, ast.Call) else value, scope)
+        if isinstance(value, ast.Call) and origin == "typing.cast":
+            carried = value.args[1:] + [item.value for item in value.keywords if item.arg == "val"]
+            return set().union(*(returned(part, scope) for part in carried))
         if not known and isinstance(value, ast.Call):
             name = dotted(value.func)
             key = scope + name if scope + name in declarations else name
