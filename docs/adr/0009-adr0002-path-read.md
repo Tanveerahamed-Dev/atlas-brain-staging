@@ -1,6 +1,6 @@
 # ADR-0009: Exact existing path reads before constructor enforcement
 
-Status: accepted
+Status: superseded
 
 Supersedes ADR-0008; all its grants remain unchanged.
 Standing exact safe per-file stdlib approval: 2026-10-20 22:15.
