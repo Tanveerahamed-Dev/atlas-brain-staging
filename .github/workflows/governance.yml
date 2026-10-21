@@ -1,5 +1,6 @@
 name: Governance foundation
 on:
+  workflow_dispatch:
   pull_request:
   merge_group:
   push:
@@ -16,6 +17,7 @@ env:
   GH_TOKEN: ${{ github.token }}
 jobs:
   governance-foundation:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'manual-governance-foundation' || 'governance-foundation' }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:

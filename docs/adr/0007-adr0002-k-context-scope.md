@@ -1,6 +1,6 @@
 # ADR-0007: ADR-0002 amendment for K contextual token inspection
 
-Status: accepted
+Status: superseded
 
 Supersedes ADR-0006; its prior global and per-file grants remain unchanged.
 Standing supervisor approval:
