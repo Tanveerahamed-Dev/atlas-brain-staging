@@ -41,6 +41,7 @@ from atlas_brain.kernel.lints import lint
     ('def mapped(raw):\n match raw:\n  case "up": return "up"\n  case "down": return "down"\n return "up"', 3),
     ('import atlas_brain.kernel.states\ndef mapped(fact):\n match fact:\n  case atlas_brain.kernel.states.Known(): return "up"\n return "up"', 3),
     ('import typing\ndef mapped(raw):\n match raw:\n  case _ as missing if False: typing.assert_never(missing)\n return "up"', 3),
+    ('import typing\ndef mapped(raw):\n match raw:\n  case "up" as missing: typing.assert_never(missing)\n return "up"', 3),
     ('class Known(str): pass\nmatch raw:\n case Known(): value = "up"', 3),
     ('def Unknown(*args): return "up"\ndef mapped(raw):\n if raw == "up": return "up"\n return Unknown(raw)', 3),
     ('def mapped(raw):\n if raw != "up": return "up"\n raise UnknownToken(raw)', 3),
