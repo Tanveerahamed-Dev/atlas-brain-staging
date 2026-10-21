@@ -61,6 +61,15 @@ SCOPED_API = {
 }
 
 
+# Runtime API grants do not put their modules behind the AST-tooling import ban.
+RUNTIME_API = {
+    "atlas_brain/evidence/archives.py": {
+        "zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
+        "zlib.error", "zlib.decompressobj", "stat.S_IFMT",
+    },
+}
+
+
 def repository_path(path):
     parsed = PurePosixPath(path)
     return (not parsed.is_absolute() and ".." not in parsed.parts and "\\" not in path
@@ -259,7 +268,7 @@ class ImportIndex:
 
 def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> set[str]:
     tree = ast.parse(source)
-    apis = STDLIB_API | SCOPED_API.get(path, set())
+    apis = STDLIB_API | SCOPED_API.get(path, set()) | RUNTIME_API.get(path, set())
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
         aliases = import_bindings(tree, path)[0]
