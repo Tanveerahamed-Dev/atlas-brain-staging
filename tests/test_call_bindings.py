@@ -111,3 +111,12 @@ def test_explicit_outer_mutation_stays_uncertain_for_other_readers():
     bindings.assign("carrier", expression("iter"), "Reader.")
     assert bindings.has_carrier(expression("carrier"), "Reader.factory.")
     assert not bindings.primitive_call(expression("carrier(values)"), "Reader.factory.")
+
+
+def test_class_function_scope_collision_cannot_erase_function_local_carrier():
+    bindings = CallableBindings("atlas_brain.example", {}, {}, set())
+    bindings.predeclare(ast.parse("class Reader: pass\ndef Reader():\n def factory(): pass"))
+    bindings.assign("carrier", expression("len"), "")
+    bindings.assign("carrier", expression("iter"), "Reader.")
+    assert bindings.has_carrier(expression("carrier"), "Reader.factory.")
+    assert not bindings.primitive_call(expression("carrier(values)"), "Reader.factory.")
