@@ -14,6 +14,7 @@ LINTS = "atlas_brain/kernel/lints.py"
 GRANTS = [(path, api) for path, apis in SCOPED_API.items() for api in sorted(apis)]
 K_SCOPE_ADDITION = {"ast.AnnAssign", "ast.Assign", "ast.Compare", "ast.Constant", "ast.Expr",
                     "ast.MatchAs", "ast.MatchMapping", "ast.MatchStar", "ast.Return", "ast.stmt", "ast.Subscript"}
+K_CONTEXT_ADDITION = {"ast.Eq", "ast.Raise", "ast.iter_fields"}
 
 
 @pytest.mark.parametrize("path,api", GRANTS)
@@ -79,7 +80,7 @@ def test_global_reexport_cannot_hide_protected_import_hop(source):
 def test_amendment_matches_exact_grant_and_bounds():
     assert set(SCOPED_API) == {TOKEN, LINTS, "atlas_brain/evidence/parsekit/token_lint.py",
                                "atlas_brain/evidence/parsekit/token_audit.py"}
-    endpoints = (SCOPED_API[TOKEN] - K_SCOPE_ADDITION) | SCOPED_API[LINTS]
+    endpoints = (SCOPED_API[TOKEN] - K_SCOPE_ADDITION - K_CONTEXT_ADDITION) | SCOPED_API[LINTS]
     assert len(endpoints) == 40
     assert not any(api.startswith("ast.") for api in STDLIB_API)
     text = Path("docs/adr/0003-adr0002-ast-amendment.md").read_text(encoding="utf-8")
@@ -88,7 +89,7 @@ def test_amendment_matches_exact_grant_and_bounds():
 
 
 def test_k_class_scope_amendment_has_only_eleven_actual_using_bindings():
-    assert len(SCOPED_API[TOKEN]) == 24
+    assert len(SCOPED_API[TOKEN] - K_CONTEXT_ADDITION) == 24
     assert K_SCOPE_ADDITION <= SCOPED_API[TOKEN]
     text = Path("docs/adr/0006-adr0002-k-token-scope.md").read_text(encoding="utf-8")
     assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == K_SCOPE_ADDITION
@@ -101,9 +102,28 @@ def test_k_class_scope_amendment_has_only_eleven_actual_using_bindings():
                               {TOKEN: "import ast"}, "atlas_brain/runtime.py")
 
 
+def test_context_amendment_has_only_three_actual_using_bindings():
+    assert len(SCOPED_API[TOKEN]) == 27
+    assert K_CONTEXT_ADDITION <= SCOPED_API[TOKEN]
+    assert len(STDLIB_API) == 22 and len(SCOPED_API[LINTS]) == 32
+    text = Path("docs/adr/0007-adr0002-k-context-scope.md").read_text(encoding="utf-8")
+    assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == K_CONTEXT_ADDITION
+    assert len(text.splitlines()) <= 60 and len(text) <= 4000
+
+
+@pytest.mark.parametrize("api", sorted(K_CONTEXT_ADDITION))
+def test_context_bindings_cannot_escape_or_reexport(api):
+    assert source_allowed(f"import ast; {api}", path=TOKEN)
+    assert not source_allowed(f"import ast; {api}", path=LINTS)
+    sources = {TOKEN: f"import ast\nnode = {api}"}
+    assert not source_allowed("from .kernel.token_lints import node; node", sources, "atlas_brain/runtime.py")
+
+
 @pytest.mark.parametrize("path,source,expected", [
     (TOKEN, "import ast; ast.Name", 0), (LINTS, "import ast; ast.parse('')", 0),
     (TOKEN, "import ast; ast.Compare", 0), (TOKEN, "import ast; ast.literal_eval('0')", 1),
+    (TOKEN, "import ast; ast.Eq", 0), (TOKEN, "import ast; ast.Raise", 0),
+    (TOKEN, "import ast; ast.iter_fields", 0),
     (LINTS, "import ast; ast.literal_eval('0')", 1),
     ("atlas_brain/kernel/runtime.py", "import ast; ast.Name", 1),
 ])
