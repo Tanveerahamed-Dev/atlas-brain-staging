@@ -18,6 +18,8 @@ PRODUCERS = [
     "from pathlib import Path\nvalue = Path('a') if flag else Path('b')",
     "from pathlib import Path\nvalue = (Path('synthetic'),)[0]",
 ]
+RECEIVERS = ["value", "(value if True else value)", "(value / 'child')",
+             "([value][0])", "(value or value)", "(alias := value)", "(lambda: value)()"]
 
 
 @pytest.mark.parametrize("producer", PRODUCERS)
@@ -56,6 +58,15 @@ def test_factory_arguments_keep_protected_roots_and_engine_data_keeps_public_fie
     assert source_allowed("from .evidence.producer import value\nvalue.field", ordinary)
 
 
+@pytest.mark.parametrize("receiver", RECEIVERS)
+def test_expression_receiver_cannot_hide_a_known_imported_capability(receiver):
+    sources = {USING: PRODUCERS[0]}
+    assert source_allowed("from .evidence.producer import value\nvalue", sources)
+    assert not source_allowed("from .evidence.producer import value\n" + receiver + ".write_text('x')", sources)
+    ordinary = {USING: "class Record: pass\nvalue = Record()"}
+    assert source_allowed("from .evidence.producer import value\n(value if True else value).field", ordinary)
+
+
 def tracked_cli(root):
     subprocess.run(["git", "-C", str(root), "add", "."], check=True)
     return subprocess.run([sys.executable, str(Path("tools/fence.py").resolve())], cwd=root,
@@ -63,7 +74,8 @@ def tracked_cli(root):
 
 
 @pytest.mark.parametrize("producer", PRODUCERS[:3])
-def test_actual_two_file_cli_allows_data_but_refuses_direct_and_bridge_writes(tmp_path: Path, producer):
+@pytest.mark.parametrize("receiver", RECEIVERS)
+def test_actual_two_file_cli_allows_data_but_refuses_direct_and_bridge_writes(tmp_path: Path, producer, receiver):
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
     using.write_text(producer + "\ndef public(value): return value\nclass Record: pass\n", encoding="utf-8")
@@ -72,18 +84,19 @@ def test_actual_two_file_cli_allows_data_but_refuses_direct_and_bridge_writes(tm
     (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     assert tracked_cli(tmp_path).returncode == 0
-    consumer.write_text("from .evidence.producer import value\nvalue.write_text('x')\n", encoding="utf-8")
+    consumer.write_text("from .evidence.producer import value\n" + receiver + ".write_text('x')\n", encoding="utf-8")
     direct = tracked_cli(tmp_path)
     assert direct.returncode == 1 and "atlas_brain/probe.py" in direct.stdout
     assert "pathlib.Path.write_text" not in STDLIB_API
     (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.producer import value\nexported = value\n", encoding="utf-8")
-    consumer.write_text("from .bridge import exported\nexported.write_text('x')\n", encoding="utf-8")
+    consumer.write_text("from .bridge import exported as value\n" + receiver + ".write_text('x')\n", encoding="utf-8")
     bridge = tracked_cli(tmp_path)
     assert bridge.returncode == 1 and "atlas_brain/probe.py" in bridge.stdout
 
 
 @pytest.mark.parametrize("kind", ["outside", "noncontract"])
-def test_two_file_output_path_negative_is_refused_without_creating_payload(tmp_path: Path, kind):
+@pytest.mark.parametrize("receiver", RECEIVERS[:3])
+def test_two_file_output_path_negative_is_refused_without_creating_payload(tmp_path: Path, kind, receiver):
     package = tmp_path / "atlas_brain"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
@@ -101,7 +114,7 @@ def test_two_file_output_path_negative_is_refused_without_creating_payload(tmp_p
                               env={**os.environ, "PYTHONPATH": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"},
                               capture_output=True, text=True, check=False)
     assert witness().returncode == 0
-    consumer.write_text("from .aa_producer import value\nvalue.write_text('x', encoding='utf-8')\n", encoding="utf-8")
+    consumer.write_text("from .aa_producer import value\n" + receiver + ".write_text('x', encoding='utf-8')\n", encoding="utf-8")
     assert tracked_cli(tmp_path).returncode == 1
     result = witness()
     receipt = json.loads(result.stdout)
