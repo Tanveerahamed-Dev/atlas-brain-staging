@@ -59,7 +59,7 @@ def test_zip_capability_reexports_refuse_without_blocking_public_declarations(ap
 
 @pytest.mark.parametrize("api", sorted(APIS))
 @pytest.mark.parametrize("shape", ["plain", "chain", "annotated", "tuple", "module", "conditional", "class",
-                                  "boolean", "named", "container"])
+                                  "boolean", "named", "container", "loop"])
 def test_assigned_zip_capabilities_keep_their_origin(api, shape):
     module, name = api.rsplit(".", 1)
     prefix = f"from {module} import {name}\n"
@@ -68,7 +68,8 @@ def test_assigned_zip_capabilities_keep_their_origin(api, shape):
                    "module": f"import {module}\nleaked = {api}",
                    "conditional": f"leaked = {name} if flag else {name}",
                    "class": f"class Holder:\n    leaked = {name}", "boolean": f"leaked = {name} or {name}",
-                   "named": f"leaked = (other := {name})", "container": f"leaked = ({name},)[0]"}
+                   "named": f"leaked = (other := {name})", "container": f"leaked = ({name},)[0]",
+                   "loop": f"for leaked in ({name},):\n    pass"}
     symbol = "Holder.leaked" if shape == "class" else "leaked"
     sources = {USING: prefix + assignments[shape] + "\ndef zip_members(path): return path\nclass PublicRecord: pass",
                "atlas_brain/bridge.py": "from .evidence import archives\nexported = archives." + symbol}
@@ -78,13 +79,14 @@ def test_assigned_zip_capabilities_keep_their_origin(api, shape):
 
 
 @pytest.mark.parametrize("api", sorted(APIS))
-@pytest.mark.parametrize("shape", ["plain", "boolean", "container"])
+@pytest.mark.parametrize("shape", ["plain", "boolean", "container", "loop"])
 def test_actual_tracked_cli_refuses_direct_and_bridge_assignment_aliases(tmp_path: Path, api, shape):
     module, name = api.rsplit(".", 1)
-    rhs = {"plain": name, "boolean": f"{name} or {name}", "container": f"({name},)[0]"}[shape]
+    rhs = {"plain": name, "boolean": f"{name} or {name}", "container": f"({name},)[0]", "loop": name}[shape]
+    binding = f"for leaked in ({name},):\n    pass" if shape == "loop" else f"leaked = {rhs}"
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
-    using.write_text(f"from {module} import {name}\nleaked = {rhs}\ndef zip_members(value): return value\nclass PublicRecord: pass\n", encoding="utf-8")
+    using.write_text(f"from {module} import {name}\n{binding}\ndef zip_members(value): return value\nclass PublicRecord: pass\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     consumer = tmp_path / "atlas_brain/probe.py"
