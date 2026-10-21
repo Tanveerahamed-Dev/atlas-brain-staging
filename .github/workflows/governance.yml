@@ -12,7 +12,7 @@ concurrency:
   group: governance-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: false
 jobs:
-  governance-enforcement-probe:
+  governance-foundation:
     strategy:
       fail-fast: false
       matrix:
@@ -39,3 +39,5 @@ jobs:
             BASE=$(git rev-parse HEAD^1)
           fi
           uv run --no-sync python -m tools.governance --base "$BASE" --head HEAD
+      - name: Deliberate red enforcement probe - never merge
+        run: exit 1
