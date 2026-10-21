@@ -10,7 +10,12 @@ import pytest
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 from atlas_brain.contract.canonical import canonical
-from atlas_brain.contract.header import AnalysisAsOf, EffectiveSemantics, ResultHeader, encode_header
+from atlas_brain.contract.header import (
+    AnalysisAsOf,
+    EffectiveSemantics,
+    ResultHeader,
+    encode_header,
+)
 from atlas_brain.kernel.states import EntityKey, Evidence, EvidenceNeed
 from tools.contract_schema import schema_for
 from tools.fence import source_allowed
