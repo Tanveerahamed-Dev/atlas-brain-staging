@@ -1,7 +1,7 @@
 """Missing, stale, failed or skipped main receipts cannot imply complete CI."""
-import json
 import base64
 import hashlib
+import json
 import subprocess
 import sys
 from copy import deepcopy
