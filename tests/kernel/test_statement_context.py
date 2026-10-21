@@ -13,7 +13,11 @@ from atlas_brain.kernel.token_lints import statement_context
     ('async def mapped(raw):\n async with manager:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', True),
     ('def mapped(raw):\n try:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")\n except* ValueError: pass', True),
     ('def mapped(raw):\n try: pass\n except ValueError: pass\n else:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', False),
-    ('def mapped(raw):\n try: pass\n except ValueError:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', False),
+    ('def mapped(raw):\n try: pass\n except ValueError:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', True),
+    ('def mapped(raw):\n try: raise ValueError("entered")\n except ValueError:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', False),
+    ('def mapped(raw):\n try: raise KeyError("entered")\n except ValueError:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")\n except KeyError: return "up"', True),
+    ('def mapped(raw):\n try: raise ValueError("entered")\n except ValueError: pass\n else:\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', True),
+    ('def mapped(raw):\n return "up"\n if raw == "up": return "up"\n raise ValueError("unmapped")', True),
     ('def mapped(raw):\n try:\n  try:\n   if raw == "up": return "up"\n   raise ValueError("unmapped")\n  finally: pass\n except ValueError: return "up"', True),
     ('with manager:\n def mapped(raw):\n  if raw == "up": return "up"\n  raise ValueError("unmapped")', False),
 ])
@@ -58,3 +62,26 @@ def test_a_defined_function_has_its_own_execution_scope_inside_an_optional_block
     branch = next(node for node in following if isinstance(node, ast.If))
     assert isinstance(following[branch][-1], ast.Raise)
     assert branch not in unproven
+
+
+@pytest.mark.parametrize('earlier', [
+    'if ready: return "up"',
+    'for item in rows:\n   if ready: return "up"',
+    'try:\n   if ready: return "up"\n  finally: pass',
+])
+def test_entered_handler_does_not_prove_execution_after_a_conditional_return(earlier):
+    source = ('def mapped(raw, ready):\n try: raise ValueError("entered")\n except ValueError:\n  '
+              + earlier + '\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")')
+    following, unproven = statement_context(ast.parse(source))
+    guard = next(node for node in following if isinstance(node, ast.If) and isinstance(node.test, ast.Compare))
+    assert isinstance(following[guard][-1], ast.Raise)
+    assert guard in unproven
+
+
+def test_a_nested_functions_return_does_not_skip_the_enclosing_handlers_guard():
+    source = ('def mapped(raw):\n try: raise ValueError("entered")\n except ValueError:\n'
+              '  def other(): return "up"\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")')
+    following, unproven = statement_context(ast.parse(source))
+    guard = next(node for node in following if isinstance(node, ast.If))
+    assert isinstance(following[guard][-1], ast.Raise)
+    assert guard not in unproven
