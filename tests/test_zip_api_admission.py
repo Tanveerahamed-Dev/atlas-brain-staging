@@ -154,3 +154,30 @@ def test_exact_zip_member_uses_and_reexports(tmp_path: Path, api):
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
     result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
     assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
+
+
+@pytest.mark.parametrize("member", ["open", "infolist"])
+@pytest.mark.parametrize("receiver", ["factory(source)", "(factory(source) if flag else factory(source))", "value"])
+def test_public_factory_result_cannot_export_zip_members(tmp_path: Path, member, receiver):
+    sources = {USING: "from zipfile import ZipFile\ndef factory(source):\n value = ZipFile(source)\n return value\n",
+               "atlas_brain/bridge.py": "from .evidence.archives import factory"}
+    consumer = "from .evidence.archives import factory\nvalue = factory(source)\n"
+    assert source_allowed(consumer, sources)
+    assert not source_allowed(consumer + receiver + "." + member + "()", sources)
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text(sources[USING], encoding="utf-8")
+    (tmp_path / "atlas_brain/bridge.py").write_text(sources["atlas_brain/bridge.py"], encoding="utf-8")
+    probe = tmp_path / "atlas_brain/probe.py"
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    tool = str(Path("tools/fence.py").resolve())
+    for origin in (".evidence.archives", ".bridge"):
+        baseline = f"from {origin} import factory\nvalue = factory(source)\n"
+        probe.write_text(baseline, encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+        probe.write_text(baseline + receiver + "." + member + "()\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        refused = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert refused.returncode == 1 and "atlas_brain/probe.py" in refused.stdout
