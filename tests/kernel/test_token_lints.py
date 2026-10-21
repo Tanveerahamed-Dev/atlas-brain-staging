@@ -201,3 +201,27 @@ def test_sequential_lookup_without_proven_refusal_is_refused(source):
 def test_guarded_lookup_with_uncaught_explicit_refusal_remains_valid(ending):
     source = 'import atlas_brain.kernel.states\ndef mapped(key):\n if key in mapping: return mapping[key]\n ' + ending
     assert not fallback_nodes(ast.parse(source), {}, set())
+
+
+@pytest.mark.parametrize('source', [
+    'states = {"up": "up"}\ndefaults = {"healthy": "up"}\ndef map_state(raw: str) -> str:\n if raw not in states: return defaults["healthy"]\n raise ValueError("unmapped")',
+    'def mapped(key):\n if key in mapping: return other[key]\n raise ValueError("unmapped")',
+    'def mapped(key, other):\n if key in mapping: return mapping[other]\n raise ValueError("unmapped")',
+    'def mapped(key):\n if key not in mapping: return "up"\n return mapping[key]',
+    'def mapped(key):\n if key in mapping:\n  return "up"\n  return mapping[key]\n raise ValueError("unmapped")',
+    'def mapped(key):\n if key in mapping: return mapping[key] or "up"\n raise ValueError("unmapped")',
+])
+def test_membership_refusal_requires_matching_polarity_key_map_and_direct_lookup(source):
+    assert fallback_nodes(ast.parse(source), {}, set())
+
+
+@pytest.mark.parametrize('ending', ['raise ValueError("unmapped")', 'return atlas_brain.kernel.states.Unknown()'])
+@pytest.mark.parametrize('key', ['key', 'packet.code', '"state"'])
+def test_matching_inverted_membership_with_explicit_unknown_remains_valid(ending, key):
+    source = 'import atlas_brain.kernel.states\ndef mapped(key, packet):\n if ' + key + ' not in mapping: ' + ending + '\n return mapping[' + key + ']'
+    assert not fallback_nodes(ast.parse(source), {}, set())
+
+
+def test_matching_literal_membership_with_explicit_unknown_remains_valid():
+    source = 'def mapped(fields):\n if "state" in fields: return fields["state"]\n raise ValueError("unmapped")'
+    assert not fallback_nodes(ast.parse(source), {}, set())
