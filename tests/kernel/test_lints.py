@@ -35,6 +35,8 @@ from atlas_brain.kernel.lints import lint
     ('def mapped(key):\n for item in ():\n  return mapping[key]\n return "up"', 3),
     ('def mapped(raw):\n try: pass\n except ValueError:\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n return "up"', 3),
     ('def mapped(raw, ready):\n try: raise ValueError("entered")\n except ValueError:\n  if ready: return "up"\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")', 3),
+    ('def mapped(raw, ready):\n if ready: return "up"\n if raw == "up": return "up"\n raise ValueError("unmapped")', 3),
+    ('import atlas_brain.kernel.states\ndef mapped(raw, ready):\n if ready: return "up"\n if raw not in states: return atlas_brain.kernel.states.Unknown()\n return states[raw]', 3),
     ('def mapped(raw):\n try: raise KeyError("entered")\n except ValueError:\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n except KeyError: return "up"', 3),
     ('def mapped(raw):\n try: raise ValueError("entered")\n except ValueError: pass\n else:\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")\n return "up"', 3),
     ('def mapped(raw):\n value = "up"\n for _ in ():\n  value = states[raw]\n return value', 3),
