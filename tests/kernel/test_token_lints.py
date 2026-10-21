@@ -245,6 +245,8 @@ def test_matching_literal_membership_with_explicit_unknown_remains_valid():
     'def mapped(raw):\n value = 0\n for _ in ():\n  value += states[raw]\n return value',
     'def mapped(raw):\n value = "up"\n for _ in ():\n  (value := states[raw])\n return value',
     'def mapped(raw):\n return "up"\n if raw in states: return states[raw]\n raise ValueError("unmapped")',
+    'def mapped(raw):\n value = "up"\n for _ in ():\n  def ignored(value=states[raw]): pass\n return value',
+    'def mapped(raw):\n value = "up"\n for _ in ():\n  @states[raw]\n  def ignored(): pass\n return value',
 ])
 def test_optional_execution_cannot_certify_a_function_refusal(source):
     assert fallback_nodes(ast.parse(source), {}, set())

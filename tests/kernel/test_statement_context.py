@@ -57,8 +57,10 @@ def test_optional_blocks_preserve_local_successors_without_certifying_execution(
 
 
 def test_a_defined_function_has_its_own_execution_scope_inside_an_optional_block():
-    tree = ast.parse('for item in ():\n def mapped(key):\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")')
+    tree = ast.parse('for item in ():\n def mapped(key=states[raw]):\n  if key in mapping: return mapping[key]\n  raise ValueError("unmapped")')
     following, unproven = statement_context(tree)
     branch = next(node for node in following if isinstance(node, ast.If))
     assert isinstance(following[branch][-1], ast.Raise)
     assert branch not in unproven
+    assert next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)) in unproven
+    assert next(node for node in ast.walk(tree) if isinstance(node, ast.Subscript)) in unproven
