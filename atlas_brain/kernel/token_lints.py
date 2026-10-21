@@ -181,18 +181,6 @@ def _returned_default(body: list[ast.stmt]) -> bool:
     return bool(body) and isinstance(body[-1], ast.Return)
 
 
-def _refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozenset[ast.Call]) -> bool:
-    if not following:
-        return False
-    last = following[-1]
-    # Only further literal equalities on this same input may precede the refusal.
-    # An early unconditional return, mutation or unrelated condition is unproven.
-    if len(following) > 1 and (not subject or any(
-            not isinstance(s, ast.If) or s.orelse or finite_subject(s.test) != subject for s in following[:-1])):
-        return False
-    return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
-
-
 def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset(), following: tuple[ast.stmt, ...] = (), unknowns: frozenset[ast.Call] = frozenset(), allow_refusal: bool = False) -> bool:
     """Refuse defaults; assertion call witnesses require whole-module binding proof."""
     if isinstance(node, ast.Call):
@@ -206,9 +194,9 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
         lookup = _lookup_branch(node.body + node.orelse) or _lookup_branch(list(following))
         subject = finite_subject(node.test)
         if allow_refusal and not node.orelse:
-            if (subject or guarded_lookup(node.test, tuple(node.body))) and _refusal_tail(following, subject, unknowns):
+            if (subject or guarded_lookup(node.test, tuple(node.body))) and refusal_tail(following, subject, unknowns):
                 return False
-            if guarded_lookup(node.test, following, inverse=True) and _refusal_tail(tuple(node.body), '', unknowns):
+            if guarded_lookup(node.test, following, inverse=True) and refusal_tail(tuple(node.body), '', unknowns):
                 return False
         return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
                 _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or lookup
@@ -220,7 +208,7 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
                for case in node.cases):
             return True
         terminal = _returned_default(list(following)) or bool(following and isinstance(following[-1], ast.Raise))
-        return terminal and not terminals and not (allow_refusal and _refusal_tail(following, _qualified(node.subject, {}), unknowns))
+        return terminal and not terminals and not (allow_refusal and refusal_tail(following, _qualified(node.subject, {}), unknowns))
     return False
 
 
@@ -232,13 +220,13 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
     roots = frozenset(branch for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
         and (finite_subject(branch.test) or guarded_lookup(branch.test, tuple(branch.body)))
-        and _refusal_tail(following[branch], finite_subject(branch.test), unknowns))
+        and refusal_tail(following[branch], finite_subject(branch.test), unknowns))
     proven_guards = roots | frozenset(later for branch in roots if finite_subject(branch.test)
                                      for later in following[branch][:-1])
     inverses = frozenset(branch for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
         and guarded_lookup(branch.test, following[branch], inverse=True)
-        and _refusal_tail(tuple(branch.body), '', unknowns))
+        and refusal_tail(tuple(branch.body), '', unknowns))
     proven_statements = frozenset(part for branch in proven_guards if isinstance(branch, ast.If)
                                  for part in branch.body) | frozenset(part for branch in inverses for part in following[branch])
     return frozenset(node for node in ast.walk(tree) if fallback_node(node,
