@@ -62,6 +62,12 @@ def test_explicit_scope_assignments_keep_the_runtime_binding_alternatives(declar
     bindings.predeclare(tree)
     bindings.assign("carrier", expression("iter"), "" if scope == "factory." else "outer.")
     bindings.assign("carrier", expression("len"), scope)
-    assert bindings.origins(expression("carrier"), scope) == {"builtins.iter", "builtins.len"}
+    assert bindings.origins(expression("carrier"), scope) == {"builtins.iter", "builtins.len", None}
     assert bindings.has_carrier(expression("carrier"), scope)
     assert not bindings.primitive_call(expression("carrier(values)"), scope)
+
+
+def test_explicit_outer_attribute_binding_cannot_prove_a_scalar_result():
+    bindings = CallableBindings("atlas_brain.example", {"json": "json"}, {"json": "json"}, set())
+    bindings.predeclare(ast.parse("def factory():\n global json\n return json.dumps(value)"))
+    assert not bindings.primitive_call(expression("json.dumps(value)"), "factory.")
