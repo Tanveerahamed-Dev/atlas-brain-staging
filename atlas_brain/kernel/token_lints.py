@@ -21,6 +21,38 @@ def _lookup_value(node: ast.AST) -> bool:
         for part in ast.walk(node))
 
 
+def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...]], frozenset[ast.AST]]:
+    """Bind successors to blocks and retain potentially intercepting outer scopes.
+
+    Handler dispatch and context-manager behavior are unproven. A function body
+    starts its own execution scope; a try's else is outside its own handlers.
+    """
+    following: dict[ast.stmt, tuple[ast.stmt, ...]] = {}
+    intercepted: set[ast.AST] = set()
+    pending: list[tuple[ast.AST, bool]] = [(tree, False)]
+    while pending:
+        owner, protected = pending.pop()
+        fields = tuple(ast.iter_fields(owner))
+        protected = protected and not any(field == 'args' and isinstance(value, ast.AST) for field, value in fields)
+        if protected:
+            intercepted.add(owner)
+        catching = any(field == 'handlers' and bool(value) for field, value in fields)
+        finalizing = any(field == 'finalbody' and bool(value) for field, value in fields)
+        managing = any(field == 'items' and bool(value) for field, value in fields)
+        for field, value in fields:
+            children: tuple[ast.AST, ...] = ()
+            if isinstance(value, ast.AST):
+                children = (value,)
+            elif isinstance(value, list):
+                children = tuple(child for child in cast(list[object], value) if isinstance(child, ast.AST))
+            block = tuple(child for child in children if isinstance(child, ast.stmt))
+            following.update((statement, block[index + 1:]) for index, statement in enumerate(block))
+            blocked = protected or (field == 'body' and (catching or managing)) or (
+                field in ('body', 'orelse', 'handlers') and finalizing)
+            pending.extend((child, blocked) for child in children)
+    return following, frozenset(intercepted)
+
+
 def bound_names(node: ast.AST) -> frozenset[str]:
     return frozenset(part.name for part in ast.walk(node) if isinstance(part, (ast.MatchAs, ast.MatchStar)) and part.name) | frozenset(
         part.rest for part in ast.walk(node) if isinstance(part, ast.MatchMapping) and part.rest)
@@ -109,7 +141,7 @@ def _refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: froze
     return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
 
 
-def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset(), following: tuple[ast.stmt, ...] = (), unknowns: frozenset[ast.Call] = frozenset()) -> bool:
+def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset(), following: tuple[ast.stmt, ...] = (), unknowns: frozenset[ast.Call] = frozenset(), allow_refusal: bool = False) -> bool:
     """Refuse defaults; assertion call witnesses require whole-module binding proof."""
     if isinstance(node, ast.Call):
         short = (called or _tail(node.func)).rsplit('.', 1)[-1]
@@ -119,7 +151,7 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
         return (_lookup_value(node.body) or _lookup_value(node.orelse) or
                 _enum_comparison(node.test))
     if isinstance(node, ast.If):
-        if not node.orelse and _refusal_tail(following, _finite_subject(node.test), unknowns):
+        if allow_refusal and not node.orelse and _refusal_tail(following, _finite_subject(node.test), unknowns):
             return False
         return (_enum_comparison(node.test) and (_returned_default(node.body) or _returned_default(node.orelse) or
                 _returned_default(list(following)) or (_value_branch(node.body) and (not node.orelse or _value_branch(node.orelse))))) or bool(node.orelse) and any(_lookup_value(part.value)
@@ -136,12 +168,8 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
     """Inspect statement successors and genuine Unknown bindings for whole-source use."""
     assertions, facts = binding_proof(tree, aliases, rebound)
     unknowns, _ = binding_proof(tree, aliases, rebound, call_target='atlas_brain.kernel.states.Unknown')
-    following: dict[ast.stmt, tuple[ast.stmt, ...]] = {}
-    for owner in ast.walk(tree):
-        for _, value in ast.iter_fields(owner):
-            if isinstance(value, list):
-                block = tuple(item for item in cast(list[object], value) if isinstance(item, ast.stmt))
-                following.update((statement, block[index + 1:]) for index, statement in enumerate(block))
+    following, intercepted = statement_context(tree)
     return frozenset(node for node in ast.walk(tree) if fallback_node(node,
         _qualified(node.func, aliases) if isinstance(node, ast.Call) else '', assertions=assertions, facts=facts,
-        following=following[node] if isinstance(node, ast.stmt) and node in following else (), unknowns=unknowns))
+        following=following[node] if isinstance(node, ast.stmt) and node in following else (), unknowns=unknowns,
+        allow_refusal=node not in intercepted))

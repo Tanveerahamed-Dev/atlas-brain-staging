@@ -32,6 +32,8 @@ class Budgets:
     artifacts: int
     nesting_depth: int = 64
     numeric_digits: int = 40
+    compression_ratio: int = 100
+    archive_index_bytes: int = 8 * 1024 * 1024
 
     def __post_init__(self) -> None:
         if any(type(n) is not int or n <= 0 for n in asdict(self).values()):
@@ -213,7 +215,11 @@ class Bundle:
 
 
 def import_folder(root: Path, budgets: Budgets) -> Bundle:
-    members = folder_members(root, budgets)
+    return import_members(folder_members(root, budgets), budgets)
+
+
+def import_members(members: dict[str, bytes], budgets: Budgets) -> Bundle:
+    """Build a bundle only after a transport's whole-member admission succeeds."""
     if "manifest.json" not in members:
         raise AdmissionRefused("missing_manifest")
     manifest = record(strict_json(members["manifest.json"], budgets.nesting_depth, budgets.numeric_digits, "manifest.json"),
