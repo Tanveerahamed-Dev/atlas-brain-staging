@@ -26,8 +26,7 @@ def statement_context(tree: ast.AST) -> tuple[dict[ast.stmt, tuple[ast.stmt, ...
     while pending:
         owner, protected = pending.pop()
         fields = tuple(ast.iter_fields(owner))
-        if any(field == 'args' and isinstance(value, ast.AST) for field, value in fields):
-            protected = False
+        protected = protected and not any(field == 'args' and isinstance(value, ast.AST) for field, value in fields)
         if protected:
             intercepted.add(owner)
         catching = any(field == 'handlers' and bool(value) for field, value in fields)
