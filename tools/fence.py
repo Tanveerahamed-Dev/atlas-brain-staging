@@ -130,7 +130,7 @@ def gate_data_allowed(path: str, data) -> bool:
 
 def import_bindings(tree, path):
     aliases, exports, declarations = {}, {}, set()
-    containers = {}
+    containers, callable_values = {}, {}
     calls = CallableBindings(path.removesuffix(".py").replace("/", ".").removesuffix(".__init__"), aliases, exports, declarations)
     calls.predeclare(tree)
     def dotted(node):
@@ -225,15 +225,21 @@ def import_bindings(tree, path):
             module = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__") + "."
             results = set().union(*(exports.get(target.removeprefix(module) + ".$return", ())
                                   for target in targets if target in calls.definitions))
-            functions = results.intersection(calls.definitions)
-            if functions:
-                # Retain the whole result join, including UNKNOWN and other known roots.
-                results.update({None} if any(target not in calls.definitions for target in targets) else ())
-                known = True
-                origin = (next(iter(functions)) if len(results) == 1 else
-                          tuple(CALLABLE_VALUE + root if root in functions else root
-                                for root in sorted(results, key=lambda item: item or "")))
-        elif origin is None:
+            results.update({None} if any(target not in calls.definitions for target in targets) else ())
+        else:
+            results = returned(value, scope)
+        values = callable_values.setdefault(key, set())
+        values.update(root[len(CALLABLE_VALUE):] if isinstance(root, str) and root.startswith(CALLABLE_VALUE)
+                      else root for root in results or {None})
+        functions = values.intersection(calls.definitions)
+        if functions:
+            # Join callable values from both direct aliases and call results, preserving UNKNOWN.
+            origins = tuple(CALLABLE_VALUE + root if root in functions else root
+                            for root in sorted(values, key=lambda item: item or ""))
+            exports[key] = origins[0] if len(origins) == 1 else origins
+            declarations.discard(key)
+            return
+        if not isinstance(value, ast.Call) and origin is None:
             _, possible = opaque(value, scope)
             if isinstance(possible, tuple):
                 origin = (None, *possible)
