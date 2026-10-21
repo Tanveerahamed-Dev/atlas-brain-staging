@@ -199,6 +199,8 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
     if isinstance(node, ast.If):
         lookup = _lookup_branch(node.body + node.orelse) or _lookup_branch(list(following))
         subject = finite_subject(node.test)
+        if subject and len(following) > 1 and not _finite_arm(node) and refusal_tail(following, subject, unknowns):
+            return True
         if allow_refusal and not node.orelse:
             if (_finite_arm(node) or guarded_lookup(node.test, tuple(node.body))) and refusal_tail(following, subject, unknowns):
                 return False
