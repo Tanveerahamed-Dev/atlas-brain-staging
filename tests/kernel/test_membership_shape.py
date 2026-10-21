@@ -2,7 +2,7 @@ import ast
 
 import pytest
 
-from atlas_brain.kernel.token_lints import _finite_subject, _guarded_lookup
+from atlas_brain.kernel.token_lints import finite_subject, guarded_lookup
 
 
 @pytest.mark.parametrize('source,subject', [
@@ -10,7 +10,7 @@ from atlas_brain.kernel.token_lints import _finite_subject, _guarded_lookup
     ('raw != "up"', ''), ('raw == other', ''), ('raw == "up" == other', ''),
 ])
 def test_finite_equality_requires_one_literal_and_one_named_input(source, subject):
-    assert _finite_subject(ast.parse(source, mode='eval').body) == subject
+    assert finite_subject(ast.parse(source, mode='eval').body) == subject
 
 
 @pytest.mark.parametrize('condition,lookup,inverse,proven', [
@@ -25,4 +25,4 @@ def test_finite_equality_requires_one_literal_and_one_named_input(source, subjec
 def test_membership_witness_binds_polarity_mapping_key_and_direct_return(condition, lookup, inverse, proven):
     test = ast.parse(condition, mode='eval').body
     body = tuple(ast.parse('return ' + lookup).body)
-    assert _guarded_lookup(test, body, inverse=inverse) is proven
+    assert guarded_lookup(test, body, inverse=inverse) is proven
