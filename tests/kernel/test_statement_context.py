@@ -62,3 +62,26 @@ def test_a_defined_function_has_its_own_execution_scope_inside_an_optional_block
     branch = next(node for node in following if isinstance(node, ast.If))
     assert isinstance(following[branch][-1], ast.Raise)
     assert branch not in unproven
+
+
+@pytest.mark.parametrize('earlier', [
+    'if ready: return "up"',
+    'for item in rows:\n   if ready: return "up"',
+    'try:\n   if ready: return "up"\n  finally: pass',
+])
+def test_entered_handler_does_not_prove_execution_after_a_conditional_return(earlier):
+    source = ('def mapped(raw, ready):\n try: raise ValueError("entered")\n except ValueError:\n  '
+              + earlier + '\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")')
+    following, unproven = statement_context(ast.parse(source))
+    guard = next(node for node in following if isinstance(node, ast.If) and isinstance(node.test, ast.Compare))
+    assert isinstance(following[guard][-1], ast.Raise)
+    assert guard in unproven
+
+
+def test_a_nested_functions_return_does_not_skip_the_enclosing_handlers_guard():
+    source = ('def mapped(raw):\n try: raise ValueError("entered")\n except ValueError:\n'
+              '  def other(): return "up"\n  if raw in states: return states[raw]\n  raise ValueError("unmapped")')
+    following, unproven = statement_context(ast.parse(source))
+    guard = next(node for node in following if isinstance(node, ast.If))
+    assert isinstance(following[guard][-1], ast.Raise)
+    assert guard not in unproven
