@@ -54,9 +54,11 @@ def node_rules(node: ast.AST, path: str, aliases: dict[str, str], origins: dict[
         return resolved_name(node, aliases) in ('re.ASCII', 're.A') and resolved_name(node, aliases) not in rebound and 're' not in rebound
 
     def classvar(annotation: ast.AST) -> bool:
-        return contains_name(annotation, ('ClassVar',), aliases) and any(len(names) == 1 and all(name == 'typing.ClassVar' and not any(
-            name == key or name.startswith(key + '.') or key.startswith(name + '.') for key in sorted(shadowed))
-            for name in names) for part in ast.walk(annotation) for names in (possible_names(part, origins),))
+        root = annotation.value if isinstance(annotation, ast.Subscript) else annotation
+        names = possible_names(root, origins)
+        return contains_name(root, ('ClassVar',), aliases) and len(names) == 1 and all(
+            name == 'typing.ClassVar' and not any(name == key or name.startswith(key + '.') or key.startswith(name + '.')
+                for key in sorted(shadowed)) for name in names)
 
     findings: set[tuple[int, int]] = set()
 
