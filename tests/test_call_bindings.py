@@ -3,7 +3,11 @@ import ast
 
 import pytest
 
-from tools.call_bindings import CallableBindings, declared_classes, ignored_argument_classes
+from tools.call_bindings import (
+    CallableBindings,
+    declared_classes,
+    ignored_argument_classes,
+)
 
 
 def expression(text):
