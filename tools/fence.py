@@ -144,12 +144,14 @@ def origin_member(root, suffix):
     return root + suffix
 
 
-def import_bindings(tree, path, class_roots=frozenset()):
+def import_bindings(tree, path, ignored_arg_roots=None):
     aliases, exports, declarations = {}, {}, set()
     containers, callable_values = {}, {}
     calls = CallableBindings(path.removesuffix(".py").replace("/", ".").removesuffix(".__init__"), aliases, exports, declarations)
     calls.predeclare(tree)
-    constructors = set(class_roots) | constructor_members(frozenset(STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values()))).keys()
+    if ignored_arg_roots is None:
+        module = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__")
+        ignored_arg_roots = _binding_module.ignored_argument_classes({module: tree})
     def dotted(node):
         if isinstance(node, ast.Name):
             return node.id
@@ -336,16 +338,17 @@ def import_bindings(tree, path, class_roots=frozenset()):
         if isinstance(value, ast.Call):
             roots = {RESULT_VALUE + root if isinstance(root, str) else root
                      for root in (origin if isinstance(origin, tuple) else (origin,))} if known else set()
-            ordinary = calls.constructor_call(value, scope, constructors)
+            targets = calls.origins(value.func, scope)
+            ignores_input = bool(targets) and all(target in ignored_arg_roots for target in targets)
             parts = [*value.args, *(item.value for item in value.keywords)]
             callees = calls.origins(value.func, scope)
             if not callees or None in callees:
                 parts.append(value.func)
             carried = set().union(*(returned(part, scope) for part in parts))
-            # Default allocation cannot prove a scoped argument absent from public fields.
+            # Global data precision requires a proved non-observing initializer, not allocation alone.
             roots.update(root if root.startswith(CARRIER_RETURN) else CARRIER_RETURN + root
                          for root in carried if isinstance(root, str)
-                         and (not ordinary or root.removeprefix(RESULT_VALUE) not in STDLIB_API))
+                         and (not ignores_input or root.removeprefix(RESULT_VALUE) not in STDLIB_API))
             return roots
         if known:
             return set(origin if isinstance(origin, tuple) else (origin,))
@@ -422,12 +425,15 @@ class ImportIndex:
         packages = set()
         trees = {path: ast.parse(source) for path, source in sources.items()}
         self.classes = set().union(*(_binding_module.declared_classes(tree,
-            path.removesuffix(".py").replace("/", ".").removesuffix(".__init__")) for path, tree in trees.items()))
+            path.removesuffix(".py").replace("/", ".").removesuffix(".__init__"),
+            lambda node: isinstance(node, ast.ClassDef)) for path, tree in trees.items()))
+        self.ignored_arg_classes = _binding_module.ignored_argument_classes({
+            path.removesuffix(".py").replace("/", ".").removesuffix(".__init__"): tree for path, tree in trees.items()})
         for path, tree in trees.items():
             module = path.removesuffix(".py").replace("/", ".").removesuffix(".__init__")
             if module in self.modules:
                 raise ValueError("ambiguous engine module")
-            self.modules[module] = import_bindings(tree, path, self.classes)[1:]
+            self.modules[module] = import_bindings(tree, path, self.ignored_arg_classes)[1:]
             if path.endswith("/__init__.py"):
                 packages.add(module)
         for module, (exports, declarations) in self.modules.items():
@@ -475,6 +481,14 @@ class ImportIndex:
                 return set()
             binding = tail + ".$return"
             if binding not in exports:
+                if name in self.classes:
+                    prefix = tail + "."
+                    fields = [key for key in exports if key.startswith(prefix)
+                              and "." not in key[len(prefix):] and not key[len(prefix):].startswith("_")]
+                    fields += [tail + ".__new__.$return"] if tail + ".__new__.$return" in exports else []
+                    roots = set().union(*(self.foreign_roots(module + "." + key, seen | {name}, callable_value=True)
+                                          for key in fields))
+                    return {root if root.startswith(CARRIER_RETURN) else CARRIER_RETURN + root for root in roots}
                 return set()
         target = exports[binding]
         if isinstance(target, tuple):
@@ -569,7 +583,7 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
     scoped_modules = {p.removesuffix(".py").replace("/", ".") for p in SCOPED_API}
     try:
         index = ImportIndex({path: source, **(sources or {})}, () if path in SCOPED_API else scoped_modules)
-        aliases, exports, declarations = import_bindings(tree, path, index.classes)
+        aliases, exports, declarations = import_bindings(tree, path, index.ignored_arg_classes)
     except ValueError:
         return {"unresolved-provenance"}
     def admitted(name):
