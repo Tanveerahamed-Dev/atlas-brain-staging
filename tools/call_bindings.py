@@ -8,6 +8,28 @@ SCALAR_APIS = frozenset({"json.dumps", "math.isfinite", "stat.S_ISDIR", "stat.S_
 CARRIERS = frozenset({"iter", "next", "aiter", "anext", "list", "tuple", "set", "frozenset", "dict", "reversed", "enumerate", "zip", "sorted"})
 
 
+def ordinary_class(node):
+    """Only a plain class with default allocation proves an ordinary instance."""
+    return (isinstance(node, ast.ClassDef) and not (node.bases or node.keywords or node.decorator_list)
+            and not any(isinstance(part, (ast.FunctionDef, ast.AsyncFunctionDef)) and part.name == "__new__"
+                        or isinstance(part, ast.Name) and part.id == "__new__"
+                        or isinstance(part, ast.Attribute) and part.attr == "__new__" for part in ast.walk(node)))
+
+
+def declared_classes(tree, module):
+    result = {}
+    def walk(node, scope=""):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            key = scope + node.name
+            origin = module + "." + key
+            result[origin] = result.get(origin, True) and ordinary_class(node)
+            scope = key + "."
+        for child in ast.iter_child_nodes(node):
+            walk(child, scope)
+    walk(tree)
+    return {origin for origin, proven in result.items() if proven}
+
+
 class CallableBindings:
     def __init__(self, module, aliases, exports, declarations):
         self.module, self.aliases, self.exports, self.declarations = module, aliases, exports, declarations
@@ -116,3 +138,11 @@ class CallableBindings:
             return False
         scalar = SCALAR_APIS | {"builtins." + name for name in SCALARS}
         return bool(origins) and all(root in scalar for root in origins)
+
+    def constructor_call(self, value, scope, classes):
+        if not isinstance(value, ast.Call):
+            return False
+        local = {origin for origin, definitions in self.definitions.items()
+                 if all(ordinary_class(node) for node, _ in definitions)}
+        origins = self.origins(value.func, scope)
+        return bool(origins) and all(root in classes or root in local for root in origins)
