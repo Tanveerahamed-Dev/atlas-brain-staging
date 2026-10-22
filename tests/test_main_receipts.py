@@ -587,22 +587,31 @@ def test_extra_irrelevant_wrong_subject_refuses_before_selection(monkeypatch, su
     assert not any("/jobs?" in command[2] for command in commands)
 
 
-@pytest.mark.parametrize("kind", ["empty", "manual", "wrong_sha", "wrong_workflow", "http", "json"])
+@pytest.mark.parametrize("kind", ["empty", "manual", "manual_only", "partial_required", "latest_attempt",
+                                 "wrong_sha", "wrong_workflow", "http", "json"])
 def test_source_query_retains_original_closed_response_cases(monkeypatch, kind):
     from tools.main_receipts import collect
 
     data = source_native_class()
     rows = deepcopy(data["runs"])
+    total = None
     if kind == "empty":
         rows = []
     elif kind == "manual":
+        rows[0]["event"] = "workflow_dispatch"
+    elif kind == "manual_only":
         for row in rows:
             row["event"] = "workflow_dispatch"
+    elif kind == "partial_required":
+        rows.pop()
+        total = 7
+    elif kind == "latest_attempt":
+        rows.append({**rows[0], "id": 900, "run_attempt": 2, "conclusion": "failure"})
     elif kind == "wrong_sha":
         rows[0]["head_sha"] = "b" * 40
     elif kind == "wrong_workflow":
         rows[0]["workflow_id"] = 9999
-    commands = boundary_api(monkeypatch, data, rows, failure=kind)
+    commands = boundary_api(monkeypatch, data, rows, total=total, failure=kind)
     with pytest.raises((ValueError, subprocess.CalledProcessError)):
         collect(SHA, "push", with_checks=True)
     assert sum("actions/runs?" in command[2] for command in commands) == 1
