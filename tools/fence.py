@@ -81,6 +81,7 @@ RUNTIME_API["atlas_brain/evidence/archives.py"] = {
     "zlib.error", "zlib.decompressobj", "stat.S_IFMT", "zipfile.ZipFile.infolist",
     "zipfile.ZipFile.open", "pathlib.Path.suffix",
 }
+RUNTIME_API["atlas_brain/kernel/population.py"] = {"dataclasses.InitVar"}
 
 
 def repository_path(path):
