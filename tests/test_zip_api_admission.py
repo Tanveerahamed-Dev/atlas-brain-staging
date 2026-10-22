@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from tools.fence import RUNTIME_API, SCOPED_API, STDLIB_API, source_allowed
 from tools.check_zip_inventory import REVISION, source_inventory
+from tools.fence import RUNTIME_API, SCOPED_API, STDLIB_API, source_allowed
 
 USING = "atlas_brain/evidence/archives.py"
 IMPORTED_APIS = {"zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
