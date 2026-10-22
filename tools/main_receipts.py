@@ -263,7 +263,8 @@ def github(endpoint, key=None, evidence=None):
         observation["outcome"] = "invalid_json"
         raise
     observation["outcome"] = "decoded"
-    if not key and not isinstance(pages, dict):
+    if not key and (not isinstance(pages, dict) or endpoint.startswith("git/blobs/")
+                    and not isinstance(pages.get("content"), str)):
         observation["outcome"] = "invalid_shape"
         raise ValueError("invalid unpaged response object: " + endpoint)
     if key:
