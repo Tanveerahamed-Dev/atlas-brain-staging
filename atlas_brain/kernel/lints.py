@@ -3,7 +3,7 @@ import ast
 import re
 from hashlib import sha256
 
-from .token_lints import bound_names, fallback_nodes
+from .token_lints import bound_names, fallback_nodes, qualifier_lines, syntax_shape
 
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
@@ -291,3 +291,202 @@ def unordered_iterations(tree: ast.AST, aliases: dict[str, str]) -> frozenset[as
             if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and any(name.split('.')[-1] in ('set', 'frozenset') for name in possible_names(iterator.func, origins))):
                 findings.add(node)
     return frozenset(findings)
+
+
+def qualifier_witnesses(source: str, path: str, sources: dict[str, str], inventory: tuple[str, ...]) -> tuple[int, ...]:
+    """Diagnostic proof only; no finding is suppressed by this candidate.
+
+    The collector must independently enumerate the complete source inventory.
+    This boundary verifies exact coverage and the queried source's identity.
+    Unknown consumers or syntax outside the finite contracts receive no witness.
+    """
+    if (len(inventory) != len(set(inventory)) or set(inventory) != set(sources)
+            or path not in sources or sources[path] != source):
+        return ()
+    try:
+        trees = {p: ast.parse(text) for p, text in sources.items()}
+    except SyntaxError:
+        return ()
+    modules = {p: p[:-3].replace('/', '.').removesuffix('.__init__') for p in sources}
+    if (any(not p.endswith('.py') or '\\' in p or '..' in p.split('/') for p in sources)
+            or len(set(modules.values())) != len(modules)):
+        return ()
+    metadata = {p for p, tree in trees.items() if any(isinstance(n, ast.Import)
+                and any(a.name == 'ast' and a.asname is None for a in n.names) for n in tree.body)}
+    if path not in metadata:
+        return ()
+    exports: dict[str, dict[str, str]] = {}
+    functions: dict[str, ast.FunctionDef] = {}
+    opaque = ('builtins', 'importlib', 'inspect', 'sys', 'pickle', 'marshal', 'ctypes')
+    dynamic = ('eval', 'exec', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars', '__import__')
+    builtins = ('isinstance', 'dict', 'tuple', 'any', 'all', 'sorted', 'str', 'type', 'set', 'list',
+                'len', 'next', 'iter', 'enumerate', 'bool', 'frozenset', 'int')
+    for p, tree in trees.items():
+        module = modules[p]
+        local_imports: dict[str, str] = {}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Name) and n.id in dynamic:
+                return ()
+            if isinstance(n, ast.Attribute) and n.attr.startswith('__'):
+                return ()
+            if not isinstance(n, (ast.Import, ast.ImportFrom)):
+                continue
+            if p in metadata and n not in tree.body:
+                return ()
+            prefix = ''
+            if isinstance(n, ast.ImportFrom):
+                package = module.split('.') if p.endswith('/__init__.py') else module.split('.')[:-1]
+                if n.level > len(package) + 1:
+                    return ()
+                prefix = '.'.join(package[:len(package) - n.level + 1] +
+                                  ([n.module] if n.module else [])) if n.level else (n.module or '')
+            for alias in n.names:
+                target = prefix + '.' + alias.name if prefix else alias.name
+                binding = alias.asname or (alias.name.split('.')[0] if isinstance(n, ast.Import) else alias.name)
+                target = target if not isinstance(n, ast.Import) or alias.asname else binding
+                if alias.name == '*' or target.split('.')[0] in opaque:
+                    return ()
+                if p not in metadata:
+                    if any(target == modules[q] or modules[q].startswith(target + '.')
+                           or target.startswith(modules[q] + '.') for q in metadata):
+                        return ()
+                elif not (target in ('ast', 're', 'hashlib.sha256', 'typing.cast')
+                          or any(target.startswith(modules[q] + '.') for q in metadata)):
+                    return ()
+                if binding in local_imports and local_imports[binding] != target:
+                    return ()
+                local_imports[binding] = target
+        if p in metadata:
+            exports[p] = local_imports
+            top = [n.name for n in tree.body if isinstance(n, ast.FunctionDef)]
+            if len(top) != len(set(top)) or any(name in builtins for name in local_imports):
+                return ()
+            for n in ast.walk(tree):
+                if isinstance(n, (ast.ClassDef, ast.Lambda, ast.AsyncFunctionDef)) or (
+                        isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)):
+                    return ()
+                if isinstance(n, ast.FunctionDef):
+                    if n.decorator_list or n.name in builtins or (n not in tree.body and n.name in top):
+                        return ()
+                    functions[module + '.' + n.name] = n
+                if isinstance(n, ast.arg) and (n.arg in local_imports or n.arg in builtins):
+                    return ()
+    roots = {name for name in functions if name.rsplit('.', 1)[-1] in ('lint', 'qualifier_witnesses')}
+    lint_roots = {name for name in roots if name.endswith('.lint')}
+    if len(lint_roots) != 1:
+        return ()
+    lint_root = next(iter(lint_roots))
+    root = functions[lint_root]
+    if syntax_shape(root.body[-1:]) != syntax_shape(ast.parse('return tuple(sorted(findings))').body):
+        return ()
+    initial = [n for n in root.body if isinstance(n, ast.Assign)]
+    if not initial or syntax_shape(initial[0]) != syntax_shape(ast.parse('tree = ast.parse(source)').body[0]):
+        return ()
+    edges: dict[str, set[str]] = {name: set() for name in functions}
+    alias_target = next(n for n in ast.parse('aliases, rebound = binding_environment(tree)').body
+                        if isinstance(n, ast.Assign)).targets[0]
+    for p in metadata:
+        module, tree = modules[p], trees[p]
+        local = exports[p]
+        parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and (
+                    n.id in local or n.id in builtins or module + '.' + n.id in functions):
+                return ()
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and n.id == 'aliases':
+                if syntax_shape(parents[n]) not in (
+                    syntax_shape(ast.parse('aliases = dict(bindings)').body[0]),
+                    syntax_shape(alias_target),
+                ):
+                    return ()
+            if isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store) and isinstance(n.value, ast.Name) and n.value.id == 'aliases':
+                return ()
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
+                if n.func.attr in ('append', 'extend', 'add', 'update', 'pop', 'clear', 'remove') and not isinstance(n.func.value, ast.Name):
+                    return ()
+                if isinstance(n.func.value, ast.Name) and n.func.value.id == 'aliases' and n.func.attr != 'items':
+                    return ()
+                if isinstance(n.func.value, ast.Name) and n.func.value.id == 'findings':
+                    permitted = tuple(syntax_shape(ast.parse(text, mode='eval').body) for text in (
+                        'findings.add((6, lineno))',
+                        'findings.add((rule, node.lineno if isinstance(node, (ast.stmt, ast.expr, ast.ExceptHandler)) else 1))',
+                    ))
+                    if syntax_shape(n) not in permitted and not (n.func.attr == 'update' and len(n.args) == 1
+                            and not n.keywords and isinstance(n.args[0], ast.Call) and isinstance(n.args[0].func, ast.Name)
+                            and n.args[0].func.id == 'node_rules'):
+                        return ()
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+                target = local[n.func.id] if n.func.id in local else module + '.' + n.func.id
+                if target in functions:
+                    parameters = functions[target].args.args
+                    for index, parameter in enumerate(parameters):
+                        if parameter.arg == 'aliases':
+                            if len(n.args) <= index or not (isinstance(n.args[index], ast.Name) and n.args[index].id == 'aliases'
+                                    or syntax_shape(n.args[index]) == syntax_shape(ast.parse('{}', mode='eval').body)):
+                                return ()
+            if not isinstance(n, ast.Name) or not isinstance(n.ctx, ast.Load):
+                continue
+            target = local[n.id] if n.id in local else module + '.' + n.id
+            if target not in functions:
+                continue
+            parent = parents[n]
+            if not isinstance(parent, ast.Call) or parent.func is not n:
+                return ()
+            owner = parent
+            while owner in parents and not isinstance(owner, ast.FunctionDef):
+                owner = parents[owner]
+            if not isinstance(owner, ast.FunctionDef):
+                return ()
+            edges[module + '.' + owner.name].add(target)
+    reached = set(roots)
+    pending = list(roots)
+    while pending:
+        name = pending.pop()
+        for target in sorted(edges[name] - reached):
+            reached.add(target)
+            pending.append(target)
+    if reached != set(functions):
+        return ()
+    forms = (
+        ('def resolve(node, aliases):\n if isinstance(node, ast.Name):\n  if node.id not in aliases:\n'
+        '   return node.id\n  return aliases[node.id]\n if isinstance(node, ast.Attribute):\n'
+        '  return SELF(node.value, aliases) + "." + node.attr\n if isinstance(node, ast.Subscript):\n'
+        '  return SELF(node.value, aliases)\n return ""'),
+        ('def resolve(node, aliases):\n if isinstance(node, ast.Name):\n  if node.id in aliases:\n'
+        '   return aliases[node.id]\n  return node.id\n if isinstance(node, ast.Attribute):\n'
+        '  return SELF(node.value, aliases) + "." + node.attr\n return ""'),
+    )
+    producers = (
+        ('def import_bindings(tree):\n bindings: list[tuple[str, str]] = []\n for node in ast.walk(tree):\n'
+        '  if isinstance(node, ast.Import):\n   for item in node.names:\n'
+        '    bindings.append((item.asname or item.name.split(".")[0], item.name if item.asname else item.name.split(".")[0]))\n'
+        '  elif isinstance(node, ast.ImportFrom):\n   for item in node.names:\n'
+        '    bindings.append((item.asname or item.name, f"{node.module}.{item.name}"))\n return tuple(bindings)'),
+        ('def binding_environment(tree):\n bindings = import_bindings(tree)\n aliases = dict(bindings)\n'
+        ' ambiguous = {origin for name, origin in bindings if any(\n'
+        '  name == other and origin != candidate for other, candidate in bindings)}\n'
+        ' rebound = {resolved_name(n, aliases) for n in ast.walk(tree) if isinstance(n, (ast.Name, ast.Attribute)) and isinstance(n.ctx, ast.Store)}\n'
+        ' for binding in ast.walk(tree):\n'
+        '  identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)) else ""\n'
+        '  if identifier:\n   rebound.add(resolved_name(ast.Name(id=identifier, ctx=ast.Load()), aliases))\n'
+        ' return aliases, rebound | ambiguous'),
+    )
+    for text in producers:
+        template = ast.parse(text).body[0]
+        if not isinstance(template, ast.FunctionDef):
+            return ()
+        key = lint_root.rsplit('.', 1)[0] + '.' + template.name
+        if key not in functions or syntax_shape(functions[key].body) != syntax_shape(template.body):
+            return ()
+    selected: list[int] = []
+    for function in trees[path].body:
+        if not isinstance(function, ast.FunctionDef):
+            continue
+        if ([arg.arg for arg in function.args.args] != ['node', 'aliases'] or function.args.posonlyargs
+                or function.args.kwonlyargs or function.args.vararg or function.args.kwarg or function.args.defaults):
+            continue
+        for form in forms:
+            template = ast.parse(form.replace('SELF', function.name)).body[0]
+            if isinstance(template, ast.FunctionDef) and syntax_shape(function.body) == syntax_shape(template.body):
+                selected.extend(qualifier_lines(function.body))
+    return tuple(sorted(set(selected)))

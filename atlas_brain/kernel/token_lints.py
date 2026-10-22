@@ -8,6 +8,24 @@ import ast
 from typing import cast
 
 
+def syntax_shape(value: object) -> object:
+    """Compare finite AST grammars without locations or inert string statements."""
+    if isinstance(value, ast.AST):
+        return type(value), tuple((field, syntax_shape(child)) for field, child in ast.iter_fields(value))
+    if isinstance(value, list):
+        return tuple(syntax_shape(child) for child in cast(list[object], value) if not (
+            isinstance(child, ast.Expr) and isinstance(child.value, ast.Constant)
+            and isinstance(child.value.value, str)))
+    return type(value), value
+
+
+def qualifier_lines(body: list[ast.stmt]) -> tuple[int, ...]:
+    """Identify only the two qualifier branches and their checked subscription."""
+    branch = next(node for node in body if isinstance(node, ast.If))
+    return tuple(sorted(node.lineno for node in ast.walk(branch) if isinstance(node, ast.If) or (
+        isinstance(node, ast.Return) and isinstance(node.value, ast.Subscript))))
+
+
 def _tail(node: ast.AST) -> str:
     if isinstance(node, ast.Name):
         return node.id
