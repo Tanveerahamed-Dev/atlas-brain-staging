@@ -137,6 +137,16 @@ def node_rules(node: ast.AST, path: str, aliases: dict[str, str], origins: dict[
     return tuple(sorted(findings))
 
 
+def parent_environment(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    """Every syntax node has a parent entry; the supplied root names itself."""
+    return {tree: tree} | {child: owner for owner in ast.walk(tree) for child in ast.iter_child_nodes(owner)}
+
+
+def parent_value(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.AST:
+    """A node outside the constructed domain raises instead of ending scope proof."""
+    return parents[node]
+
+
 def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     """Return sorted (rule number, source line) findings; syntax errors fail closed."""
     tree = ast.parse(source)
@@ -150,12 +160,12 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
 
 
-    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    parents = parent_environment(tree)
 
     def inside_verdict(node: ast.AST) -> bool:
-        while node in parents:
-            node = parents[node]
-            if isinstance(node, ast.FunctionDef) and node.name == 'verdict' and isinstance(parents[node], ast.Module):
+        while parent_value(node, parents) is not node:
+            node = parent_value(node, parents)
+            if isinstance(node, ast.FunctionDef) and node.name == 'verdict' and isinstance(parent_value(node, parents), ast.Module):
                 return True
         return False
 
@@ -167,11 +177,11 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                           '05f298e6c5be51774519d4bdea4c45ae21cfbf68fe98e9599af4cf3d855bc091')
 
     def inside_pk_compiler(node: ast.AST) -> bool:
-        while node in parents:
-            node = parents[node]
+        while parent_value(node, parents) is not node:
+            node = parent_value(node, parents)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 return (isinstance(node, ast.FunctionDef) and node.name == 'compile_pattern' and
-                        isinstance(parents[node], ast.Module))
+                        isinstance(parent_value(node, parents), ast.Module))
         return False
 
     findings: set[tuple[int, int]] = set()
