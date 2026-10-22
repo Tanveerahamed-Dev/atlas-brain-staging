@@ -60,6 +60,10 @@ def test_owned_collections_and_transitive_readers_remain_supported(body):
     '    list = source\n    owned = list()\n    owned.append(1)',
     '    ast.increment_lineno(source)',
     '    callback = ast.increment_lineno\n    callback(source)',
+    '    ordered = sorted(tuple(source), key=source.pop)',
+    '    callback = source.clear\n    callback()',
+    '    ordered = sorted(("forged",), key=source.setdefault)',
+    '    ordered = sorted(tuple(source), key=source.__delitem__)',
     '    owned = {}\n    box = [source]\n    box[0]["forged"] = "healthy"',
     ('    def consume(findings):\n        findings.add((3, 1))\n'
      '    consume(source)'),
