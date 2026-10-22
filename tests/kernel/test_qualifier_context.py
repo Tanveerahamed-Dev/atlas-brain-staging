@@ -127,3 +127,14 @@ def test_forged_argument_ast_producer_and_nonfinding_result_are_unproved(before,
     assert changed != sources[path]
     sources[path] = changed
     assert lints.qualifier_witnesses(changed, path, sources, inventory) == ()
+
+
+def test_nested_same_named_consumer_is_not_merged_with_a_reachable_scope():
+    sources, inventory = source_context()
+    path = 'atlas_brain/kernel/token_lints.py'
+    original = 'def bound_names(node: ast.AST) -> frozenset[str]:\n'
+    changed = sources[path].replace(original, original + (
+        '    def stable(value):\n        return {"healthy": _qualified(value, {})}\n'))
+    assert changed != sources[path]
+    sources[path] = changed
+    assert lints.qualifier_witnesses(changed, path, sources, inventory) == ()
