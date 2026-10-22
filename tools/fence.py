@@ -17,6 +17,7 @@ _binding_spec.loader.exec_module(_binding_module)
 CallableBindings = _binding_module.CallableBindings
 CALLABLE_VALUE = "$callable:"
 CARRIER_RETURN = "$carrier:"
+RESULT_VALUE = "$result:"
 
 ROOTS = {"README.md", "LICENSE", ".gitattributes", ".gitignore",
          "pyproject.toml", "uv.lock", ".python-version"}
@@ -155,7 +156,7 @@ def import_bindings(tree, path, class_roots=frozenset()):
             known, base = reference(node.value, scope)
             def member(root):
                 # A carrier describes possible contents, not an API namespace to extend.
-                return root if root is None or root.startswith(CARRIER_RETURN) else root + "." + node.attr
+                return root if root is None or root.startswith((CARRIER_RETURN, RESULT_VALUE)) else root + "." + node.attr
             return known, (member(base) if isinstance(base, str) else
                            tuple(member(root) for root in base) if isinstance(base, tuple) else None)
         if isinstance(node, ast.Call):
@@ -260,6 +261,12 @@ def import_bindings(tree, path, class_roots=frozenset()):
             exports[key] = origins[0] if len(origins) == 1 else origins
             declarations.discard(key)
             return
+        if isinstance(value, ast.Call):
+            result_roots = returned(value, scope)
+            if result_roots:
+                known, origin = True, tuple(sorted(result_roots, key=lambda item: item or ""))
+            elif calls.primitive_call(value, scope):
+                known, origin = False, None
         if not isinstance(value, ast.Call) and origin is None:
             _, possible = opaque(value, scope)
             if isinstance(possible, tuple):
@@ -312,7 +319,8 @@ def import_bindings(tree, path, class_roots=frozenset()):
             if name and key and (isinstance(value, ast.Call) or endpoint in calls.definitions):
                 origin, known = endpoint, True
         if isinstance(value, ast.Call):
-            roots = set(origin if isinstance(origin, tuple) else (origin,)) if known else set()
+            roots = {RESULT_VALUE + root if isinstance(root, str) else root
+                     for root in (origin if isinstance(origin, tuple) else (origin,))} if known else set()
             ordinary = calls.constructor_call(value, scope, constructors)
             carried = set().union(*(returned(part, scope) for part in
                 [*value.args, *(item.value for item in value.keywords)]))
@@ -418,6 +426,11 @@ class ImportIndex:
         """Trace known foreign API roots of exported data without running engine code."""
         if name is None or name in seen:
             return set()
+        if name.startswith(RESULT_VALUE):
+            roots = self.foreign_roots(name[len(RESULT_VALUE):], seen | {name}, callable_value=False)
+            admitted = STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values())
+            classes = constructor_members(frozenset(admitted))
+            return {root for root in roots if root.startswith(CARRIER_RETURN) or root in classes}
         if name.startswith(CARRIER_RETURN):
             roots = self.foreign_roots(name[len(CARRIER_RETURN):], seen | {name}, callable_value=True)
             return {root if root.startswith(CARRIER_RETURN) else CARRIER_RETURN + root for root in roots}
@@ -445,7 +458,8 @@ class ImportIndex:
                 evaluate_return=evaluate_return if isinstance(root, str) and root.startswith(CALLABLE_VALUE) else True)
                 for root in target))
         else:
-            roots = self.foreign_roots(target + tail[len(binding):], seen | {name},
+            endpoint = target if isinstance(target, str) and target.startswith((CARRIER_RETURN, RESULT_VALUE)) else target + tail[len(binding):] if target is not None else None
+            roots = self.foreign_roots(endpoint, seen | {name},
                 callable_value=callable_value, evaluate_return=evaluate_return) if target is not None else set()
         if returned and not callable_value:
             # Only known class endpoints imply a returned instance, not primitive operations.
@@ -455,6 +469,8 @@ class ImportIndex:
         return roots
 
     def origin(self, name, seen=frozenset()):
+        if name.startswith(RESULT_VALUE):
+            return self.origin(name[len(RESULT_VALUE):], seen | {name}) if name not in seen else None
         if name.startswith(CARRIER_RETURN):
             return self.origin(name[len(CARRIER_RETURN):], seen | {name}) if name not in seen else None
         if name.startswith(CALLABLE_VALUE):
@@ -485,7 +501,8 @@ class ImportIndex:
                 if suffix and any(not root.startswith("atlas_brain.") for root in roots):
                     return roots[0] + suffix if len(roots) == 1 else None
                 return name
-            return self.origin(target + tail[len(binding):], seen | {name}) if target is not None else None
+            endpoint = target if isinstance(target, str) and target.startswith((CARRIER_RETURN, RESULT_VALUE)) else target + tail[len(binding):] if target is not None else None
+            return self.origin(endpoint, seen | {name}) if endpoint is not None else None
         return name if any(tail == key or tail.startswith(key + ".") for key in declarations) else None
 
 
