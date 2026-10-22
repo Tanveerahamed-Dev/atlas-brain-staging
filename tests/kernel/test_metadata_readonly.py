@@ -33,6 +33,8 @@ def check(body):
 
 @pytest.mark.parametrize('body', [
     '    findings.add((3, 1))',
+    '    parts = source.splitlines()',
+    '    joined = ".".join(source.split("."))',
     '    owned = []\n    owned.append(source)\n    owned.pop()',
     '    owned = {}\n    owned["metadata"] = source',
     '    owned = [False]\n    owned[-1] = True',
