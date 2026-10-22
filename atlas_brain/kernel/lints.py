@@ -165,8 +165,8 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     def inside_verdict(node: ast.AST) -> bool:
         while parent_value(node, parents) is not node:
             node = parent_value(node, parents)
-            if isinstance(node, ast.FunctionDef) and node.name == 'verdict' and isinstance(parent_value(node, parents), ast.Module):
-                return True
+            if isinstance(node, ast.FunctionDef) and isinstance(parent_value(node, parents), ast.Module):
+                return node.name == 'verdict'
         return False
 
     # PK compiles dynamic byte patterns, then checks its conservative grammar
