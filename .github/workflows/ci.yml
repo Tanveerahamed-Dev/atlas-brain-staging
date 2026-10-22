@@ -61,7 +61,7 @@ jobs:
       - run: uv run --no-sync ruff check .
       - run: uv run --no-sync pyright
       - run: uv run --no-sync python tools/fence.py
-      - run: uv run --no-sync pytest -q
+      - run: uv run --no-sync pytest -q --durations=0 --durations-min=0
   privacy:
     name: ${{ github.event_name == 'workflow_dispatch' && 'manual-privacy' || 'privacy' }}
     runs-on: ubuntu-latest
