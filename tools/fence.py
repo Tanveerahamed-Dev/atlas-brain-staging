@@ -137,6 +137,10 @@ def origin_member(root, suffix):
         endpoint = root[len(RESULT_VALUE):]
         apis = STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values())
         return endpoint + suffix if endpoint in constructor_members(frozenset(apis)) else root
+    apis = STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values())
+    endpoints = api_values(frozenset(apis))
+    if root in endpoints and not callable(endpoints[root]):
+        return RESULT_VALUE + root
     return root + suffix
 
 
@@ -332,8 +336,11 @@ def import_bindings(tree, path, class_roots=frozenset()):
             roots = {RESULT_VALUE + root if isinstance(root, str) else root
                      for root in (origin if isinstance(origin, tuple) else (origin,))} if known else set()
             ordinary = calls.constructor_call(value, scope, constructors)
-            carried = set().union(*(returned(part, scope) for part in
-                [*value.args, *(item.value for item in value.keywords)]))
+            parts = [*value.args, *(item.value for item in value.keywords)]
+            callees = calls.origins(value.func, scope)
+            if not callees or None in callees:
+                parts.append(value.func)
+            carried = set().union(*(returned(part, scope) for part in parts))
             # Default allocation cannot prove a scoped argument absent from public fields.
             roots.update(root if root.startswith(CARRIER_RETURN) else CARRIER_RETURN + root
                          for root in carried if isinstance(root, str)
