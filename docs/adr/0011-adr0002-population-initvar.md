@@ -1,6 +1,6 @@
 # ADR-0011: ADR-0002 amendment for a population constructor witness
 
-Status: proposed
+Status: accepted
 
 Extends ADR-0010; all prior global, AST, path and ZIP grants remain unchanged.
 Authority: owner standing safe per-file stdlib delegation, 2026-10-20 22:15.
