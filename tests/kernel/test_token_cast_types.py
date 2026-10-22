@@ -36,4 +36,4 @@ def test_cast_spelling_cannot_hide_a_runtime_or_unproved_lookup(prefix, expressi
 def test_pattern_capture_cannot_certify_a_shadowed_cast_type():
     source = ('from typing import cast\nmatch value:\n case {"type": list}: pass\n'
               'def inspect(value):\n if ready: return cast(list[object], value)\n return "up"')
-    assert 3 in {rule for rule, _ in lint(source, 'atlas_brain/kernel/example.py')}
+    assert (3, 5) in lint(source, 'atlas_brain/kernel/example.py')
