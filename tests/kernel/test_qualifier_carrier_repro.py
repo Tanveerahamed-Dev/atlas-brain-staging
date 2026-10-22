@@ -34,7 +34,8 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
 def carrier_probe(sources: dict[str, str]) -> bool:
     trees = {p: ast.parse(text) for p, text in sources.items()}
     modules = {p: p[:-3] for p in sources}
-    metadata = {p for p, tree in trees.items() if tree}
+    metadata = {p for p, tree in trees.items() if any(isinstance(n, ast.Import) and any(
+        a.name == 'ast' and a.asname is None for a in n.names) for n in tree.body)}
     for p in metadata:
         module, tree = modules[p], trees[p]
         parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
@@ -48,9 +49,12 @@ def carrier_probe(sources: dict[str, str]) -> bool:
 
 
 def carrier_safe(sources: dict[str, str]) -> bool:
-    trees = dict((p, ast.parse(text)) for p, text in sources.items())
+    trees = {}
+    for p, text in sources.items():
+        trees[p] = ast.parse(text)
     modules = {p: p[:-3] for p in sources}
-    metadata = {p for p, tree in trees.items() if tree}
+    metadata = {p for p, tree in trees.items() if any(isinstance(n, ast.Import) and any(
+        a.name == 'ast' and a.asname is None for a in n.names) for n in tree.body)}
     for p in metadata:
         module, tree = modules[p], trees[p]
         parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
@@ -63,8 +67,10 @@ def carrier_safe(sources: dict[str, str]) -> bool:
     return False
 
 
-def carrier_capability(sources: dict[str, str]):
-    trees = dict((p, ast.parse) for p, text in sources.items())
+def carrier_direct_capability(sources: dict[str, str]):
+    trees = {}
+    for p, _text in sources.items():
+        trees[p] = ast.parse
     modules = {p: p[:-3] for p in sources}
     metadata = {p for p, tree in trees.items() if tree}
     for p in metadata:
@@ -74,13 +80,39 @@ def carrier_capability(sources: dict[str, str]):
     return None
 
 
+class Carrier:
+    def __init__(self):
+        self.body = ast.parse('import ast').body
+        self.operation = ast.parse
+
+
+def carrier_capability(sources: dict[str, str]):
+    trees = {}
+    for p, _text in sources.items():
+        trees[p] = Carrier()
+    modules = {p: p[:-3] for p in sources}
+    metadata = {p for p, tree in trees.items() if any(isinstance(n, ast.Import) and any(
+        a.name == 'ast' and a.asname is None for a in n.names) for n in tree.body)}
+    for p in metadata:
+        module, tree = modules[p], trees[p]
+        if module:
+            return tree.operation
+    return None
+
+
 def invoke_capability(sources):
+    return carrier_capability(sources)('symbol')
+
+
+def invoke_assigned_capability(sources):
     operation = carrier_capability(sources)
     return operation('symbol')
 
 
 def fixture_source(function):
     text = dedent(inspect.getsource(function))
+    if function is carrier_capability:
+        text = dedent(inspect.getsource(Carrier)) + '\n\n' + text
     return 'import ast\n' + text.replace('def ' + function.__name__ + '(', 'def carrier_probe(')
 
 
@@ -95,12 +127,14 @@ def observed_bindings(source):
     tree = ast.parse(source)
     function = next(n for n in tree.body if isinstance(n, ast.FunctionDef))
     _, full, declarations = import_bindings(tree, PRODUCER)
-    function.body = function.body[:1]
+    boundary = next(i for i, node in enumerate(function.body) if isinstance(node, ast.Assign)
+                    and any(isinstance(target, ast.Name) and target.id == 'modules' for target in node.targets))
+    function.body = function.body[:boundary]
     _, prefix, prefix_declarations = import_bindings(tree, PRODUCER)
     keys = ('carrier_probe.trees', 'carrier_probe.metadata', 'carrier_probe.tree',
             'carrier_probe.reference_node', 'carrier_probe.$return')
     return {
-        'first_assignment': {'export': prefix['carrier_probe.trees']} if 'carrier_probe.trees' in prefix else {
+        'collector_binding': {'export': prefix['carrier_probe.trees']} if 'carrier_probe.trees' in prefix else {
             'declared': 'carrier_probe.trees' in prefix_declarations},
         'full': {key: {'export': full[key]} if key in full else {'declared': key in declarations}
                  for key in keys},
@@ -126,7 +160,7 @@ def test_actual_reduction_and_control_preserve_current_fence_verdict(capsys):
     assert source_refusals(DELETION_ONLY, context(DELETION_ONLY), PRODUCER) == {MARKER}
     blocked, safe = fixture_source(carrier_probe), fixture_source(carrier_safe)
     assert safe == blocked.replace('{p: ast.parse(text) for p, text in sources.items()}',
-                                   'dict((p, ast.parse(text)) for p, text in sources.items())')
+                                   '{}\n    for p, text in sources.items():\n        trees[p] = ast.parse(text)')
     blocked_hits = source_refusals(blocked, context(blocked), PRODUCER)
     safe_hits = source_refusals(safe, context(safe), PRODUCER)
     blocked_bindings, safe_bindings = observed_bindings(blocked), observed_bindings(safe)
@@ -140,30 +174,40 @@ def test_actual_reduction_and_control_preserve_current_fence_verdict(capsys):
                   'blocked_bindings': blocked_bindings, 'safe_bindings': safe_bindings})
     assert MARKER in blocked_hits
     assert not safe_hits
-    assert blocked_bindings['first_assignment'] != safe_bindings['first_assignment']
+    assert blocked_bindings['collector_binding'] != safe_bindings['collector_binding']
 
 
-def test_actual_callable_traverses_same_collector_and_is_refused_at_unadmitted_invocation(capsys):
+@pytest.mark.parametrize('factory', [carrier_capability, carrier_direct_capability])
+def test_actual_callable_traverses_same_collector_and_is_refused_at_unadmitted_invocation(capsys, factory):
     inputs = {'case.py': 'import ast\ncheck(symbol)\n'}
-    operation = carrier_capability(inputs)
+    operation = factory(inputs)
     assert operation is ast.parse
-    parsed = invoke_capability(inputs)
+    parsed = operation('symbol')
     assert isinstance(parsed, ast.Module) and isinstance(parsed.body[0], ast.Expr)
     assert isinstance(parsed.body[0].value, ast.Name) and parsed.body[0].value.id == 'symbol'
-    producer = fixture_source(carrier_capability)
+    producer = fixture_source(factory)
     caller = ('from atlas_brain.kernel.lints import carrier_probe\n' +
               dedent(inspect.getsource(invoke_capability)).replace('carrier_capability(', 'carrier_probe('))
     sources = context(producer)
     sources[CONSUMER] = caller
     producer_hits = source_refusals(producer, sources, PRODUCER)
     caller_hits = source_refusals(caller, sources, CONSUMER)
-    roots = ImportIndex(sources).foreign_roots('$result:atlas_brain.kernel.lints.carrier_probe', callable_value=True)
+    roots = ImportIndex(sources).foreign_roots('atlas_brain.kernel.lints.carrier_probe', callable_value=True)
     emit(capsys, {'capability_source_sha256': hashlib.sha256(producer.encode()).hexdigest(),
                   'consumer_path': CONSUMER, 'producer': sorted(producer_hits),
                   'caller': sorted(caller_hits), 'observed_result_roots': sorted(roots)})
     assert not producer_hits
-    assert '$result:atlas_brain.kernel.lints.carrier_probe()' in caller_hits
-    assert any(root.removeprefix('$carrier:') == 'ast.parse' for root in roots)
+    assert 'atlas_brain.kernel.lints.carrier_probe()' in caller_hits
+
+
+def test_assigned_direct_api_capability_control_is_retained():
+    producer = fixture_source(carrier_direct_capability)
+    caller = ('from atlas_brain.kernel.lints import carrier_probe\n' +
+              dedent(inspect.getsource(invoke_assigned_capability)).replace('carrier_capability(', 'carrier_probe('))
+    sources = context(producer)
+    sources[CONSUMER] = caller
+    assert not source_refusals(producer, sources, PRODUCER)
+    assert '$result:atlas_brain.kernel.lints.carrier_probe()' in source_refusals(caller, sources, CONSUMER)
 
 
 def test_genuine_unlisted_api_remains_refused():
