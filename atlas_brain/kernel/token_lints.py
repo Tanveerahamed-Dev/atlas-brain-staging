@@ -14,20 +14,20 @@ def _tail(node: ast.AST) -> str:
     return node.attr if isinstance(node, ast.Attribute) else ''
 
 
-def _lookup_value(node: ast.AST) -> bool:
-    return any(isinstance(part, ast.Subscript) and (
+def _lookup_value(node: ast.AST, type_nodes: frozenset[ast.AST] = frozenset()) -> bool:
+    return any(isinstance(part, ast.Subscript) and part not in type_nodes and (
         isinstance(part.slice, (ast.Name, ast.Attribute)) or
         (isinstance(part.slice, ast.Constant) and type(part.slice.value) is str))
         for part in ast.walk(node))
 
 
-def _lookup_branch(body: list[ast.stmt]) -> bool:
-    return any(_lookup_value(part.value)
+def _lookup_branch(body: list[ast.stmt], type_nodes: frozenset[ast.AST]) -> bool:
+    return any(_lookup_value(part.value, type_nodes)
                for statement in body for part in ast.walk(statement)
                if isinstance(part, (ast.Assign, ast.AnnAssign, ast.Return)) and part.value is not None)
 
 
-def _statement_lookup(node: ast.AST) -> bool:
+def _statement_lookup(node: ast.AST, type_nodes: frozenset[ast.AST]) -> bool:
     if not isinstance(node, ast.stmt):
         return False
     for _, value in ast.iter_fields(node):
@@ -36,7 +36,7 @@ def _statement_lookup(node: ast.AST) -> bool:
             children = (value,)
         elif isinstance(value, list):
             children = tuple(child for child in cast(list[object], value) if isinstance(child, ast.AST))
-        if any(not isinstance(child, ast.stmt) and _lookup_value(child) for child in children):
+        if any(not isinstance(child, ast.stmt) and _lookup_value(child, type_nodes) for child in children):
             return True
     return False
 
@@ -187,17 +187,17 @@ def _finite_arm(node: ast.If) -> str:
     return finite_subject(node.test)
 
 
-def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset(), following: tuple[ast.stmt, ...] = (), unknowns: frozenset[ast.Call] = frozenset(), allow_refusal: bool = False) -> bool:
+def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.Call] = frozenset(), facts: frozenset[ast.MatchClass] = frozenset(), following: tuple[ast.stmt, ...] = (), unknowns: frozenset[ast.Call] = frozenset(), allow_refusal: bool = False, type_nodes: frozenset[ast.AST] = frozenset()) -> bool:
     """Refuse defaults; assertion call witnesses require whole-module binding proof."""
     if isinstance(node, ast.Call):
         short = (called or _tail(node.func)).rsplit('.', 1)[-1]
         return short in ('get', 'setdefault', 'defaultdict') or (
             short == 'pop' and (len(node.args) > 1 or bool(node.keywords)))
     if isinstance(node, ast.IfExp):
-        return (_lookup_value(node.body) or _lookup_value(node.orelse) or
+        return (_lookup_value(node.body, type_nodes) or _lookup_value(node.orelse, type_nodes) or
                 _enum_comparison(node.test))
     if isinstance(node, ast.If):
-        lookup = _lookup_branch(node.body + node.orelse) or _lookup_branch(list(following))
+        lookup = _lookup_branch(node.body + node.orelse, type_nodes) or _lookup_branch(list(following), type_nodes)
         subject = finite_subject(node.test)
         if subject and len(following) > 1 and not _finite_arm(node) and refusal_tail(following, subject, unknowns):
             return True
@@ -220,10 +220,35 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
     return False
 
 
+def _cast_types(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> frozenset[ast.AST]:
+    """Prove only builtin type syntax in a canonically bound typing.cast call."""
+    casts, _ = binding_proof(tree, aliases, rebound, call_target='typing.cast')
+    shadowed = rebound | {_qualified(ast.Name(id=name), aliases) for name in sorted(bound_names(tree))}
+    generics = ('list', 'tuple', 'dict', 'set', 'frozenset', 'type')
+    scalars = ('object', 'str', 'bytes', 'int', 'bool')
+
+    def builtin(node: ast.AST, names: tuple[str, ...]) -> bool:
+        symbol = _qualified(node, aliases)
+        short = symbol.rsplit('.', 1)[-1]
+        return short in names and symbol in (short, 'builtins.' + short) and not any(
+            target == key or target.startswith(key + '.') or key.startswith(target + '.')
+            for target in (short, 'builtins.' + short) for key in sorted(shadowed))
+
+    def type_expression(node: ast.AST) -> bool:
+        if isinstance(node, ast.Subscript):
+            return builtin(node.value, generics) and type_expression(node.slice)
+        return isinstance(node, (ast.Name, ast.Attribute)) and builtin(node, generics + scalars)
+
+    return frozenset(part for call in ast.walk(tree) if isinstance(call, ast.Call) and call in casts
+                     and len(call.args) == 2 and not call.keywords and type_expression(call.args[0])
+                     for part in ast.walk(call.args[0]))
+
+
 def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> frozenset[ast.AST]:
     """Inspect statement successors and genuine Unknown bindings for whole-source use."""
     assertions, facts = binding_proof(tree, aliases, rebound)
     unknowns, _ = binding_proof(tree, aliases, rebound, call_target='atlas_brain.kernel.states.Unknown')
+    type_nodes = _cast_types(tree, aliases, rebound)
     following, intercepted = statement_context(tree)
     roots = tuple(branch for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
@@ -240,8 +265,8 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
     return frozenset(node for node in ast.walk(tree) if fallback_node(node,
         _qualified(node.func, aliases) if isinstance(node, ast.Call) else '', assertions=assertions, facts=facts,
         following=following[node] if isinstance(node, ast.stmt) and node in following else (), unknowns=unknowns,
-        allow_refusal=node not in intercepted or node in proven_guards) or (
-            node in intercepted and node not in proven_statements and _statement_lookup(node)))
+        allow_refusal=node not in intercepted or node in proven_guards, type_nodes=type_nodes) or (
+            node in intercepted and node not in proven_statements and _statement_lookup(node, type_nodes)))
 
 
 def finite_subject(test: ast.AST) -> str:
