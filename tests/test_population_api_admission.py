@@ -38,6 +38,7 @@ def test_pinned_population_inventory_and_exact_amendment():
     assert RUNTIME_API[USING] == {API} and USING not in SCOPED_API
     assert API not in STDLIB_API and len(STDLIB_API) == 22
     text = Path("docs/adr/0011-adr0002-population-initvar.md").read_text(encoding="utf-8")
+    assert [line for line in text.splitlines() if line.startswith("Status:")] == ["Status: accepted"]
     assert all(value in text for value in (API, USING, REVISION, BLOB, DIGEST))
     assert len(text.splitlines()) <= 45 and len(text) <= 3500
 
