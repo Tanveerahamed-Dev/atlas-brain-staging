@@ -192,3 +192,27 @@ def test_root_cannot_forge_the_ast_or_import_environment(before, after):
     assert selected_lines(changed, 'resolved_name') != ()
     sources[path] = changed
     assert lints.qualifier_witnesses(changed, path, sources, inventory) == ()
+
+
+@pytest.mark.parametrize('before,after', [
+    ('    aliases, rebound = binding_environment(tree)\n',
+     ('    aliases, rebound = binding_environment(tree)\n'
+      '    forwarded = aliases\n    forwarded["forged"] = "typing.assert_never"\n')),
+    ('    tree = ast.parse(source)\n',
+     ('    tree = ast.parse(source)\n    forwarded = tree.body\n'
+      '    forwarded[:] = ast.parse("from typing import assert_never as forged").body\n')),
+    ('    return any(resolved_tail(part, aliases) in names for part in ast.walk(node))\n',
+     ('    forwarded = aliases\n    forwarded["forged"] = "typing.assert_never"\n'
+      '    return any(resolved_tail(part, aliases) in names for part in ast.walk(node))\n')),
+    ('    origins = {name: (origin,) for name, origin in aliases.items()} | import_origins(tree)\n',
+     ('    forwarded = tree.body\n'
+      '    forwarded[:] = ast.parse("from typing import assert_never as forged").body\n'
+      '    origins = {name: (origin,) for name, origin in aliases.items()} | import_origins(tree)\n')),
+])
+def test_root_or_reachable_helper_cannot_mutate_producers_through_an_alias(before, after):
+    sources, inventory = source_context()
+    path = 'atlas_brain/kernel/lints.py'
+    changed = sources[path].replace(before, after)
+    assert changed != sources[path]
+    sources[path] = changed
+    assert lints.qualifier_witnesses(changed, path, sources, inventory) == ()
