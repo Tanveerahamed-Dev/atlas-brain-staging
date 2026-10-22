@@ -285,7 +285,8 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
     type_nodes = _type_nodes(tree, aliases, rebound)
     following, intercepted = statement_context(tree)
     successors: dict[ast.AST, tuple[ast.stmt, ...]] = {node: () for node in ast.walk(tree)}
-    successors.update(following)
+    for statement, later in following.items():
+        successors[statement] = later
     roots = tuple(branch for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
         and (_finite_arm(branch) or guarded_lookup(branch.test, tuple(branch.body)))
