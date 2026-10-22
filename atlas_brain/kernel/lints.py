@@ -27,11 +27,8 @@ def nested_unbounded(pattern: str) -> bool:
             escaped = True
             last_group = False
             continue
-        if char == '[':
-            in_class = True
-        if in_class:
-            if char == ']':
-                in_class = False
+        if in_class or char == '[':
+            in_class = char != ']'
             continue
         if char == '(':
             stack.append(False)
@@ -39,10 +36,10 @@ def nested_unbounded(pattern: str) -> bool:
             last_group = stack.pop() if len(stack) > 1 else False
             stack[-1] |= last_group
             continue
-        elif char in '*+' or (char == '{' and re.search(r'^\{\d+,\}', pattern[index:], re.ASCII)):
-            if last_group:
-                return True
-            stack[-1] = True
+        unbounded = char in '*+' or (char == '{' and bool(re.search(r'^\{\d+,\}', pattern[index:], re.ASCII)))
+        if unbounded and last_group:
+            return True
+        stack[-1] = stack[-1] or unbounded
         last_group = False
     return False
 
@@ -90,8 +87,8 @@ def node_rules(node: ast.AST, path: str, aliases: dict[str, str], origins: dict[
                 hit(8, node)
             if path not in RUNNER and any(module == d or module.startswith(d + '.') for d in DENIED):
                 hit(14, node)
-    if isinstance(node, (ast.Attribute, ast.Name)) and path not in RUNNER and any(name in ('os.environ', 'os.environb') for name in possible_names(node, origins)):
-        hit(9, node)
+    findings.update((9, node.lineno) for name in possible_names(node, origins)
+                    if isinstance(node, (ast.Attribute, ast.Name)) and path not in RUNNER and name in ('os.environ', 'os.environb'))
     if not isinstance(node, ast.Call):
         return tuple(sorted(findings))
     for called in possible_names(node.func, origins):
@@ -113,10 +110,9 @@ def node_rules(node: ast.AST, path: str, aliases: dict[str, str], origins: dict[
             unbound = called in ('open', 'builtins.open', 'io.open', '_io.open',
                                  'pathlib.Path.open', 'pathlib.PosixPath.open', 'pathlib.WindowsPath.open')
             mode_index = 1 if unbound else 0
-            mode = next((value for index, value in enumerate(node.args) if index == mode_index), None)
-            for keyword in node.keywords:
-                if keyword.arg == 'mode':
-                    mode = keyword.value
+            modes = [value for index, value in enumerate(node.args) if index == mode_index]
+            modes.extend(keyword.value for keyword in node.keywords if keyword.arg == 'mode')
+            mode = next(reversed(modes), None)
             binary = short == 'open' and isinstance(mode, ast.Constant) and isinstance(mode.value, str) and 'b' in mode.value
             encoding = any(k.arg == 'encoding' and not (isinstance(k.value, ast.Constant) and k.value.value is None) for k in node.keywords)
             if not binary and not encoding:
@@ -137,6 +133,16 @@ def node_rules(node: ast.AST, path: str, aliases: dict[str, str], origins: dict[
     return tuple(sorted(findings))
 
 
+def parent_environment(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    """Every syntax node has a parent entry; the supplied root names itself."""
+    return {tree: tree} | {child: owner for owner in ast.walk(tree) for child in ast.iter_child_nodes(owner)}
+
+
+def parent_value(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.AST:
+    """A node outside the constructed domain raises instead of ending scope proof."""
+    return parents[node]
+
+
 def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
     """Return sorted (rule number, source line) findings; syntax errors fail closed."""
     tree = ast.parse(source)
@@ -150,13 +156,13 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
 
 
-    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    parents = parent_environment(tree)
 
     def inside_verdict(node: ast.AST) -> bool:
-        while node in parents:
-            node = parents[node]
-            if isinstance(node, ast.FunctionDef) and node.name == 'verdict' and isinstance(parents[node], ast.Module):
-                return True
+        while parent_value(node, parents) is not node:
+            node = parent_value(node, parents)
+            if isinstance(node, ast.FunctionDef) and isinstance(parent_value(node, parents), ast.Module):
+                return node.name == 'verdict'
         return False
 
     # PK compiles dynamic byte patterns, then checks its conservative grammar
@@ -167,11 +173,11 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
                           '05f298e6c5be51774519d4bdea4c45ae21cfbf68fe98e9599af4cf3d855bc091')
 
     def inside_pk_compiler(node: ast.AST) -> bool:
-        while node in parents:
-            node = parents[node]
+        while parent_value(node, parents) is not node:
+            node = parent_value(node, parents)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 return (isinstance(node, ast.FunctionDef) and node.name == 'compile_pattern' and
-                        isinstance(parents[node], ast.Module))
+                        isinstance(parent_value(node, parents), ast.Module))
         return False
 
     findings: set[tuple[int, int]] = set()
