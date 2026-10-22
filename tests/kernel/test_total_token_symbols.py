@@ -7,7 +7,6 @@ import pytest
 from atlas_brain.kernel import lints, token_lints
 
 
-
 def test_total_symbol_domain_covers_names_and_all_binding_forms():
     tree = ast.parse('import re as rx\nclass Record: pass\nasync def worker(arg): pass\n'
                      'try: pass\nexcept ValueError as failure: pass\n'
