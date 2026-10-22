@@ -110,6 +110,8 @@ def test_nested_import_cannot_certify_a_different_outer_origin(runtime, target, 
     witnesses = calls if kind == 'calls' else facts
     guard = next(node for node in ast.walk(tree) if isinstance(node, (ast.If, ast.Match)))
     assert (len(witnesses), guard in fallback_nodes(tree, aliases, rebound)) == (0, True)
+    from atlas_brain.kernel.lints import lint
+    assert (3, guard.lineno) in lint(inspect.getsource(runtime), 'atlas_brain/kernel/fixture.py')
 
 
 @pytest.mark.parametrize('source,expected', [

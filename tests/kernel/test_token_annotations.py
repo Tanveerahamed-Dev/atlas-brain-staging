@@ -1,17 +1,11 @@
 """Pure type syntax is distinct from executable value and default expressions."""
-import ast
-from typing import cast
-
 import pytest
 
-from atlas_brain.kernel.lints import binding_environment
-from atlas_brain.kernel.token_lints import fallback_nodes
+from atlas_brain.kernel.lints import lint
 
 
 def token_findings(source):
-    tree = ast.parse(source)
-    aliases, rebound = binding_environment(tree)
-    return frozenset(cast(ast.stmt | ast.expr, node).lineno for node in fallback_nodes(tree, aliases, rebound))
+    return frozenset(line for rule, line in lint(source, 'atlas_brain/kernel/example.py') if rule == 3)
 
 
 @pytest.mark.parametrize('prefix,statement', [

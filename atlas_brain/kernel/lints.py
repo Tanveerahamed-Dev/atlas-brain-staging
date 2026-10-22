@@ -1,7 +1,9 @@
-"""Import origin certainty and node guards for the public lint scanner."""
+"""Fifteen conservative AST guards over every product source, including uncalled code."""
 import ast
 import re
+from hashlib import sha256
 
+from .token_lints import bound_names, fallback_nodes
 
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
@@ -130,6 +132,70 @@ def node_rules(node: ast.AST, path: str, aliases: dict[str, str], origins: dict[
                 hit(12, node)
         if path != LOADER and called in ('importlib.import_module', '__import__', 'builtins.__import__'):
             hit(15, node)
+    return tuple(sorted(findings))
+
+
+def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
+    """Return sorted (rule number, source line) findings; syntax errors fail closed."""
+    tree = ast.parse(source)
+    parts = path.replace('\\', '/').split('/')
+    fact_path = any(p in FACT_PATH for p in parts)
+    fact_fields = 'model' in parts or 'packs' in parts
+    aliases, rebound = binding_environment(tree)
+    origins = import_origins(tree)
+    shadowed = rebound | {resolved_name(ast.Name(id=name, ctx=ast.Load()), aliases) for name in bound_names(tree)}
+    fallbacks = fallback_nodes(tree, aliases, rebound)
+
+
+
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+
+    def inside_verdict(node: ast.AST) -> bool:
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, ast.FunctionDef) and node.name == 'verdict' and isinstance(parents[node], ast.Module):
+                return True
+        return False
+
+    # PK compiles dynamic byte patterns, then checks its conservative grammar
+    # before returning them. Only this reviewed source/function bypasses literals;
+    # altered admission logic invalidates the receipt. ASCII checking still runs.
+    pk_compiler_source = (path == 'atlas_brain/evidence/parsekit/patterns.py' and
+                          sha256(source.encode('utf-8')).hexdigest() ==
+                          '05f298e6c5be51774519d4bdea4c45ae21cfbf68fe98e9599af4cf3d855bc091')
+
+    def inside_pk_compiler(node: ast.AST) -> bool:
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                return (isinstance(node, ast.FunctionDef) and node.name == 'compile_pattern' and
+                        isinstance(parents[node], ast.Module))
+        return False
+
+    findings: set[tuple[int, int]] = set()
+
+    def hit(rule: int, node: ast.AST) -> None:
+        findings.add((rule, node.lineno if isinstance(node, (ast.stmt, ast.expr, ast.ExceptHandler)) else 1))
+
+    unordered = unordered_iterations(tree, aliases)
+    for node in ast.walk(tree):
+        if fact_path and ((isinstance(node, ast.Constant) and not isinstance(node.value, (str, bytes, int, type(None), type(Ellipsis)))) or
+                          (isinstance(node, ast.Name) and node.id == 'float')):
+            hit(7, node)
+
+    for node in ast.walk(tree):
+        findings.update(node_rules(node, path, aliases, origins, rebound, shadowed,
+                                   fact_path=fact_path, fact_fields=fact_fields,
+                                   in_verdict=isinstance(node, ast.Call) and inside_verdict(node),
+                                   in_pk_compiler=pk_compiler_source and isinstance(node, ast.Call) and inside_pk_compiler(node),
+                                   pk_compiler_source=pk_compiler_source))
+        if node in fallbacks:
+            hit(3, node)
+        if node in unordered:
+            hit(11, node)
+    for lineno, line in enumerate(source.splitlines(), 1):
+        if re.search(r'#\s*pyright:\s*ignore\[', line, re.ASCII) and not re.search(r'reviewer:\s*\S', line, re.ASCII):
+            findings.add((6, lineno))
     return tuple(sorted(findings))
 
 
