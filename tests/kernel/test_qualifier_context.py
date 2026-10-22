@@ -100,3 +100,30 @@ def test_unknown_consumer_inside_scanner_is_not_lint_metadata():
     path = 'atlas_brain/kernel/lints.py'
     sources[path] += '\ndef consume(node, aliases):\n return {"healthy": resolved_name(node, aliases)}\n'
     assert lints.qualifier_witnesses(sources[path], path, sources, inventory) == ()
+
+
+@pytest.mark.parametrize('change', [
+    '\ndef isinstance(node, kind):\n return True\n',
+    '\ndef dict(bindings):\n return {"safe": "typing.assert_never"}\n',
+    '\ndef consume(node, aliases):\n return resolved_name(node, aliases)\nconsume_alias = consume\n',
+])
+def test_shadowed_builtins_and_escaped_functions_are_unproved(change):
+    sources, inventory = source_context()
+    path = 'atlas_brain/kernel/lints.py'
+    sources[path] += change
+    assert lints.qualifier_witnesses(sources[path], path, sources, inventory) == ()
+
+
+@pytest.mark.parametrize('before,after', [
+    ('resolved_name(n, aliases)', 'resolved_name(n, {"safe": "typing.assert_never"})'),
+    ('fallback_nodes(tree, aliases, rebound)', 'fallback_nodes(tree, {"safe": "typing.assert_never"}, rebound)'),
+    ('tree = ast.parse(source)', 'tree = ast.parse("import typing")'),
+    ('findings.add((6, lineno))', 'findings.add(("healthy", lineno))'),
+])
+def test_forged_argument_ast_producer_and_nonfinding_result_are_unproved(before, after):
+    sources, inventory = source_context()
+    path = 'atlas_brain/kernel/lints.py'
+    changed = sources[path].replace(before, after)
+    assert changed != sources[path]
+    sources[path] = changed
+    assert lints.qualifier_witnesses(changed, path, sources, inventory) == ()
