@@ -1,6 +1,6 @@
-"""Nested import origins must not certify a different global callable or class."""
+"""Nested import origins must not certify a different outer callable or class."""
 import ast
-from typing import Any
+import inspect
 
 import pytest
 
@@ -8,30 +8,103 @@ from atlas_brain.kernel.lints import binding_environment
 from atlas_brain.kernel.token_lints import binding_proof, fallback_nodes
 
 
-CASES = [
-    ('unknown', 'from builtins import str as U',
-     'from atlas_brain.kernel.states import Unknown as U',
-     'STATES = {"known": "up"}\ndef mapped(raw):\n if raw not in STATES: return U("up")\n return STATES[raw]',
-     'atlas_brain.kernel.states.Unknown', 'calls'),
-    ('assertion', 'from builtins import str as terminal',
-     'from typing import assert_never as terminal',
-     'def mapped(raw):\n match raw:\n  case "known": return "up"\n  case _ as missing: terminal(missing)\n return "up"',
-     'typing.assert_never', 'calls'),
-    ('fact', 'from builtins import str as K\nfrom typing import assert_never as terminal',
-     'from atlas_brain.kernel.states import Known as K',
-     'def mapped(raw):\n match raw:\n  case K(): return "up"\n  case _ as missing: terminal(missing)',
-     'typing.assert_never', 'facts'),
-]
+def _unknown_function(raw: str) -> str:
+    from builtins import str as U
+
+    def local():
+        from atlas_brain.kernel.states import Unknown as U
+        return U
+
+    states = {'known': 'up'}
+    if raw not in states:
+        return U('up')
+    return states[raw]
 
 
-@pytest.mark.parametrize('scope', ['def local():', 'class Local:'])
-@pytest.mark.parametrize('label,prefix,inner,body,target,kind', CASES)
-def test_nested_import_cannot_certify_a_different_global_origin(scope, label, prefix, inner, body, target, kind):
-    source = prefix + '\n' + scope + '\n ' + inner + '\n' + body
-    namespace: dict[str, Any] = {}
-    exec(source, namespace)
-    assert namespace['mapped']('mystery') == 'up'  # The planted program manufactures health.
-    tree = ast.parse(source)
+def _unknown_class(raw: str) -> str:
+    from builtins import str as U
+
+    class Local:
+        from atlas_brain.kernel.states import Unknown as U
+        reference = U
+
+    states = {'known': 'up'}
+    if raw not in states:
+        return U('up')
+    return states[raw]
+
+
+def _assertion_function(raw: str) -> str:
+    from builtins import str as terminal
+
+    def local():
+        from typing import assert_never as terminal
+        return terminal
+
+    match raw:
+        case 'known':
+            return 'up'
+        case _ as missing:
+            terminal(missing)
+    return 'up'
+
+
+def _assertion_class(raw: str) -> str:
+    from builtins import str as terminal
+
+    class Local:
+        from typing import assert_never as terminal
+        reference = terminal
+
+    match raw:
+        case 'known':
+            return 'up'
+        case _ as missing:
+            terminal(missing)
+    return 'up'
+
+
+def _fact_function(raw: str) -> str:
+    from builtins import str as K
+    from typing import assert_never as terminal
+
+    def local():
+        from atlas_brain.kernel.states import Known as K
+        return K
+
+    match raw:
+        case K():
+            return 'up'
+        case _ as missing:
+            terminal(missing)
+
+
+def _fact_class(raw: str) -> str:
+    from builtins import str as K
+    from typing import assert_never as terminal
+
+    class Local:
+        from atlas_brain.kernel.states import Known as K
+        reference = K
+
+    match raw:
+        case K():
+            return 'up'
+        case _ as missing:
+            terminal(missing)
+
+
+@pytest.mark.parametrize('runtime,target,kind', [
+    (_unknown_function, 'atlas_brain.kernel.states.Unknown', 'calls'),
+    (_unknown_class, 'atlas_brain.kernel.states.Unknown', 'calls'),
+    (_assertion_function, 'typing.assert_never', 'calls'),
+    (_assertion_class, 'typing.assert_never', 'calls'),
+    (_fact_function, 'typing.assert_never', 'facts'),
+    (_fact_class, 'typing.assert_never', 'facts'),
+])
+def test_nested_import_cannot_certify_a_different_outer_origin(runtime, target, kind):
+    assert runtime('mystery') == 'up'  # The declared negative fixture manufactures health.
+    tree = ast.parse(inspect.getsource(runtime))
     aliases, rebound = binding_environment(tree)
     calls, facts = binding_proof(tree, aliases, rebound, call_target=target)
     witnesses = calls if kind == 'calls' else facts
