@@ -3,7 +3,7 @@ import ast
 import re
 from hashlib import sha256
 
-from .token_lints import bound_names, fallback_nodes, qualifier_lines, syntax_shape
+from .token_lints import bound_names, fallback_nodes, qualifier_lines, same_syntax
 
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
@@ -320,7 +320,7 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
     opaque = ('builtins', 'importlib', 'inspect', 'sys', 'pickle', 'marshal', 'ctypes')
     dynamic = ('eval', 'exec', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars', '__import__')
     builtins = ('isinstance', 'dict', 'tuple', 'any', 'all', 'sorted', 'str', 'type', 'set', 'list',
-                'len', 'next', 'iter', 'enumerate', 'bool', 'frozenset', 'int', 'reversed')
+                'len', 'next', 'iter', 'enumerate', 'bool', 'frozenset', 'int', 'reversed', 'zip')
 
     def scope_key(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
         names: list[str] = []
@@ -334,26 +334,26 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
         module = modules[p]
         parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
         local_imports: dict[str, str] = {}
-        for n in ast.walk(tree):
-            if isinstance(n, ast.Name) and n.id in dynamic:
+        for import_node in ast.walk(tree):
+            if isinstance(import_node, ast.Name) and import_node.id in dynamic:
                 return ()
-            if isinstance(n, ast.Attribute) and n.attr.startswith('__'):
+            if isinstance(import_node, ast.Attribute) and import_node.attr.startswith('__'):
                 return ()
-            if not isinstance(n, (ast.Import, ast.ImportFrom)):
+            if not isinstance(import_node, (ast.Import, ast.ImportFrom)):
                 continue
-            if p in metadata and n not in tree.body:
+            if p in metadata and import_node not in tree.body:
                 return ()
             prefix = ''
-            if isinstance(n, ast.ImportFrom):
+            if isinstance(import_node, ast.ImportFrom):
                 package = module.split('.') if p.endswith('/__init__.py') else module.split('.')[:-1]
-                if n.level > len(package) + 1:
+                if import_node.level > len(package) + 1:
                     return ()
-                prefix = '.'.join(package[:len(package) - n.level + 1] +
-                                  ([n.module] if n.module else [])) if n.level else (n.module or '')
-            for alias in n.names:
+                prefix = '.'.join(package[:len(package) - import_node.level + 1] +
+                                  ([import_node.module] if import_node.module else [])) if import_node.level else (import_node.module or '')
+            for alias in import_node.names:
                 target = prefix + '.' + alias.name if prefix else alias.name
-                binding = alias.asname or (alias.name.split('.')[0] if isinstance(n, ast.Import) else alias.name)
-                target = target if not isinstance(n, ast.Import) or alias.asname else binding
+                binding = alias.asname or (alias.name.split('.')[0] if isinstance(import_node, ast.Import) else alias.name)
+                target = target if not isinstance(import_node, ast.Import) or alias.asname else binding
                 if alias.name == '*' or target.split('.')[0] in opaque:
                     return ()
                 if p not in metadata:
@@ -371,18 +371,18 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
             top = [n.name for n in tree.body if isinstance(n, ast.FunctionDef)]
             if len(top) != len(set(top)) or any(name in builtins for name in local_imports):
                 return ()
-            for n in ast.walk(tree):
-                if isinstance(n, (ast.ClassDef, ast.Lambda, ast.AsyncFunctionDef)) or (
-                        isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)):
+            for definition_node in ast.walk(tree):
+                if isinstance(definition_node, (ast.ClassDef, ast.Lambda, ast.AsyncFunctionDef)) or (
+                        isinstance(definition_node, ast.Attribute) and isinstance(definition_node.ctx, ast.Store)):
                     return ()
-                if isinstance(n, ast.FunctionDef):
-                    if n.decorator_list or n.name in builtins or (n not in tree.body and n.name in top):
+                if isinstance(definition_node, ast.FunctionDef):
+                    if definition_node.decorator_list or definition_node.name in builtins or (definition_node not in tree.body and definition_node.name in top):
                         return ()
-                    key = scope_key(n, parents)
+                    key = scope_key(definition_node, parents)
                     if key in functions:
                         return ()
-                    functions[key] = n
-                if isinstance(n, ast.arg) and (n.arg in local_imports or n.arg in builtins):
+                    functions[key] = definition_node
+                if isinstance(definition_node, ast.arg) and (definition_node.arg in local_imports or definition_node.arg in builtins):
                     return ()
     lint_roots = {name for name in functions if name.endswith('.lint')}
     if len(lint_roots) != 1:
@@ -394,10 +394,10 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
     root = functions[lint_root]
     if [arg.arg for arg in root.args.args] != ['source', 'path']:
         return ()
-    if syntax_shape(root.body[-1:]) != syntax_shape(ast.parse('return tuple(sorted(findings))').body):
+    if not same_syntax(root.body[-1:], ast.parse('return tuple(sorted(findings))').body):
         return ()
     initial = [n for n in root.body if isinstance(n, ast.Assign)]
-    if not initial or syntax_shape(initial[0]) != syntax_shape(ast.parse('tree = ast.parse(source)').body[0]):
+    if not initial or not same_syntax(initial[0], ast.parse('tree = ast.parse(source)').body[0]):
         return ()
     edges: dict[str, set[str]] = {name: set() for name in functions}
     alias_target = next(n for n in ast.parse('aliases, rebound = binding_environment(tree)').body
@@ -406,67 +406,65 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
         module, tree = modules[p], trees[p]
         local = exports[p]
         parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
-        for n in ast.walk(tree):
-            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and (
-                    n.id in local or n.id in builtins or module + '.' + n.id in functions):
+        for reference_node in ast.walk(tree):
+            if isinstance(reference_node, ast.Name) and isinstance(reference_node.ctx, ast.Store) and (
+                    reference_node.id in local or reference_node.id in builtins or module + '.' + reference_node.id in functions):
                 return ()
-            if (isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and n.id == 'aliases'
-                    and syntax_shape(parents[n]) not in (
-                    syntax_shape(ast.parse('aliases = dict(bindings)').body[0]),
-                    syntax_shape(alias_target),
-                )):
+            if (isinstance(reference_node, ast.Name) and isinstance(reference_node.ctx, ast.Store) and reference_node.id == 'aliases'
+                    and not any(same_syntax(parents[reference_node], permitted) for permitted in (
+                        ast.parse('aliases = dict(bindings)').body[0], alias_target))):
                 return ()
-            if isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store) and isinstance(n.value, ast.Name) and n.value.id == 'aliases':
+            if isinstance(reference_node, ast.Subscript) and isinstance(reference_node.ctx, ast.Store) and isinstance(reference_node.value, ast.Name) and reference_node.value.id == 'aliases':
                 return ()
-            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id in ('selected', 'findings'):
-                parent = parents[n]
-                if not (isinstance(parent, ast.Attribute) and parent.value is n or isinstance(parent, ast.Call)
-                        and isinstance(parent.func, ast.Name) and parent.func.id == ('set' if n.id == 'selected' else 'sorted')):
+            if isinstance(reference_node, ast.Name) and isinstance(reference_node.ctx, ast.Load) and reference_node.id in ('selected', 'findings'):
+                parent = parents[reference_node]
+                if not (isinstance(parent, ast.Attribute) and parent.value is reference_node or isinstance(parent, ast.Call)
+                        and isinstance(parent.func, ast.Name) and parent.func.id == ('set' if reference_node.id == 'selected' else 'sorted')):
                     return ()
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
-                if n.func.attr in ('append', 'extend', 'add', 'update', 'pop', 'clear', 'remove') and not isinstance(n.func.value, ast.Name):
+            if isinstance(reference_node, ast.Call) and isinstance(reference_node.func, ast.Attribute):
+                if reference_node.func.attr in ('append', 'extend', 'add', 'update', 'pop', 'clear', 'remove') and not isinstance(reference_node.func.value, ast.Name):
                     return ()
-                if isinstance(n.func.value, ast.Name) and n.func.value.id == 'aliases' and n.func.attr != 'items':
+                if isinstance(reference_node.func.value, ast.Name) and reference_node.func.value.id == 'aliases' and reference_node.func.attr != 'items':
                     return ()
-                if isinstance(n.func.value, ast.Name) and n.func.value.id == 'selected' and syntax_shape(n) != syntax_shape(
+                if isinstance(reference_node.func.value, ast.Name) and reference_node.func.value.id == 'selected' and not same_syntax(reference_node,
                         ast.parse('selected.extend(qualifier_lines(function.body))', mode='eval').body):
                     return ()
-                if isinstance(n.func.value, ast.Name) and n.func.value.id == 'findings':
-                    permitted = tuple(syntax_shape(ast.parse(text, mode='eval').body) for text in (
+                if isinstance(reference_node.func.value, ast.Name) and reference_node.func.value.id == 'findings':
+                    permitted = tuple(ast.parse(text, mode='eval').body for text in (
                         'findings.add((6, lineno))',
                         'findings.add((rule, node.lineno if isinstance(node, (ast.stmt, ast.expr, ast.ExceptHandler)) else 1))',
                     ))
-                    if syntax_shape(n) not in permitted and not (n.func.attr == 'update' and len(n.args) == 1
-                            and not n.keywords and isinstance(n.args[0], ast.Call) and isinstance(n.args[0].func, ast.Name)
-                            and n.args[0].func.id == 'node_rules'):
+                    if not any(same_syntax(reference_node, candidate) for candidate in permitted) and not (reference_node.func.attr == 'update' and len(reference_node.args) == 1
+                            and not reference_node.keywords and isinstance(reference_node.args[0], ast.Call) and isinstance(reference_node.args[0].func, ast.Name)
+                            and reference_node.args[0].func.id == 'node_rules'):
                         return ()
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
-                target = local[n.func.id] if n.func.id in local else module + '.' + n.func.id
+            if isinstance(reference_node, ast.Call) and isinstance(reference_node.func, ast.Name):
+                target = local[reference_node.func.id] if reference_node.func.id in local else module + '.' + reference_node.func.id
                 if target in functions:
                     parameters = functions[target].args.args
                     for index, parameter in enumerate(parameters):
                         if parameter.arg != 'aliases':
                             continue
-                        if len(n.args) <= index:
+                        if len(reference_node.args) <= index:
                             return ()
-                        argument = n.args[index]
+                        argument = reference_node.args[index]
                         if not (isinstance(argument, ast.Name) and argument.id == 'aliases'
-                                or syntax_shape(argument) == syntax_shape(ast.parse('{}', mode='eval').body)):
+                                or same_syntax(argument, ast.parse('{}', mode='eval').body)):
                             return ()
-            if not isinstance(n, ast.Name) or not isinstance(n.ctx, ast.Load):
+            if not isinstance(reference_node, ast.Name) or not isinstance(reference_node.ctx, ast.Load):
                 continue
-            target = local[n.id] if n.id in local else module + '.' + n.id
-            owner_key = scope_key(n, parents)
+            target = local[reference_node.id] if reference_node.id in local else module + '.' + reference_node.id
+            owner_key = scope_key(reference_node, parents)
             scope = owner_key
             while target not in functions and scope.startswith(module + '.'):
-                target = scope + '.' + n.id
+                target = scope + '.' + reference_node.id
                 scope = scope.rsplit('.', 1)[0]
-            parent = parents[n]
+            parent = parents[reference_node]
             if target not in functions:
-                if isinstance(parent, ast.Call) and parent.func is n and n.id not in builtins and n.id not in local:
+                if isinstance(parent, ast.Call) and parent.func is reference_node and reference_node.id not in builtins and reference_node.id not in local:
                     return ()
                 continue
-            if not isinstance(parent, ast.Call) or parent.func is not n:
+            if not isinstance(parent, ast.Call) or parent.func is not reference_node:
                 return ()
             owner = parent
             while owner in parents and not isinstance(owner, ast.FunctionDef):
@@ -512,7 +510,7 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
         if not isinstance(template, ast.FunctionDef):
             return ()
         key = lint_root.rsplit('.', 1)[0] + '.' + template.name
-        if key not in functions or syntax_shape(functions[key].body) != syntax_shape(template.body):
+        if key not in functions or not same_syntax(functions[key].body, template.body):
             return ()
     selected: list[int] = []
     for function in trees[path].body:
@@ -523,6 +521,6 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
             continue
         for form in forms:
             template = ast.parse(form.replace('SELF', function.name)).body[0]
-            if isinstance(template, ast.FunctionDef) and syntax_shape(function.body) == syntax_shape(template.body):
+            if isinstance(template, ast.FunctionDef) and same_syntax(function.body, template.body):
                 selected.extend(qualifier_lines(function.body))
     return tuple(sorted(set(selected)))

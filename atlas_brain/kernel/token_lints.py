@@ -8,15 +8,22 @@ import ast
 from typing import cast
 
 
-def syntax_shape(value: object) -> object:
-    """Compare finite AST grammars without locations or inert string statements."""
-    if isinstance(value, ast.AST):
-        return type(value), tuple((field, syntax_shape(child)) for field, child in ast.iter_fields(value))
-    if isinstance(value, list):
-        return tuple(syntax_shape(child) for child in cast(list[object], value) if not (
-            isinstance(child, ast.Expr) and isinstance(child.value, ast.Constant)
-            and isinstance(child.value.value, str)))
-    return type(value), value
+def same_syntax(left: object, right: object) -> bool:
+    """Compare finite syntax, returning only a boolean and no live AST API handles."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, ast.AST) and isinstance(right, ast.AST):
+        left_fields, right_fields = tuple(ast.iter_fields(left)), tuple(ast.iter_fields(right))
+        return len(left_fields) == len(right_fields) and all(name == other and same_syntax(value, candidate)
+            for (name, value), (other, candidate) in zip(left_fields, right_fields, strict=True))
+    if isinstance(left, list) and isinstance(right, list):
+        def active(items: list[object]) -> tuple[object, ...]:
+            return tuple(child for child in items if not (isinstance(child, ast.Expr)
+                and isinstance(child.value, ast.Constant) and isinstance(child.value.value, str)))
+        left_items, right_items = active(cast(list[object], left)), active(cast(list[object], right))
+        return len(left_items) == len(right_items) and all(same_syntax(value, candidate)
+            for value, candidate in zip(left_items, right_items, strict=True))
+    return left == right
 
 
 def qualifier_lines(body: list[ast.stmt]) -> tuple[int, ...]:
