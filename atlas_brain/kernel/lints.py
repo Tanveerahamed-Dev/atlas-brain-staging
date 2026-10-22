@@ -2,7 +2,6 @@
 import ast
 import re
 
-
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
           'atlas_brain/runner/coordinator.py')
