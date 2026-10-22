@@ -502,9 +502,10 @@ def recorded_api(monkeypatch, data, rows, failure=None):
         if endpoint.startswith("git/blobs/"):
             return json.dumps(next(iter(data["sources"].values())))
         if endpoint.startswith("actions/runs/"):
-            return json.dumps([{"jobs": data["jobs"][endpoint.split("/")[2]]}])
+            jobs = data["jobs"][endpoint.split("/")[2]]
+            return json.dumps([{"jobs": jobs, "total_count": len(jobs)}])
         if endpoint.startswith("commits/"):
-            return json.dumps([{"check_runs": data["checks"]}])
+            return json.dumps([{"check_runs": data["checks"], "total_count": len(data["checks"])}])
         raise AssertionError(endpoint)
 
     monkeypatch.setattr(main_receipts.subprocess, "check_output", read)
@@ -551,14 +552,15 @@ def test_missing_partial_and_error_responses_remain_fail_closed_with_evidence(mo
         collect(SHA, "push", with_checks=True)
     trace = refused.value.evidence
     query = next(row for row in trace["queries"] if row["key"] == "workflow_runs")
-    assert query["outcome"] == {"http": "process_error", "json": "invalid_json"}.get(kind, "decoded")
+    assert query["outcome"] == {"http": "process_error", "json": "invalid_json",
+                                "partial": "incomplete_listing"}.get(kind, "decoded")
     assert sum("actions/runs?" in command[2] for command in commands) == 1
     assert not any("/jobs?" in command[2] for command in commands)
     assert "unlogged-response" not in json.dumps(trace)
     if kind not in {"http", "json"}:
         count = 3 if kind == "partial" else len(rows)
         assert query["pages"] == [{"total_count": count, "returned_count": len(rows)}]
-        assert trace["selection"]
+        assert bool(trace["selection"]) is (kind != "partial")
 
 
 def test_real_cli_failure_prints_its_original_response_evidence(monkeypatch, capsys):
@@ -575,3 +577,52 @@ def test_real_cli_failure_prints_its_original_response_evidence(monkeypatch, cap
     assert trace["queries"][-1]["pages"] == [{"total_count": 0, "returned_count": 0}]
     assert all(row["exact_count"] == 0 for row in trace["selection"])
     assert "unlogged-response" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_all_paths_present_cannot_hide_omitted_newer_failure(monkeypatch, complete):
+    from tools.main_receipts import collect
+
+    data = native_receipts()
+    data["runs"].append({**deepcopy(data["runs"][0]), "id": 900, "run_attempt": 2, "conclusion": "failure"})
+    returned = data["runs"] if complete else data["runs"][:-1]
+    assert {row["workflow_id"] for row in returned} == {row["id"] for row in data["catalog"]}
+    commands = recorded_api(monkeypatch, data, returned, "partial")
+    message = "latest workflow is not successful" if complete else "incomplete or inconsistent listing"
+    with pytest.raises(ValueError, match=message) as refused:
+        collect(SHA, "push", with_checks=True)
+    query = refused.value.evidence["queries"][-1]
+    assert query["pages"] == [{"total_count": 4, "returned_count": len(returned)}]
+    assert not any("/jobs?" in command[2] for command in commands)
+
+
+@pytest.mark.parametrize("plant", ["healthy", "missing_count", "boolean_count", "negative_count",
+                                  "inconsistent_totals", "duplicate", "bad_id", "missing_page"])
+def test_paginated_response_must_be_complete_before_selection(monkeypatch, plant):
+    from tools.main_receipts import github
+
+    rows = native_receipts()["runs"]
+    pages = [{"total_count": 3, "workflow_runs": rows[:2]}, {"total_count": 3, "workflow_runs": rows[2:]}]
+    if plant == "missing_count":
+        del pages[0]["total_count"]
+    elif plant == "boolean_count":
+        pages[0]["total_count"] = True
+    elif plant == "negative_count":
+        pages[0]["total_count"] = -1
+    elif plant == "inconsistent_totals":
+        pages[1]["total_count"] = 4
+    elif plant == "duplicate":
+        pages[1]["workflow_runs"] = rows[:1]
+    elif plant == "bad_id":
+        pages[1]["workflow_runs"] = [{**rows[2], "id": True}]
+    elif plant == "missing_page":
+        pages = []
+    monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: json.dumps(pages))
+    evidence = []
+    if plant == "healthy":
+        assert github("actions/runs?head_sha=" + SHA, "workflow_runs", evidence) == rows
+        assert evidence[0]["outcome"] == "decoded"
+    else:
+        with pytest.raises(ValueError, match="incomplete or inconsistent listing"):
+            github("actions/runs?head_sha=" + SHA, "workflow_runs", evidence)
+        assert evidence[0]["outcome"] == "incomplete_listing"
