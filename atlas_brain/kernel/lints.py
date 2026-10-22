@@ -29,6 +29,7 @@ def nested_unbounded(pattern: str) -> bool:
             continue
         if in_class or char == '[':
             in_class = char != ']'
+            last_group = False
             continue
         if char == '(':
             stack.append(False)
