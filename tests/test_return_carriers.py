@@ -241,6 +241,34 @@ def test_ordinary_record_construction_keeps_its_fields():
 
 
 @pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
+@pytest.mark.parametrize("construction, receiver", [("Box(CAP)", "factory().capability"),
+                                                    ("Box(capability=CAP)", "factory().capability"),
+                                                    ("Box({'cap': CAP})", "factory().capability['cap']")])
+def test_actual_cli_scoped_constructor_argument_cannot_escape_public_field(tmp_path, capability, construction, receiver):
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text("from zipfile import ZipFile\nfrom pathlib import Path\n"
+                     + "class Box:\n def __init__(self, capability): self.capability = capability\n"
+                     + "class Record:\n def __init__(self, path): self.name = 'record'\n"
+                     + "def record(): return Record(Path('x'))\ndef factory(): return "
+                     + construction.replace("CAP", capability) + "\ndef public_data(): return 1\n", encoding="utf-8")
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import factory, public_data, record\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    probe, tool = tmp_path / "atlas_brain/probe.py", str(Path("tools/fence.py").resolve())
+    args = "source" if capability == "ZipFile" else "archive, entry"
+    for module in (".evidence.archives", ".bridge"):
+        prefix = f"from {module} import factory, public_data, record\n"
+        probe.write_text(prefix + "factory()\npublic_data().bit_length()\nrecord().name.upper()\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+        probe.write_text(prefix + receiver + f"({args})\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
+
+
+@pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
 @pytest.mark.parametrize("classes", [
     "class Carrier:\n def __new__(cls, value): return value\n",
     "class Meta(type):\n def __call__(cls, value): return value\nclass Carrier(metaclass=Meta): pass\n",
@@ -275,13 +303,15 @@ def test_possible_primitive_predicate_aliases_remain_primitive():
 @pytest.mark.parametrize("kind", ["outside", "noncontract"])
 @pytest.mark.parametrize("carrier, receiver", [("map(lambda item: item, (ZipFile,))", "next(factory())"),
                                               ("filter(None, (ZipFile,))", "next(factory())"),
-                                              ("Carrier(ZipFile)", "factory()")])
+                                              ("Carrier(ZipFile)", "factory()"),
+                                              ("Box(ZipFile)", "factory().capability")])
 def test_unproved_carrier_output_negative_creates_no_payload(tmp_path: Path, kind, carrier, receiver):
     package = tmp_path / "atlas_brain"
     (package / "evidence").mkdir(parents=True)
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "evidence/archives.py").write_text(
         "from zipfile import ZipFile\nclass Carrier:\n def __new__(cls, value): return value\n"
+        + "class Box:\n def __init__(self, capability): self.capability = capability\n"
         + "def factory(): return " + carrier + "\n", encoding="utf-8")
     probe = package / "zz_consumer.py"
     prefix = "from .evidence.archives import factory\n"
