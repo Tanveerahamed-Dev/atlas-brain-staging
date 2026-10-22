@@ -1,5 +1,8 @@
 """Nested alias reuse must not erase an outer prohibited API from any guard."""
 import ast
+import inspect
+from dataclasses import dataclass, fields
+from typing import Annotated, ClassVar
 
 import pytest
 
@@ -14,7 +17,7 @@ from atlas_brain.kernel.lints import (
 from atlas_brain.kernel.token_lints import bound_names
 
 
-def scan_nodes(source: str, path: str) -> tuple[tuple[int, int], ...]:
+def _scan_nodes(source: str, path: str) -> tuple[tuple[int, int], ...]:
     tree = ast.parse(source)
     aliases, rebound = binding_environment(tree)
     origins = import_origins(tree)
@@ -27,6 +30,11 @@ def scan_nodes(source: str, path: str) -> tuple[tuple[int, int], ...]:
     findings.update((11, node.lineno if isinstance(node, (ast.stmt, ast.expr, ast.ExceptHandler)) else 1)
                     for node in unordered_iterations(tree, aliases))
     return tuple(sorted(findings))
+
+
+def scan_nodes(source: str, path: str) -> tuple[tuple[int, int], ...]:
+    from atlas_brain.kernel.lints import lint
+    return lint(source, path)
 
 
 @pytest.mark.parametrize('origin,operation,rule', [
@@ -67,3 +75,35 @@ def test_genuine_classvar_imports_preserve_the_field_exemption(tail):
     source = ('from dataclasses import dataclass\nfrom typing import ClassVar as CV\n'
               '@dataclass\nclass Record:\n value: CV[int] = 1' + tail)
     assert 2 not in {number for number, _ in scan_nodes(source, 'atlas_brain/model/record.py')}
+
+
+@dataclass(frozen=True)
+class MetadataMarkerRecord:
+    value: Annotated[int, ClassVar] = 1
+
+
+@dataclass(frozen=True)
+class MetadataGenericRecord:
+    value: Annotated[int, ClassVar[int]] = 1
+
+
+@dataclass(frozen=True)
+class CanonicalClassRecord:
+    value: ClassVar[int] = 1
+
+
+def record_source(record) -> str:
+    return ('from dataclasses import dataclass\nfrom typing import Annotated, ClassVar\n'
+            + inspect.getsource(record))
+
+
+@pytest.mark.parametrize('record', [MetadataMarkerRecord, MetadataGenericRecord])
+def test_classvar_metadata_is_not_a_class_field_exemption(record):
+    assert len(fields(record)) == 1
+    assert fields(record)[0].default == 1
+    assert 2 in {rule for rule, _ in scan_nodes(record_source(record), 'atlas_brain/model/record.py')}
+
+
+def test_canonical_root_classvar_remains_a_class_field():
+    assert fields(CanonicalClassRecord) == ()
+    assert 2 not in {rule for rule, _ in scan_nodes(record_source(CanonicalClassRecord), 'atlas_brain/model/record.py')}
