@@ -177,8 +177,8 @@ def test_reflection_or_shadowed_constructor_is_still_unproved(body):
 
 @pytest.mark.parametrize('before,after', [
     ('    aliases, rebound = binding_environment(tree)\n',
-     '    aliases, rebound = binding_environment(tree)\n'
-     '    bindings = (("forged", "typing.assert_never"),)\n    aliases = dict(bindings)\n'),
+     ('    aliases, rebound = binding_environment(tree)\n'
+      '    bindings = (("forged", "typing.assert_never"),)\n    aliases = dict(bindings)\n')),
     ('    aliases, rebound = binding_environment(tree)\n',
      '    aliases, rebound = binding_environment(ast.parse("from typing import assert_never as forged"))\n'),
     ('    tree = ast.parse(source)\n',
