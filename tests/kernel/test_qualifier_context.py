@@ -41,9 +41,9 @@ def test_current_qualifier_pair_has_a_finite_metadata_witness(path, name):
     ('atlas_brain/kernel/token_lints.py', '_qualified'),
 ])
 @pytest.mark.parametrize('consumer', [
-    'from MODULE import HELPER\nfrom atlas_brain.kernel.states import Known\n'
+    ('from MODULE import HELPER\nfrom atlas_brain.kernel.states import Known\n'
     'def consume(node, aliases, basis, evidence, raw):\n'
-    ' return Known(value=HELPER(node, aliases), basis=basis, evidence=evidence, raw=raw)\n',
+    ' return Known(value=HELPER(node, aliases), basis=basis, evidence=evidence, raw=raw)\n'),
     'from MODULE import HELPER as forwarded\n',
     'import MODULE as helpers\ndef consume(node, aliases):\n return helpers.HELPER(node, aliases)\n',
     'from MODULE import *\n',
