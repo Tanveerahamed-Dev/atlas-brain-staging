@@ -10,10 +10,18 @@ CARRIERS = frozenset({"iter", "next", "aiter", "anext", "list", "tuple", "set", 
 
 def ordinary_class(node):
     """Only a plain class with default allocation proves an ordinary instance."""
-    return (isinstance(node, ast.ClassDef) and not (node.bases or node.keywords or node.decorator_list)
-            and not any(isinstance(part, (ast.FunctionDef, ast.AsyncFunctionDef)) and part.name == "__new__"
-                        or isinstance(part, ast.Name) and part.id == "__new__"
-                        or isinstance(part, ast.Attribute) and part.attr == "__new__" for part in ast.walk(node)))
+    if not isinstance(node, ast.ClassDef) or node.bases or node.keywords or node.decorator_list:
+        return False
+    # Unknown namespace statements (patterns, imports, control flow) can bind an allocator.
+    for statement in node.body:
+        if isinstance(statement, (ast.Pass, ast.Assign, ast.AnnAssign, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str):
+            continue
+        return False
+    return not any(isinstance(part, (ast.FunctionDef, ast.AsyncFunctionDef)) and part.name == "__new__"
+                   or isinstance(part, ast.Name) and part.id == "__new__"
+                   or isinstance(part, ast.Attribute) and part.attr == "__new__" for part in ast.walk(node))
 
 
 def declared_classes(tree, module):
