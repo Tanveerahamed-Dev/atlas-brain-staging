@@ -496,7 +496,8 @@ def recorded_api(monkeypatch, data, rows, failure=None):
                 raise subprocess.CalledProcessError(1, command, output="unlogged-response")
             if failure == "json":
                 return "invalid-json"
-            page = {"workflow_runs": rows, "total_count": len(data["runs"]), "private_payload": "unlogged-response"}
+            count = len(data["runs"]) if failure == "partial" else len(rows)
+            page = {"workflow_runs": rows, "total_count": count, "private_payload": "unlogged-response"}
             return json.dumps([page])
         if endpoint.startswith("git/blobs/"):
             return json.dumps(next(iter(data["sources"].values())))
@@ -555,5 +556,22 @@ def test_missing_partial_and_error_responses_remain_fail_closed_with_evidence(mo
     assert not any("/jobs?" in command[2] for command in commands)
     assert "unlogged-response" not in json.dumps(trace)
     if kind not in {"http", "json"}:
-        assert query["pages"] == [{"total_count": 3, "returned_count": len(rows)}]
+        count = 3 if kind == "partial" else len(rows)
+        assert query["pages"] == [{"total_count": count, "returned_count": len(rows)}]
         assert trace["selection"]
+
+
+def test_real_cli_failure_prints_its_original_response_evidence(monkeypatch, capsys):
+    from tools import main_receipts
+
+    data = native_receipts()
+    recorded_api(monkeypatch, data, [])
+    monkeypatch.setattr(sys, "argv", ["main_receipts", "--sha", SHA])
+    assert main_receipts.main() == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["verified"] is False and "missing exact-SHA push receipt" in result["reason"]
+    trace = result["retrieval_evidence"]
+    assert trace["sha"] == SHA and trace["event"] == "push"
+    assert trace["queries"][-1]["pages"] == [{"total_count": 0, "returned_count": 0}]
+    assert all(row["exact_count"] == 0 for row in trace["selection"])
+    assert "unlogged-response" not in json.dumps(result)
