@@ -263,6 +263,9 @@ def github(endpoint, key=None, evidence=None):
         observation["outcome"] = "invalid_json"
         raise
     observation["outcome"] = "decoded"
+    if not key and not isinstance(pages, dict):
+        observation["outcome"] = "invalid_shape"
+        raise ValueError("invalid unpaged response object: " + endpoint)
     if key:
         refusal = "incomplete or inconsistent listing: " + endpoint
         if (not isinstance(pages, list) or not pages
