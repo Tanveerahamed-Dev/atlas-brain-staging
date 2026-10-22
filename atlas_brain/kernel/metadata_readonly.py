@@ -51,11 +51,12 @@ def public_result(node: ast.Return) -> bool:
             and isinstance(ordered.args[0], ast.Name) and ordered.args[0].id == 'findings')
 
 
-def readonly_functions(functions: dict[str, ast.FunctionDef],
-                       imports: dict[str, dict[str, str]], public_root: str) -> bool:
-    """Check specified reads and local ownership, without interpreting Python."""
+def readonly_failure(functions: dict[str, ast.FunctionDef],
+                       imports: dict[str, dict[str, str]], public_root: str) -> str:
+    """Return a scalar refusal reason, or an empty string for this finite grammar."""
+    detail = ""
     if public_root not in functions or set(imports) != set(functions):
-        return False
+        return f"R1:{detail}"
     bindings: dict[tuple[str, str], tuple[ast.AST, ...]] = {}
     candidates: dict[tuple[str, str], ast.Name] = {}
     scopes: dict[str, tuple[ast.AST, ...]] = {}
@@ -69,8 +70,9 @@ def readonly_functions(functions: dict[str, ast.FunctionDef],
         bindings[key] = (*bindings[key], node)
 
     for key, function in functions.items():
+        detail = key
         if function.type_params or function.decorator_list:
-            return False
+            return f"R3:{detail}"
         nodes = local_nodes(function)
         scopes[key] = nodes
         args = function.args.posonlyargs + function.args.args + function.args.kwonlyargs
@@ -88,7 +90,7 @@ def readonly_functions(functions: dict[str, ast.FunctionDef],
             if isinstance(node, (ast.Global, ast.Nonlocal, ast.Yield, ast.YieldFrom,
                                  ast.With, ast.AsyncWith, ast.Match, ast.ClassDef,
                                  ast.Lambda, ast.AsyncFunctionDef, ast.Import, ast.ImportFrom)):
-                return False
+                return f"R4:{detail}"
             if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
                 bind(key, node.id, node)
             if isinstance(node, ast.FunctionDef):
@@ -105,7 +107,7 @@ def readonly_functions(functions: dict[str, ast.FunctionDef],
                     node.func.id == 'isinstance' or node.func.id in imports[key] and imports[key][node.func.id] == 'typing.cast'):
                 type_nodes.update(ast.walk(node.args[1 if node.func.id == 'isinstance' else 0]))
     if any(name in BUILTINS or name in imports[key] for key, name in bindings):
-        return False
+        return f"R2:{detail}"
     owned = {key for key, target in candidates.items() if bindings[key] == (target,)}
 
     def lexical(scope: str, name: str) -> str:
@@ -125,48 +127,55 @@ def readonly_functions(functions: dict[str, ast.FunctionDef],
         return scope + '.' + name in functions
 
     for key, nodes in scopes.items():
+        detail = key
         parents = {child: parent for parent in nodes for child in ast.iter_child_nodes(parent)}
         local = imports[key]
         for node in nodes:
             if isinstance(node, ast.Attribute) and (node.attr.startswith('__') or node.attr in MUTATORS):
                 if node.attr.startswith('__') or node not in parents:
-                    return False
+                    return f"R7:{detail}"
                 parent = parents[node]
                 if not (isinstance(parent, ast.Call) and parent.func is node):
-                    return False
+                    return f"R8:{detail}"
             if isinstance(node, ast.Return) and key == public_root and not public_result(node):
-                return False
+                return f"R5:{detail}"
             if (isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load)
                     and not (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
                         and (lexical(key, node.value.id), node.value.id) in owned)):
-                return False
+                return f"R6:{detail}"
             if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in local:
                 target = local[node.value.id] + '.' + node.attr
                 if node not in type_nodes and target != 're.ASCII':
                     if node not in parents:
-                        return False
+                        return f"R10:{detail}"
                     parent = parents[node]
                     if not (isinstance(parent, ast.Call) and parent.func is node and target in PURE_CALLS):
-                        return False
+                        return f"R11:{detail}"
             if not isinstance(node, ast.Call):
                 continue
             if isinstance(node.func, ast.Name):
                 name = node.func.id
                 if name in local:
                     if local[name] not in PURE_CALLS and local[name] not in functions:
-                        return False
+                        return f"R12:{detail}"
                 elif name not in BUILTINS and not known_function(key, name):
-                    return False
+                    return f"R13:{detail}"
             elif isinstance(node.func, ast.Attribute):
                 receiver, method = node.func.value, node.func.attr
                 if isinstance(receiver, ast.Name) and receiver.id in local:
                     if local[receiver.id] + '.' + method not in PURE_CALLS:
-                        return False
+                        return f"R14:{detail}"
                 elif method in MUTATORS:
                     if not (isinstance(receiver, ast.Name) and (lexical(key, receiver.id), receiver.id) in owned):
-                        return False
+                        return f"R15:{detail}"
                 elif method not in READ_METHODS:
-                    return False
+                    return f"R16:{detail}"
             else:
-                return False
-    return True
+                return f"R9:{detail}"
+    return ''
+
+
+def readonly_functions(functions: dict[str, ast.FunctionDef],
+                       imports: dict[str, dict[str, str]], public_root: str) -> bool:
+    """Keep the public boolean contract separate from scalar diagnostics."""
+    return not readonly_failure(functions, imports, public_root)
