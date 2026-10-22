@@ -304,7 +304,9 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
             or path not in sources or sources[path] != source):
         return ()
     try:
-        trees = {p: ast.parse(text) for p, text in sources.items()}
+        trees: dict[str, ast.Module] = {}
+        for p, text in sources.items():
+            trees[p] = ast.parse(text)
     except SyntaxError:
         return ()
     modules = {p: p[:-3].replace('/', '.').removesuffix('.__init__') for p in sources}
