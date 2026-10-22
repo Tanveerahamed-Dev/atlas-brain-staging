@@ -3,7 +3,7 @@ import ast
 
 import pytest
 
-from tools.call_bindings import CallableBindings, declared_classes
+from tools.call_bindings import CallableBindings, declared_classes, ignored_argument_classes
 
 
 def expression(text):
@@ -39,6 +39,21 @@ def test_constructor_exception_requires_ordinary_instance_semantics(source, prov
     classes = declared_classes(tree, "atlas_brain.example")
     assert ("atlas_brain.example.Record" in classes) is proven
     assert bindings.constructor_call(expression("Record(value)"), "", classes) is proven
+
+
+@pytest.mark.parametrize("source, ignored", [
+    ("class Record:\n def __init__(self, path): self.name = 'record'", True),
+    ("class Record:\n def __init__(self, path): self.path = path", False),
+    ("class Record:\n def __init__(self, path): self.name = transform(path)", False),
+    ("class Record:\n @decorate\n def __init__(self, path): self.name = 'record'", False),
+    ("class Record:\n def __init__(self, path): self.name = 'record'\n __init__ = unknown", False),
+    ("class Record:\n def __init__(self, path): self.name = 'record'\n def __getattr__(self, name): return unknown", False),
+    ("class Record:\n path = unknown", False),
+    ("class Record:\n def __init__(self, path): self.name = 'record'\nRecord.__init__ = unknown", False),
+    ("class Record:\n def __init__(self, path): self.name = 'record'\nclass Record:\n def __init__(self, path): self.path = path", False)])
+def test_global_argument_omission_requires_closed_nonobserving_initializer(source, ignored):
+    classes = ignored_argument_classes({"atlas_brain.records": ast.parse(source)})
+    assert ("atlas_brain.records.Record" in classes) is ignored
 
 
 def test_conditional_rebinding_joins_carrier_and_unknown_origins():

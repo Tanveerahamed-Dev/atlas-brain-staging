@@ -96,6 +96,12 @@ def test_actual_cli_record_field_keeps_path_provenance(tmp_path, construction, r
         assert refused.returncode == 1 and "atlas_brain/probe.py" in refused.stdout
 
 
+def test_known_class_field_path_is_not_lost_without_constructor_arguments():
+    sources = {"atlas_brain/records.py": "from pathlib import Path\nclass Record:\n path = Path('synthetic')\ndef factory(): return Record()"}
+    assert source_allowed("from .records import factory\nfactory()", sources)
+    assert not source_allowed("from .records import factory\nfactory().path.write_text('x')", sources)
+
+
 @pytest.mark.parametrize("kind", ["outside", "noncontract"])
 def test_record_path_output_refusal_creates_no_payload(tmp_path, kind):
     package = tmp_path / "atlas_brain"
