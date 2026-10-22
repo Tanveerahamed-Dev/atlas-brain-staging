@@ -43,5 +43,14 @@ def test_symbol_subscription_refuses_missing_key_without_a_default():
 ])
 def test_total_resolution_keeps_existing_name_and_import_semantics(expression, aliases, expected):
     node = ast.parse(expression, mode='eval').body
+    before = dict(aliases)
     assert lints.resolved_name(node, aliases) == expected
-    assert aliases == dict(aliases)
+    assert aliases == before
+
+
+def test_origin_subscription_refuses_missing_key_without_an_identity_origin():
+    lookup = getattr(lints, 'origin_value', None)
+    assert lookup is not None
+    assert lookup('entry', {'entry': ('module.entry', 'other.entry')}) == ('module.entry', 'other.entry')
+    with pytest.raises(KeyError):
+        lookup('missing', {'entry': ('module.entry',)})
