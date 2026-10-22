@@ -49,6 +49,8 @@ def test_current_qualifier_pair_has_a_finite_metadata_witness(path, name):
     'from MODULE import *\n',
     'import atlas_brain\ndef consume():\n return atlas_brain.kernel\n',
     'import importlib as loader\nhelper = loader.import_module("MODULE")\n',
+    ('import ast\nfrom MODULE import HELPER\ndef qualifier_witnesses(node, aliases):\n'
+     ' return {"healthy": HELPER(node, aliases)}\n'),
 ])
 def test_identical_qualifier_is_refused_with_new_or_unresolved_product_consumer(path, name, consumer):
     sources, inventory = source_context()
