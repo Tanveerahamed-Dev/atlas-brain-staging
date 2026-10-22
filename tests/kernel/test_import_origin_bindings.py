@@ -8,7 +8,7 @@ from atlas_brain.kernel.lints import binding_environment
 from atlas_brain.kernel.token_lints import binding_proof, fallback_nodes
 
 
-def _unknown_function(raw: str) -> str:
+def _unknown_function(raw: str, fallback: str = 'up') -> str:
     from builtins import str as U
 
     def local():
@@ -17,11 +17,11 @@ def _unknown_function(raw: str) -> str:
 
     states = {'known': 'up'}
     if raw not in states:
-        return U('up')
+        return U(fallback)
     return states[raw]
 
 
-def _unknown_class(raw: str) -> str:
+def _unknown_class(raw: str, fallback: str = 'up') -> str:
     from builtins import str as U
 
     class Local:
@@ -30,7 +30,7 @@ def _unknown_class(raw: str) -> str:
 
     states = {'known': 'up'}
     if raw not in states:
-        return U('up')
+        return U(fallback)
     return states[raw]
 
 
