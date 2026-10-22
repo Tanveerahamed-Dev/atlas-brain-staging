@@ -486,7 +486,8 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
                 owner = parents[owner]
             if not isinstance(owner, ast.FunctionDef):
                 return refuse(35)
-            edges[owner_key].add(target)
+            owner_edges = edges[owner_key]
+            owner_edges.add(target)
     reached = set(roots)
     pending = list(roots)
     while pending:
