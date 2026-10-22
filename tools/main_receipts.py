@@ -264,10 +264,23 @@ def github(endpoint, key=None, evidence=None):
         raise
     observation["outcome"] = "decoded"
     if key:
+        def incomplete():
+            observation["outcome"] = "incomplete_listing"
+            raise ValueError("incomplete or inconsistent listing: " + endpoint)
+        if (not isinstance(payload, list) or not payload
+                or any(not isinstance(page, dict) or not isinstance(page.get(key), list) for page in payload)):
+            incomplete()
         observation["pages"] = [{"total_count": page.get("total_count") if type(page.get("total_count")) is int else None,
                                  "returned_count": len(page[key])}
                                 for page in payload]
-        return [row for page in payload for row in page[key]]
+        totals = [page["total_count"] for page in observation["pages"]]
+        rows = [row for page in payload for row in page[key]]
+        identities = [row.get("id") if isinstance(row, dict) else None for row in rows]
+        if (any(type(total) is not int or total < 0 for total in totals) or len(set(totals)) != 1
+                or len(rows) != totals[0] or any(type(identity) is not int or identity < 1 for identity in identities)
+                or len(set(identities)) != len(identities)):
+            incomplete()
+        return rows
     return payload
 
 
