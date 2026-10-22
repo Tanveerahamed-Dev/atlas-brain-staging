@@ -476,3 +476,84 @@ def test_governance_runs_native_base_gate_without_replacing_existing_commands():
     assert "EVENT: ${{ github.event_name }}" in text
     assert "uv run --no-sync pytest -q tests/test_governance.py tests/test_main_receipts.py" in text
     assert 'uv run --no-sync python -m tools.governance --base "$BASE" --head HEAD' in text
+
+
+def recorded_api(monkeypatch, data, rows, failure=None):
+    """Unauthenticated response plants, not evidence of published CI history."""
+    from tools import main_receipts
+
+    commands = []
+
+    def read(command, encoding):
+        commands.append(command)
+        endpoint = command[2].removeprefix(f"repos/{main_receipts.REPO}/")
+        if endpoint.startswith("git/trees/"):
+            return json.dumps(data["tree"])
+        if endpoint.startswith("actions/workflows?"):
+            return json.dumps([{"workflows": data["catalog"], "total_count": len(data["catalog"])}])
+        if endpoint.startswith("actions/runs?"):
+            if failure == "http":
+                raise subprocess.CalledProcessError(1, command, output="unlogged-response")
+            if failure == "json":
+                return "invalid-json"
+            page = {"workflow_runs": rows, "total_count": len(data["runs"]), "private_payload": "unlogged-response"}
+            return json.dumps([page])
+        if endpoint.startswith("git/blobs/"):
+            return json.dumps(next(iter(data["sources"].values())))
+        if endpoint.startswith("actions/runs/"):
+            return json.dumps([{"jobs": data["jobs"][endpoint.split("/")[2]]}])
+        if endpoint.startswith("commits/"):
+            return json.dumps([{"check_runs": data["checks"]}])
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(main_receipts.subprocess, "check_output", read)
+    return commands
+
+
+def test_native_positive_uses_and_reports_the_same_collected_rows(monkeypatch):
+    from tools.main_receipts import collect, verify_native
+
+    data = native_receipts()
+    commands = recorded_api(monkeypatch, data, data["runs"])
+    observed = collect(SHA, "push", with_checks=True)
+    assert verify_native(observed, SHA)["verified"] is True
+    trace = observed["retrieval_evidence"]
+    query = next(row for row in trace["queries"] if row["key"] == "workflow_runs")
+    assert query["pages"] == [{"total_count": 3, "returned_count": 3}]
+    assert query["outcome"] == "decoded" and query["exit_code"] == 0
+    assert all(row["exact_count"] == 1 for row in trace["selection"])
+    assert sum("actions/runs?" in command[2] for command in commands) == 1
+    assert all(command[:2] == ["gh", "api"] for command in commands)
+    assert "unlogged-response" not in json.dumps(trace)
+
+
+@pytest.mark.parametrize("kind", ["empty", "partial", "manual", "wrong_sha", "wrong_workflow", "latest", "http", "json"])
+def test_missing_partial_and_error_responses_remain_fail_closed_with_evidence(monkeypatch, kind):
+    from tools.main_receipts import collect
+
+    data = native_receipts()
+    rows = deepcopy(data["runs"])
+    if kind == "empty":
+        rows = []
+    elif kind == "partial":
+        rows.pop()
+    elif kind == "manual":
+        rows[0]["event"] = "workflow_dispatch"
+    elif kind == "wrong_sha":
+        rows[0]["head_sha"] = "b" * 40
+    elif kind == "wrong_workflow":
+        rows[0]["workflow_id"] = 900
+    elif kind == "latest":
+        rows.append({**rows[0], "id": 900, "run_attempt": 2, "conclusion": "failure"})
+    commands = recorded_api(monkeypatch, data, rows, kind)
+    with pytest.raises(ValueError) as refused:
+        collect(SHA, "push", with_checks=True)
+    trace = refused.value.evidence
+    query = next(row for row in trace["queries"] if row["key"] == "workflow_runs")
+    assert query["outcome"] == {"http": "process_error", "json": "invalid_json"}.get(kind, "decoded")
+    assert sum("actions/runs?" in command[2] for command in commands) == 1
+    assert not any("/jobs?" in command[2] for command in commands)
+    assert "unlogged-response" not in json.dumps(trace)
+    if kind not in {"http", "json"}:
+        assert query["pages"] == [{"total_count": 3, "returned_count": len(rows)}]
+        assert trace["selection"]
