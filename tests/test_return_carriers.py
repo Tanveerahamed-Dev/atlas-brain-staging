@@ -316,6 +316,16 @@ def test_nested_public_record_data_remains_distinct_from_scoped_capabilities():
     assert source_allowed("from .records import factory\nfactory('record').name.upper()", sources)
 
 
+def test_admitted_function_result_fields_are_data_not_api_suffixes():
+    source = "import ast\nvalues = ast.walk(tree)\nfor node in values:\n fields = node.body\n"
+    assert source_allowed(source, path="atlas_brain/kernel/token_lints.py")
+
+
+def test_primitive_assignment_result_keeps_ordinary_data_methods():
+    sources = {USING: "from zipfile import ZipFile\ndef factory(value):\n result = isinstance(value, ZipFile)\n return result"}
+    assert source_allowed("from .evidence.archives import factory\nfactory(value).bit_length()", sources)
+
+
 @pytest.mark.parametrize("kind", ["outside", "noncontract"])
 @pytest.mark.parametrize("carrier, receiver", [("map(lambda item: item, (ZipFile,))", "next(factory())"),
                                               ("filter(None, (ZipFile,))", "next(factory())"),
