@@ -9,7 +9,7 @@ import ast
 BUILTINS = ('isinstance', 'dict', 'tuple', 'any', 'all', 'sorted', 'str', 'type',
             'set', 'list', 'len', 'next', 'iter', 'enumerate', 'bool', 'frozenset',
             'int', 'reversed', 'zip')
-READ_METHODS = ('items', 'keys', 'values', 'split', 'rsplit', 'startswith',
+READ_METHODS = ('items', 'keys', 'values', 'split', 'rsplit', 'splitlines', 'join', 'startswith',
                 'endswith', 'replace', 'removesuffix', 'encode', 'hexdigest')
 MUTATORS = ('append', 'extend', 'add', 'update', 'pop', 'clear', 'remove', 'setdefault',
             'insert', 'discard', 'sort', 'reverse', 'difference_update',
