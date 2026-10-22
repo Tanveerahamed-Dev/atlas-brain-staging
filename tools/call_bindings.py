@@ -14,7 +14,12 @@ def ordinary_class(node):
         return False
     # Unknown namespace statements (patterns, imports, control flow) can bind an allocator.
     for statement in node.body:
-        if isinstance(statement, (ast.Pass, ast.Assign, ast.AnnAssign, ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+            if all(isinstance(target, ast.Name) for target in targets):
+                continue
+            return False
+        if isinstance(statement, (ast.Pass, ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str):
             continue
