@@ -7,6 +7,7 @@ from atlas_brain.kernel.lints import lint
 @pytest.mark.parametrize('origin,operation,rule', [
     ('typing.Optional', 'class Record:\n value: target[int]', 1),
     ('dataclasses.dataclass', '@target\nclass Record:\n value: int = 1', 2),
+    ('collections.defaultdict', 'values = target(lambda: "up")', 3),
     ('atlas_brain.kernel.verdict.CheckResult', 'result = target()', 4),
     ('builtins.BaseException', 'try:\n pass\nexcept target:\n pass', 5),
     ('builtins.float', 'value = target("1")', 7),
