@@ -10,6 +10,14 @@ from pathlib import Path
 REPO = "Tanveerahamed-Dev/atlas-brain-staging"
 
 
+class ReceiptReadError(ValueError):
+    """A refusal with metadata from the same collection, never a replacement receipt."""
+
+    def __init__(self, reason, evidence):
+        super().__init__(reason)
+        self.evidence = evidence
+
+
 def workflow_paths(tree):
     if tree.get("truncated") is not False:
         raise ValueError("truncated source registry")
@@ -235,26 +243,62 @@ def verify_native(data, sha):
     return {**result, "check_ids": check_ids}
 
 
-def github(endpoint, key=None):
+def github(endpoint, key=None, evidence=None):
+    observation = {"endpoint": endpoint, "key": key, "outcome": "started",
+                   "exit_code": None, "http_status": "not captured by this transport"}
+    if evidence is not None:
+        evidence.append(observation)
     command = ["gh", "api", f"repos/{REPO}/{endpoint}"]
     if key:
-        pages = json.loads(subprocess.check_output([*command, "--paginate", "--slurp"], encoding="utf-8"))
-        return [row for page in pages for row in page[key]]
-    return json.loads(subprocess.check_output(command, encoding="utf-8"))
+        command.extend(["--paginate", "--slurp"])
+    try:
+        raw = subprocess.check_output(command, encoding="utf-8")
+    except subprocess.CalledProcessError as error:
+        observation.update(outcome="process_error", exit_code=error.returncode)
+        raise
+    observation["exit_code"] = 0
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        observation["outcome"] = "invalid_json"
+        raise
+    observation["outcome"] = "decoded"
+    if key:
+        observation["pages"] = [{"total_count": page.get("total_count") if type(page.get("total_count")) is int else None,
+                                 "returned_count": len(page[key])}
+                                for page in payload]
+        return [row for page in payload for row in page[key]]
+    return payload
 
 
 def collect(sha, event, with_checks=False):
-    data = {"tree": github(f"git/trees/{sha}?recursive=1"),
-            "catalog": github("actions/workflows?per_page=100", "workflows"),
-            "runs": github(f"actions/runs?head_sha={sha}&per_page=100", "workflow_runs")}
-    selected = select_runs(data, sha, event)
-    entries = {r["path"]: r for r in data["tree"]["tree"]}
-    data["sources"] = {p: github(f"git/blobs/{entries[p]['sha']}") for p in selected}
-    data["jobs"] = {str(r["id"]): github(f"actions/runs/{r['id']}/jobs?filter=latest&per_page=100", "jobs")
-                    for r in selected.values()}
-    if with_checks:
-        data["checks"] = github(f"commits/{sha}/check-runs?per_page=100", "check_runs")
-    return data
+    evidence = {"sha": sha, "event": event, "queries": [], "selection": []}
+    def read(endpoint, key=None):
+        return github(endpoint, key, evidence["queries"])
+    try:
+        data = {"tree": read(f"git/trees/{sha}?recursive=1"),
+                "catalog": read("actions/workflows?per_page=100", "workflows"),
+                "runs": read(f"actions/runs?head_sha={sha}&per_page=100", "workflow_runs")}
+        for path in sorted(workflow_paths(data["tree"])):
+            identities = [r["id"] for r in data["catalog"] if r["path"] == path]
+            workflow = [r for r in data["runs"] if r["workflow_id"] in identities]
+            subject = [r for r in workflow if r["head_sha"] == sha]
+            exact = [r for r in subject if r["event"] == event]
+            evidence["selection"].append({"path": path,
+                                          "catalog_ids": [value if type(value) is int else None for value in identities],
+                                          "workflow_count": len(workflow), "sha_count": len(subject),
+                                          "exact_count": len(exact)})
+        selected = select_runs(data, sha, event)
+        entries = {r["path"]: r for r in data["tree"]["tree"]}
+        data["sources"] = {p: read(f"git/blobs/{entries[p]['sha']}") for p in selected}
+        data["jobs"] = {str(r["id"]): read(f"actions/runs/{r['id']}/jobs?filter=latest&per_page=100", "jobs")
+                        for r in selected.values()}
+        if with_checks:
+            data["checks"] = read(f"commits/{sha}/check-runs?per_page=100", "check_runs")
+        data["retrieval_evidence"] = evidence
+        return data
+    except (KeyError, TypeError, ValueError, IndexError, OSError, subprocess.CalledProcessError) as error:
+        raise ReceiptReadError(str(error), evidence) from error
 
 
 def main():
@@ -272,10 +316,13 @@ def main():
             data = collect(args.sha, args.event)
         result = verify(data, args.sha, args.event)
         result["source"] = "supplied snapshot (not authenticated)" if args.snapshot else "GitHub REST"
+        if not args.snapshot:
+            result["retrieval_evidence"] = data["retrieval_evidence"]
         print(json.dumps(result, sort_keys=True))
         return 0
     except (KeyError, TypeError, ValueError, IndexError, OSError, subprocess.CalledProcessError) as error:
-        print(json.dumps({"verified": False, "sha": args.sha, "event": args.event, "reason": str(error)}))
+        evidence = {"retrieval_evidence": error.evidence} if isinstance(error, ReceiptReadError) else {}
+        print(json.dumps({"verified": False, "sha": args.sha, "event": args.event, "reason": str(error), **evidence}))
         return 1
 
 
