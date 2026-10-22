@@ -265,7 +265,7 @@ def test_live_published_positive_and_missing_push_history(sha, expected):
     assert record["sha"] == sha and record["event"] == "push"
     assert record["verified"] is (expected == 0)
     if expected:
-        assert "missing exact-SHA push receipt" in record["reason"]
+        assert "missing exact-SHA push receipt" in record["reason"], result.stdout
 
 
 def test_every_registered_workflow_has_one_explicit_manual_recovery_trigger():
@@ -463,7 +463,7 @@ def test_enforced_base_real_cli_published_positive_and_missing_native(sha, expec
     record = json.loads(result.stdout)
     assert record["base_sha"] == sha and record["verified"] is (expected == 0)
     if expected:
-        assert "missing exact-SHA push receipt" in record["reason"]
+        assert "missing exact-SHA push receipt" in record["reason"], result.stdout
     else:
         assert record["job_count"] == len(record["check_ids"]) == 16
         assert record["workflow_count"] == 7 and record["event"] == "push"
