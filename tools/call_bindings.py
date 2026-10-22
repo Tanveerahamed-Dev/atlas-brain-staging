@@ -21,9 +21,8 @@ def declared_classes(tree, module):
     def walk(node, scope=""):
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             key = scope + node.name
-            if isinstance(node, ast.ClassDef):
-                origin = module + "." + key
-                result[origin] = result.get(origin, True) and ordinary_class(node)
+            origin = module + "." + key
+            result[origin] = result.get(origin, True) and ordinary_class(node)
             scope = key + "."
         for child in ast.iter_child_nodes(node):
             walk(child, scope)
