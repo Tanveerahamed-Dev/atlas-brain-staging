@@ -113,22 +113,45 @@ def bound_names(node: ast.AST) -> frozenset[str]:
         part.rest for part in ast.walk(node) if isinstance(part, ast.MatchMapping) and part.rest)
 
 
+def symbol_environment(tree: ast.AST, aliases: dict[str, str]) -> dict[str, str]:
+    """Define the complete syntax-name domain before overlaying import origins."""
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    names.update(value for node in ast.walk(tree) for field, value in ast.iter_fields(node)
+                 if field in ('name', 'arg') and isinstance(value, str))
+    names.update(bound_names(tree))
+    return {name: name for name in sorted(names)} | aliases
+
+
+def symbol_value(identifier: str, environment: dict[str, str]) -> str:
+    """A domain defect raises KeyError; no identity or healthy default is supplied."""
+    return environment[identifier]
+
+
+def qualified_name(node: ast.AST, aliases: dict[str, str], *, subscriptions: bool = False) -> str:
+    environment = symbol_environment(node, aliases)
+
+    def resolve(part: ast.AST) -> str:
+        if isinstance(part, ast.Name):
+            return symbol_value(part.id, environment)
+        if isinstance(part, ast.Attribute):
+            return resolve(part.value) + '.' + part.attr
+        if subscriptions and isinstance(part, ast.Subscript):
+            return resolve(part.value)
+        return ''
+
+    return resolve(node)
+
+
 def _qualified(node: ast.AST, aliases: dict[str, str]) -> str:
-    if isinstance(node, ast.Name):
-        if node.id in aliases:
-            return aliases[node.id]
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return _qualified(node.value, aliases) + '.' + node.attr
-    return ''
+    return qualified_name(node, aliases)
 
 
 def binding_proof(tree: ast.AST, aliases: dict[str, str], rebound: set[str], *, call_target: str = 'typing.assert_never') -> tuple[frozenset[ast.Call], frozenset[ast.MatchClass]]:
     """Verify names against the import/rebinding environment supplied by the scanner."""
+    environment = symbol_environment(tree, aliases)
+
     def symbol(identifier: str) -> str:
-        if identifier in aliases:
-            return aliases[identifier]
-        return identifier
+        return symbol_value(identifier, environment)
 
     shadowed = rebound | {symbol(k) for k in sorted(bound_names(tree))}
 
