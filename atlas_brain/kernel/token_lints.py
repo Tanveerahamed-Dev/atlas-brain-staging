@@ -220,35 +220,41 @@ def fallback_node(node: ast.AST, called: str = '', *, assertions: frozenset[ast.
     return False
 
 
-def _cast_types(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> frozenset[ast.AST]:
-    """Prove only builtin type syntax in a canonically bound typing.cast call."""
+def _type_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> frozenset[ast.AST]:
+    """Prove pure type syntax in annotations and canonical typing.cast arguments."""
     casts, _ = binding_proof(tree, aliases, rebound, call_target='typing.cast')
     shadowed = rebound | {_qualified(ast.Name(id=name), aliases) for name in sorted(bound_names(tree))}
     generics = ('list', 'tuple', 'dict', 'set', 'frozenset', 'type')
     scalars = ('object', 'str', 'bytes', 'int', 'bool')
 
+    def stable(symbol: str) -> bool:
+        return not any(symbol == key or symbol.startswith(key + '.') or key.startswith(symbol + '.')
+                       for key in sorted(shadowed))
+
     def builtin(node: ast.AST, names: tuple[str, ...]) -> bool:
         symbol = _qualified(node, aliases)
         short = symbol.rsplit('.', 1)[-1]
-        return short in names and symbol in (short, 'builtins.' + short) and not any(
-            target == key or target.startswith(key + '.') or key.startswith(target + '.')
-            for target in (short, 'builtins.' + short) for key in sorted(shadowed))
+        return short in names and symbol in (short, 'builtins.' + short) and all(
+            stable(target) for target in (short, 'builtins.' + short))
 
     def type_expression(node: ast.AST) -> bool:
         if isinstance(node, ast.Subscript):
             return builtin(node.value, generics) and type_expression(node.slice)
-        return isinstance(node, (ast.Name, ast.Attribute)) and builtin(node, generics + scalars)
+        return isinstance(node, (ast.Name, ast.Attribute)) and (builtin(node, generics + scalars) or (
+            _qualified(node, aliases) == 'ast.AST' and stable('ast.AST')))
 
-    return frozenset(part for call in ast.walk(tree) if isinstance(call, ast.Call) and call in casts
-                     and len(call.args) == 2 and not call.keywords and type_expression(call.args[0])
-                     for part in ast.walk(call.args[0]))
+    arguments = tuple(call.args[0] for call in ast.walk(tree) if isinstance(call, ast.Call) and call in casts
+                      and len(call.args) == 2 and not call.keywords and type_expression(call.args[0]))
+    annotations = tuple(value for owner in ast.walk(tree) for field, value in ast.iter_fields(owner)
+                        if field in ('annotation', 'returns') and isinstance(value, ast.AST) and type_expression(value))
+    return frozenset(part for root in arguments + annotations for part in ast.walk(root))
 
 
 def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> frozenset[ast.AST]:
     """Inspect statement successors and genuine Unknown bindings for whole-source use."""
     assertions, facts = binding_proof(tree, aliases, rebound)
     unknowns, _ = binding_proof(tree, aliases, rebound, call_target='atlas_brain.kernel.states.Unknown')
-    type_nodes = _cast_types(tree, aliases, rebound)
+    type_nodes = _type_nodes(tree, aliases, rebound)
     following, intercepted = statement_context(tree)
     roots = tuple(branch for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
