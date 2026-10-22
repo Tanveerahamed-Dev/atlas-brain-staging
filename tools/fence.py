@@ -174,7 +174,8 @@ def import_bindings(tree, path, class_roots=frozenset()):
             return known, (member(base) if isinstance(base, str) else
                            tuple(member(root) for root in base) if isinstance(base, tuple) else None)
         if isinstance(node, ast.Call):
-            return opaque(node, scope)
+            roots = returned(node, scope)
+            return bool(roots), tuple(sorted(roots, key=lambda item: item or ""))
         if isinstance(node, ast.NamedExpr):
             return reference(node.value, scope)
         if isinstance(node, ast.IfExp):
