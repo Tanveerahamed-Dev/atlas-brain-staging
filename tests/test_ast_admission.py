@@ -79,7 +79,8 @@ def test_global_reexport_cannot_hide_protected_import_hop(source):
 
 
 def test_amendment_matches_exact_grant_and_bounds():
-    assert set(SCOPED_API) == {TOKEN, LINTS, "atlas_brain/evidence/parsekit/token_lint.py",
+    assert set(SCOPED_API) == {TOKEN, LINTS, "atlas_brain/kernel/metadata_readonly.py",
+                               "atlas_brain/evidence/parsekit/token_lint.py",
                                "atlas_brain/evidence/parsekit/token_audit.py"}
     endpoints = (SCOPED_API[TOKEN] - K_SCOPE_ADDITION - K_CONTEXT_ADDITION - K_MEMBERSHIP_ADDITION) | SCOPED_API[LINTS]
     assert len(endpoints) == 40
