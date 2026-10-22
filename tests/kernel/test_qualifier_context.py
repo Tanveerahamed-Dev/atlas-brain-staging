@@ -196,6 +196,9 @@ def test_root_cannot_forge_the_ast_or_import_environment(before, after):
 @pytest.mark.parametrize('before,after', [
     ('    aliases, rebound = binding_environment(tree)\n',
      ('    aliases, rebound = binding_environment(tree)\n'
+      '    ordered = sorted(("aliases.clear()",), key=__builtins__["eval"])\n')),
+    ('    aliases, rebound = binding_environment(tree)\n',
+     ('    aliases, rebound = binding_environment(tree)\n'
       '    forwarded = aliases\n    forwarded |= {"forged": "typing.assert_never"}\n')),
     ('    aliases, rebound = binding_environment(tree)\n',
      ('    aliases, rebound = binding_environment(tree)\n'

@@ -75,6 +75,9 @@ def test_owned_collections_and_transitive_readers_remain_supported(body):
     '    callback = source.clear\n    callback()',
     '    ordered = sorted(("forged",), key=source.setdefault)',
     '    ordered = sorted(tuple(source), key=source.__delitem__)',
+    '    ordered = sorted(("source.clear()",), key=__builtins__["eval"])',
+    '    factory = type("Unproved", (), {})',
+    '    cursor = iter(input, "stop")',
     '    owned = {}\n    box = [source]\n    box[0]["forged"] = "healthy"',
     ('    def consume(findings):\n        findings.add((3, 1))\n'
      '    consume(source)'),
