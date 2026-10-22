@@ -283,3 +283,9 @@ def refusal_tail(following: tuple[ast.stmt, ...], subject: str, unknowns: frozen
             or len(s.body) != 1 or not isinstance(s.body[0], (ast.Return, ast.Raise)) for s in following[:-1])):
         return False
     return isinstance(last, ast.Raise) or (isinstance(last, ast.Return) and isinstance(last.value, ast.Call) and last.value in unknowns)
+
+
+def inplace_write(node: ast.AST) -> bool:
+    """The target/operator syntax pair denotes an implicit in-place operation."""
+    fields = tuple(field for field, _ in ast.iter_fields(node))
+    return 'target' in fields and 'op' in fields
