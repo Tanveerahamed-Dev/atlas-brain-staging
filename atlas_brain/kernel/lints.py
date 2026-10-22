@@ -320,7 +320,7 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
     opaque = ('builtins', 'importlib', 'inspect', 'sys', 'pickle', 'marshal', 'ctypes')
     dynamic = ('eval', 'exec', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars', '__import__')
     builtins = ('isinstance', 'dict', 'tuple', 'any', 'all', 'sorted', 'str', 'type', 'set', 'list',
-                'len', 'next', 'iter', 'enumerate', 'bool', 'frozenset', 'int')
+                'len', 'next', 'iter', 'enumerate', 'bool', 'frozenset', 'int', 'reversed')
 
     def scope_key(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
         names: list[str] = []
@@ -384,12 +384,16 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
                     functions[key] = n
                 if isinstance(n, ast.arg) and (n.arg in local_imports or n.arg in builtins):
                     return ()
-    roots = {name for name in functions if name.rsplit('.', 1)[-1] in ('lint', 'qualifier_witnesses')}
-    lint_roots = {name for name in roots if name.endswith('.lint')}
+    lint_roots = {name for name in functions if name.endswith('.lint')}
     if len(lint_roots) != 1:
         return ()
     lint_root = next(iter(lint_roots))
+    roots = {lint_root, lint_root.rsplit('.', 1)[0] + '.qualifier_witnesses'}
+    if not roots <= set(functions):
+        return ()
     root = functions[lint_root]
+    if [arg.arg for arg in root.args.args] != ['source', 'path']:
+        return ()
     if syntax_shape(root.body[-1:]) != syntax_shape(ast.parse('return tuple(sorted(findings))').body):
         return ()
     initial = [n for n in root.body if isinstance(n, ast.Assign)]
@@ -414,10 +418,18 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
                 return ()
             if isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store) and isinstance(n.value, ast.Name) and n.value.id == 'aliases':
                 return ()
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id in ('selected', 'findings'):
+                parent = parents[n]
+                if not (isinstance(parent, ast.Attribute) and parent.value is n or isinstance(parent, ast.Call)
+                        and isinstance(parent.func, ast.Name) and parent.func.id == ('set' if n.id == 'selected' else 'sorted')):
+                    return ()
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
                 if n.func.attr in ('append', 'extend', 'add', 'update', 'pop', 'clear', 'remove') and not isinstance(n.func.value, ast.Name):
                     return ()
                 if isinstance(n.func.value, ast.Name) and n.func.value.id == 'aliases' and n.func.attr != 'items':
+                    return ()
+                if isinstance(n.func.value, ast.Name) and n.func.value.id == 'selected' and syntax_shape(n) != syntax_shape(
+                        ast.parse('selected.extend(qualifier_lines(function.body))', mode='eval').body):
                     return ()
                 if isinstance(n.func.value, ast.Name) and n.func.value.id == 'findings':
                     permitted = tuple(syntax_shape(ast.parse(text, mode='eval').body) for text in (
@@ -433,9 +445,13 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
                 if target in functions:
                     parameters = functions[target].args.args
                     for index, parameter in enumerate(parameters):
-                        if parameter.arg == 'aliases' and (len(n.args) <= index or not (
-                                isinstance(n.args[index], ast.Name) and n.args[index].id == 'aliases'
-                                or syntax_shape(n.args[index]) == syntax_shape(ast.parse('{}', mode='eval').body))):
+                        if parameter.arg != 'aliases':
+                            continue
+                        if len(n.args) <= index:
+                            return ()
+                        argument = n.args[index]
+                        if not (isinstance(argument, ast.Name) and argument.id == 'aliases'
+                                or syntax_shape(argument) == syntax_shape(ast.parse('{}', mode='eval').body)):
                             return ()
             if not isinstance(n, ast.Name) or not isinstance(n.ctx, ast.Load):
                 continue
@@ -446,6 +462,8 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
                 target = scope + '.' + n.id
                 scope = scope.rsplit('.', 1)[0]
             if target not in functions:
+                if isinstance(parents[n], ast.Call) and parents[n].func is n and n.id not in builtins and n.id not in local:
+                    return ()
                 continue
             parent = parents[n]
             if not isinstance(parent, ast.Call) or parent.func is not n:
