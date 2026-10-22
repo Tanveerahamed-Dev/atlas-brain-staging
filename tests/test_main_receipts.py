@@ -358,3 +358,121 @@ def test_manual_context_collision_is_refused():
     data["tree"]["tree"][0]["sha"] = blob["sha"]
     with pytest.raises(ValueError):
         verify(data, SHA, "push")
+
+
+def native_receipts():
+    data = receipts()
+    data["checks"] = []
+    for run in data["runs"]:
+        run["head_branch"] = "main"
+        run["path"] = data["catalog"][run["workflow_id"] - 1]["path"]
+        for index, job in enumerate(data["jobs"][str(run["id"])]):
+            identity = run["id"] * 10 + index
+            job.update(id=identity, run_id=run["id"], head_sha=SHA,
+                       check_run_url=f"https://api.github.com/repos/Tanveerahamed-Dev/atlas-brain-staging/check-runs/{identity}")
+            data["checks"].append({"id": identity, "head_sha": SHA, "name": job["name"],
+                                   "app": {"id": 15368}, "status": "completed", "conclusion": "success"})
+    return data
+
+
+def test_native_jobs_are_bound_to_actual_checks_with_manual_siblings():
+    from tools.main_receipts import verify_native
+
+    data = native_receipts()
+    manual = deepcopy(data["runs"][0])
+    manual.update(id=900, event="workflow_dispatch")
+    data["runs"].append(manual)
+    data["checks"].extend([{**deepcopy(row), "id": row["id"] + 1000,
+                            "name": "manual-" + row["name"]} for row in data["checks"][:]])
+    result = verify_native(data, SHA)
+    assert result["verified"] and result["job_count"] == 9
+    assert len(result["check_ids"]) == 9
+    assert all(identity < 900 for identity in result["check_ids"])
+    data["runs"] = [manual]
+    with pytest.raises(ValueError, match="missing exact-SHA push receipt"):
+        verify_native(data, SHA)
+
+
+@pytest.mark.parametrize("plant", ["branch", "path", "job_run", "job_sha", "url", "foreign_repo", "job_id",
+                                  "missing_check", "duplicate_check", "app", "check_sha", "check_name",
+                                  "check_pending", "check_failure", "duplicate_job_id", "ambiguous_run"])
+def test_native_receipts_reject_unassociated_or_wrong_identity(plant):
+    from tools.main_receipts import verify_native
+
+    data = native_receipts()
+    job, check = data["jobs"]["10"][0], data["checks"][0]
+    if plant == "branch":
+        data["runs"][0]["head_branch"] = "topic"
+    elif plant == "path":
+        data["runs"][0]["path"] = ".github/workflows/controller.yml"
+    elif plant == "job_run":
+        job["run_id"] = 900
+    elif plant == "job_sha":
+        job["head_sha"] = "b" * 40
+    elif plant == "url":
+        job["check_run_url"] += "?quoted=100"
+    elif plant == "foreign_repo":
+        job["check_run_url"] = job["check_run_url"].replace("atlas-brain-staging", "other")
+    elif plant == "job_id":
+        job["id"] = True
+    elif plant == "missing_check":
+        data["checks"].pop(0)
+    elif plant == "duplicate_check":
+        data["checks"].append(deepcopy(check))
+    elif plant == "app":
+        check["app"]["id"] = 999
+    elif plant == "check_sha":
+        check["head_sha"] = "b" * 40
+    elif plant == "check_name":
+        check["name"] = "quoted " + check["name"]
+    elif plant == "check_pending":
+        check["status"] = "in_progress"
+    elif plant == "check_failure":
+        check["conclusion"] = "failure"
+    elif plant == "duplicate_job_id":
+        data["jobs"]["10"][1]["id"] = job["id"]
+    else:
+        data["runs"].append({**deepcopy(data["runs"][0]), "id": 900})
+    with pytest.raises(ValueError):
+        verify_native(data, SHA)
+
+
+def test_base_target_binding_cannot_require_its_own_pr_push_receipt():
+    from tools.base_native_receipts import target
+
+    other = "b" * 40
+    assert target(SHA, other, "pull_request") == SHA
+    assert target(SHA, other, "merge_group") == SHA
+    assert target(SHA, other, "push") == SHA
+    assert target(other, other, "schedule") == other
+    assert target(other, other, "workflow_dispatch") == other
+    for base, head, event in ((SHA, SHA, "pull_request"), (SHA, SHA, "push"),
+                              (SHA, other, "schedule"), ("HEAD^", other, "push"), (SHA, other, "unknown")):
+        with pytest.raises(ValueError):
+            target(base, head, event)
+
+
+@pytest.mark.parametrize("sha,expected", [("b09f2935e2e3cf52e83de2c8cc4b5409b8a68a78", 0),
+                                         ("0bf9f263c4fde7007c49c3fa7b984c9e51c1d88b", 0),
+                                         ("6d0093eed4a2edcbeaeb9875e1f6a21f355e26d5", 1),
+                                         ("228a16b7197e75253cf2426d700cf23eb8c3b13f", 1)])
+def test_enforced_base_real_cli_published_positive_and_missing_native(sha, expected):
+    result = subprocess.run([sys.executable, "-m", "tools.base_native_receipts", "--base", sha,
+                             "--event", "pull_request"], capture_output=True, text=True, check=False)
+    assert result.returncode == expected, result.stdout + result.stderr
+    record = json.loads(result.stdout)
+    assert record["base_sha"] == sha and record["verified"] is (expected == 0)
+    if expected:
+        assert "missing exact-SHA push receipt" in record["reason"]
+    else:
+        assert record["job_count"] == len(record["check_ids"]) == 16
+        assert record["workflow_count"] == 7 and record["event"] == "push"
+
+
+def test_governance_runs_native_base_gate_without_replacing_existing_commands():
+    text = Path(".github/workflows/governance.yml").read_text(encoding="utf-8")
+    assert 'uv run --no-sync python -m tools.base_native_receipts --base "$BASE" --event "$EVENT"' in text
+    assert "BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}" in text
+    assert "EVENT: ${{ github.event_name }}" in text
+    assert "uv run --no-sync pytest -q tests/test_governance.py tests/test_main_receipts.py" in text
+    assert 'uv run --no-sync python -m tools.governance --base "$BASE" --head HEAD' in text

@@ -44,3 +44,15 @@ jobs:
             BASE=$(git rev-parse HEAD^1)
           fi
           uv run --no-sync python -m tools.governance --base "$BASE" --head HEAD
+      - name: Require native receipts for the exact event base
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT" == schedule || "$EVENT" == workflow_dispatch ]]; then
+            BASE=$(git rev-parse HEAD)
+          elif [[ -z "$BASE" || "$BASE" =~ ^0+$ ]]; then
+            BASE=$(git rev-parse HEAD^1)
+          fi
+          uv run --no-sync python -m tools.base_native_receipts --base "$BASE" --event "$EVENT"
