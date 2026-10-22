@@ -339,6 +339,11 @@ def test_admitted_readonly_property_result_remains_plain_data(tail):
     assert source_allowed("from .evidence.archives import factory\nfactory().upper()", sources)
 
 
+def test_scoped_numeric_constant_result_keeps_data_methods():
+    sources = {USING: "from zipfile import ZIP_STORED\ndef factory(): return ZIP_STORED"}
+    assert source_allowed("from .evidence.archives import factory\nfactory().bit_length()", sources)
+
+
 @pytest.mark.parametrize("kind", ["outside", "noncontract"])
 @pytest.mark.parametrize("carrier, receiver", [("map(lambda item: item, (ZipFile,))", "next(factory())"),
                                               ("filter(None, (ZipFile,))", "next(factory())"),
