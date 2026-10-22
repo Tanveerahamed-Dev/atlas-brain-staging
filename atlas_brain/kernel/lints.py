@@ -284,13 +284,13 @@ def unordered_iterations(tree: ast.AST, aliases: dict[str, str]) -> frozenset[as
             if isinstance(value, (ast.Set, ast.SetComp)) or (isinstance(value, ast.Call) and any(name.split('.')[-1] in ('set', 'frozenset') for name in possible_names(value.func, origins))):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 sets.update(t.id for t in targets if isinstance(t, ast.Name))
-    findings: set[ast.AST] = set()
+    nodes: set[ast.AST] = set()
     for node in ast.walk(tree):
         if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             iterator = node.iter
             if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and any(name.split('.')[-1] in ('set', 'frozenset') for name in possible_names(iterator.func, origins))):
-                findings.add(node)
-    return frozenset(findings)
+                nodes.add(node)
+    return frozenset(nodes)
 
 
 def qualifier_witnesses(source: str, path: str, sources: dict[str, str], inventory: tuple[str, ...]) -> tuple[int, ...]:
