@@ -336,11 +336,19 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
         module = modules[p]
         parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
         local_imports: dict[str, str] = {}
+        constructor_names, constructor_rebound = binding_environment(tree)
+        stable_super = 'super' not in constructor_names and 'super' not in constructor_rebound and 'super' not in bound_names(tree)
         for import_node in ast.walk(tree):
             if isinstance(import_node, ast.Name) and import_node.id in dynamic:
                 return ()
             if isinstance(import_node, ast.Attribute) and import_node.attr.startswith('__'):
-                return ()
+                parent = parents[import_node]
+                receiver = import_node.value
+                if not (p not in metadata and stable_super and import_node.attr == '__init__'
+                        and isinstance(parent, ast.Call) and parent.func is import_node
+                        and isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Name)
+                        and receiver.func.id == 'super' and not receiver.args and not receiver.keywords):
+                    return ()
             if not isinstance(import_node, (ast.Import, ast.ImportFrom)):
                 continue
             if p in metadata and import_node not in tree.body:
