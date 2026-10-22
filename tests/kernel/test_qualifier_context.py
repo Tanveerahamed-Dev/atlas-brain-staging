@@ -51,6 +51,10 @@ def test_current_qualifier_pair_has_a_finite_metadata_witness(path, name):
     'import importlib as loader\nhelper = loader.import_module("MODULE")\n',
     ('import ast\nfrom MODULE import HELPER\ndef qualifier_witnesses(node, aliases):\n'
      ' return {"healthy": HELPER(node, aliases)}\n'),
+    ('from atlas_brain.kernel.states import Known\n'
+     'def consume(node, aliases, basis, evidence, raw):\n'
+     ' expression = "Known(value=__import__(\'MODULE\', fromlist=[\'HELPER\']).HELPER(node, aliases), basis=basis, evidence=evidence, raw=raw)"\n'
+     ' return sorted((expression,), key=__builtins__["eval"])\n'),
 ])
 def test_identical_qualifier_is_refused_with_new_or_unresolved_product_consumer(path, name, consumer):
     sources, inventory = source_context()
