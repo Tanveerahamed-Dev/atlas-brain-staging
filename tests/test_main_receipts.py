@@ -755,3 +755,30 @@ def test_post_collection_refusal_retains_evidence_without_snapshot_injection(mon
     assert main_receipts.main() == 1
     output = capsys.readouterr().out
     assert "retrieval_evidence" not in output and "unlogged-response" not in output
+
+
+@pytest.mark.parametrize("cli", ["main", "base"])
+@pytest.mark.parametrize("payload", [None, [], "unlogged-response", 17])
+def test_malformed_unpaged_json_is_a_controlled_cli_refusal(monkeypatch, capsys, cli, payload):
+    from tools import base_native_receipts, main_receipts
+
+    calls = []
+    def read(command, **kwargs):
+        if command[:2] == ["git", "rev-parse"]:
+            return "b" * 40
+        calls.append(command)
+        assert command[2].endswith("git/trees/" + SHA + "?recursive=1")
+        return json.dumps(payload)
+    monkeypatch.setattr(subprocess, "check_output", read)
+    monkeypatch.setattr(subprocess, "check_call", lambda *args, **kwargs: 0)
+    module = main_receipts if cli == "main" else base_native_receipts
+    arguments = ["--sha", SHA] if cli == "main" else ["--base", SHA, "--event", "pull_request"]
+    monkeypatch.setattr(sys, "argv", ["receipts", *arguments])
+    assert module.main() == 1
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["verified"] is False and "invalid unpaged response object" in result["reason"]
+    trace = result["retrieval_evidence"]
+    assert len(calls) == 1 and len(trace["queries"]) == 1 and trace["selection"] == []
+    assert trace["queries"][0]["outcome"] == "invalid_shape" and trace["queries"][0]["exit_code"] == 0
+    assert "unlogged-response" not in output and "Traceback" not in output
