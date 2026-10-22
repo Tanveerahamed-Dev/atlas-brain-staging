@@ -33,7 +33,8 @@ def test_current_qualifier_pair_has_a_finite_metadata_witness(path, name):
     lines = selected_lines(source, name)
     # Record the existing scanner's three observations before any proof is used.
     assert {(3, line) for line in lines} <= set(lints.lint(source, path))
-    assert lints.qualifier_witnesses(source, path, sources, inventory) == lines
+    refusals = []
+    assert lints.qualifier_witnesses(source, path, sources, inventory, refusals=refusals) == lines, refusals
 
 
 @pytest.mark.parametrize('path,name', [
