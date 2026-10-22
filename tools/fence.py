@@ -578,7 +578,7 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
                 if isinstance(node, ast.Attribute):
                     # An opaque expression must not erase a known engine-export capability.
                     for root, _ in receiver_roots(node.value):
-                        origins = index.foreign_roots(root) if root.startswith("atlas_brain.") else {root}
+                        origins = index.foreign_roots(root)
                         for carried in (origin for origin in origins if origin.startswith(CARRIER_RETURN)):
                             target = carried[len(CARRIER_RETURN):]
                             if (not admitted(target) or node.attr in all_factories.get(target, ())
