@@ -54,3 +54,24 @@ def test_origin_subscription_refuses_missing_key_without_an_identity_origin():
     assert lookup('entry', {'entry': ('module.entry', 'other.entry')}) == ('module.entry', 'other.entry')
     with pytest.raises(KeyError):
         lookup('missing', {'entry': ('module.entry',)})
+
+
+@pytest.mark.parametrize('name', ['symbol_environment', 'symbol_value', 'qualified_name'])
+def test_symbol_domain_implementation_contains_no_implicit_default(name):
+    function = getattr(token_lints, name, None)
+    assert function is not None
+    assert not tuple(item for item in lints.lint(inspect.getsource(function), 'atlas_brain/kernel/probe.py') if item[0] == 3)
+
+
+def test_incomplete_constructed_domain_escapes_as_an_error(monkeypatch):
+    monkeypatch.setattr(token_lints, 'symbol_environment', lambda tree, aliases: {})
+    with pytest.raises(KeyError):
+        token_lints._qualified(ast.Name(id='missing'), {})
+
+
+def test_total_origins_preserve_every_conflicting_import():
+    tree = ast.parse('from typing import ClassVar as C\nfrom other import C\nx: C[int] = 1')
+    origins = lints.import_origins(tree)
+    annotation = next(node.annotation for node in ast.walk(tree) if isinstance(node, ast.AnnAssign))
+    assert lints.possible_names(annotation, origins) == ('other.C', 'typing.ClassVar')
+    assert any(rule == 2 for rule, _ in lints.lint(ast.unparse(tree), 'atlas_brain/model/probe.py'))
