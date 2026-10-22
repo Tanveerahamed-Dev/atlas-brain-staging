@@ -341,7 +341,7 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
         constructor_names, constructor_rebound = binding_environment(tree)
         stable_super = 'super' not in constructor_names and 'super' not in constructor_rebound and 'super' not in bound_names(tree)
         for import_node in ast.walk(tree):
-            if isinstance(import_node, ast.Name) and import_node.id in dynamic:
+            if isinstance(import_node, ast.Name) and (import_node.id in dynamic or import_node.id.startswith('__')):
                 return ()
             if isinstance(import_node, ast.Attribute) and import_node.attr.startswith('__'):
                 parent = parents[import_node]
