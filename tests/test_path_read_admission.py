@@ -16,7 +16,7 @@ def test_read_admission_is_exact_and_all_previous_grants_remain():
         "zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
         "zlib.error", "zlib.decompressobj", "stat.S_IFMT", "zipfile.ZipFile.infolist",
         "zipfile.ZipFile.open", "pathlib.Path.suffix",
-    }}
+    }, "atlas_brain/kernel/population.py": {"dataclasses.InitVar"}}
     assert len(STDLIB_API) == 22
     assert len(SCOPED_API["atlas_brain/kernel/token_lints.py"]) == 29
     assert len(SCOPED_API["atlas_brain/kernel/lints.py"]) == 32
