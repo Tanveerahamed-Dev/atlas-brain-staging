@@ -153,8 +153,11 @@ def import_bindings(tree, path, class_roots=frozenset()):
                 return (True, aliases[node.id]) if node.id in aliases else (False, None)
         if isinstance(node, ast.Attribute):
             known, base = reference(node.value, scope)
-            return known, (base + "." + node.attr if isinstance(base, str) else
-                           tuple(root + "." + node.attr if root is not None else None for root in base) if isinstance(base, tuple) else None)
+            def member(root):
+                # A carrier describes possible contents, not an API namespace to extend.
+                return root if root is None or root.startswith(CARRIER_RETURN) else root + "." + node.attr
+            return known, (member(base) if isinstance(base, str) else
+                           tuple(member(root) for root in base) if isinstance(base, tuple) else None)
         if isinstance(node, ast.Call):
             return opaque(node, scope)
         if isinstance(node, ast.NamedExpr):
@@ -452,6 +455,8 @@ class ImportIndex:
         return roots
 
     def origin(self, name, seen=frozenset()):
+        if name.startswith(CARRIER_RETURN):
+            return self.origin(name[len(CARRIER_RETURN):], seen | {name}) if name not in seen else None
         if name.startswith(CALLABLE_VALUE):
             return self.origin(name[len(CALLABLE_VALUE):], seen | {name}) if name not in seen else None
         if any(name == module or name.startswith(module + ".") for module in self.forbidden):
