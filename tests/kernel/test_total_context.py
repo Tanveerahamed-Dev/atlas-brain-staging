@@ -49,6 +49,8 @@ def test_successor_consumer_source_has_no_missing_key_default():
     ('def other():\n return CheckResult()', True),
     ('class Worker:\n def verdict(self):\n  return CheckResult()', True),
     ('def verdict():\n def inner():\n  return CheckResult()', False),
+    ('def other():\n def verdict():\n  return CheckResult()', True),
+    ('async def verdict():\n return CheckResult()', True),
     ('CheckResult()', True),
 ])
 def test_public_verdict_scope_keeps_the_existing_module_function_boundary(source, refused):
