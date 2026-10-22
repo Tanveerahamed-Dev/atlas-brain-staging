@@ -332,8 +332,9 @@ def test_primitive_assignment_result_keeps_ordinary_data_methods():
     assert source_allowed("from .evidence.archives import factory\nfactory(value).bit_length()", sources)
 
 
-def test_admitted_readonly_property_result_remains_plain_data():
-    sources = {USING: "from pathlib import Path\ndef factory(): return Path('data.txt').suffix"}
+@pytest.mark.parametrize("tail", ["", ".casefold()", ".casefold().upper()"])
+def test_admitted_readonly_property_result_remains_plain_data(tail):
+    sources = {USING: "from pathlib import Path\ndef factory(): return Path('data.txt').suffix" + tail}
     assert source_allowed("from .evidence.archives import factory\nfactory().upper()", sources)
 
 
