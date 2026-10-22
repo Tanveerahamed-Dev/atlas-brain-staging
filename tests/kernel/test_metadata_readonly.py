@@ -1,0 +1,66 @@
+"""Closed read-only helper grammar; unproved values never acquire write authority."""
+import ast
+
+import pytest
+
+
+def check(body):
+    from atlas_brain.kernel.metadata_readonly import readonly_functions
+
+    source = ('import ast\ndef lint(source, path):\n    findings = set()\n'
+              + body + '\n    return tuple(sorted(findings))\n')
+    tree = ast.parse(source)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    functions = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        names = []
+        parent = node
+        while parent in parents:
+            if isinstance(parent, ast.FunctionDef):
+                names.append(parent.name)
+            parent = parents[parent]
+        functions['case.' + '.'.join(reversed(names))] = node
+    imports = {key: {'ast': 'ast'} for key in functions}
+    return readonly_functions(functions, imports, 'case.lint')
+
+
+@pytest.mark.parametrize('body', [
+    '    findings.add((3, 1))',
+    '    owned = []\n    owned.append(source)\n    owned.pop()',
+    '    owned = {}\n    owned["metadata"] = source',
+    '    owned = [False]\n    owned[-1] = True',
+    '    owned = set()\n    owned.add(source)',
+    '    def hit():\n        findings.add((3, 1))\n    hit()',
+    ('    def echo(data):\n        return data\n'
+     '    forwarded = echo(source)\n    size = len(forwarded)'),
+    '    for node in ast.walk(ast.parse(source)):\n        findings.add((3, node.lineno))',
+])
+def test_owned_collections_and_transitive_readers_remain_supported(body):
+    assert check(body)
+
+
+@pytest.mark.parametrize('body', [
+    '    forwarded = source\n    forwarded["forged"] = "healthy"',
+    '    forwarded = source.body\n    forwarded[:] = ()',
+    '    source.append("healthy")',
+    '    owned = {}\n    owned = source\n    owned["forged"] = "healthy"',
+    ('    def consume(data):\n        forwarded = data\n'
+     '        forwarded["forged"] = "healthy"\n    consume(source)'),
+    '    source.unknown_operation()',
+    '    external(source)',
+    '    return source',
+    '    yield source',
+    '    global cached\n    cached = source',
+    ('    cached = source\n    def consume():\n        nonlocal cached\n'
+     '        cached = {}\n    consume()'),
+    '    list = source\n    owned = list()\n    owned.append(1)',
+    '    ast.increment_lineno(source)',
+    '    callback = ast.increment_lineno\n    callback(source)',
+    '    owned = {}\n    box = [source]\n    box[0]["forged"] = "healthy"',
+    ('    def consume(findings):\n        findings.add((3, 1))\n'
+     '    consume(source)'),
+])
+def test_unproved_mutation_escape_and_calls_fail_closed(body):
+    assert not check(body)
