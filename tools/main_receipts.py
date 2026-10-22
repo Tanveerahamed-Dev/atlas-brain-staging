@@ -206,12 +206,55 @@ def verify(data, sha, event):
             "job_count": count, "run_ids": [r["id"] for r in selected.values()], "expected_jobs": expected}
 
 
+def verify_native(data, sha):
+    """Require native main jobs and their actual Actions check records, ignoring manual siblings."""
+    result = verify(data, sha, "push")
+    identities, check_ids = set(), []
+    for path, run in select_runs(data, sha, "push").items():
+        ties = [r for r in data["runs"] if r["workflow_id"] == run["workflow_id"]
+                and r["head_sha"] == sha and r["event"] == "push"
+                and (r["run_number"], r["run_attempt"]) == (run["run_number"], run["run_attempt"])]
+        if len(ties) != 1 or run["head_branch"] != "main" or run["path"] != path:
+            raise ValueError("ambiguous or non-main native run identity")
+        for job in data["jobs"][str(run["id"])]:
+            if (type(job["id"]) is not int or job["id"] < 1 or job["id"] in identities
+                    or job["run_id"] != run["id"] or job["head_sha"] != sha):
+                raise ValueError("unbound native job identity")
+            identities.add(job["id"])
+            match = re.fullmatch(r"https://api\.github\.com/repos/" + re.escape(REPO)
+                                 + r"/check-runs/([1-9][0-9]*)", job["check_run_url"])
+            if match is None or int(match[1]) in check_ids:
+                raise ValueError("unbound native check URL")
+            identity = int(match[1])
+            rows = [c for c in data["checks"] if c["id"] == identity]
+            if len(rows) != 1 or any((rows[0]["app"]["id"] != 15368, rows[0]["head_sha"] != sha,
+                                      rows[0]["name"] != job["name"], rows[0]["status"] != "completed",
+                                      rows[0]["conclusion"] != "success")):
+                raise ValueError("missing, ambiguous or non-success actual Actions check")
+            check_ids.append(identity)
+    return {**result, "check_ids": check_ids}
+
+
 def github(endpoint, key=None):
     command = ["gh", "api", f"repos/{REPO}/{endpoint}"]
     if key:
         pages = json.loads(subprocess.check_output([*command, "--paginate", "--slurp"], encoding="utf-8"))
         return [row for page in pages for row in page[key]]
     return json.loads(subprocess.check_output(command, encoding="utf-8"))
+
+
+def collect(sha, event, with_checks=False):
+    data = {"tree": github(f"git/trees/{sha}?recursive=1"),
+            "catalog": github("actions/workflows?per_page=100", "workflows"),
+            "runs": github(f"actions/runs?head_sha={sha}&per_page=100", "workflow_runs")}
+    selected = select_runs(data, sha, event)
+    entries = {r["path"]: r for r in data["tree"]["tree"]}
+    data["sources"] = {p: github(f"git/blobs/{entries[p]['sha']}") for p in selected}
+    data["jobs"] = {str(r["id"]): github(f"actions/runs/{r['id']}/jobs?filter=latest&per_page=100", "jobs")
+                    for r in selected.values()}
+    if with_checks:
+        data["checks"] = github(f"commits/{sha}/check-runs?per_page=100", "check_runs")
+    return data
 
 
 def main():
@@ -226,14 +269,7 @@ def main():
         if args.snapshot:
             data = json.loads(args.snapshot.read_text(encoding="utf-8"))
         else:
-            data = {"tree": github(f"git/trees/{args.sha}?recursive=1"),
-                    "catalog": github("actions/workflows?per_page=100", "workflows"),
-                    "runs": github(f"actions/runs?head_sha={args.sha}&per_page=100", "workflow_runs")}
-            selected = select_runs(data, args.sha, args.event)
-            entries = {r["path"]: r for r in data["tree"]["tree"]}
-            data["sources"] = {p: github(f"git/blobs/{entries[p]['sha']}") for p in selected}
-            data["jobs"] = {str(r["id"]): github(f"actions/runs/{r['id']}/jobs?filter=latest&per_page=100", "jobs")
-                            for r in selected.values()}
+            data = collect(args.sha, args.event)
         result = verify(data, args.sha, args.event)
         result["source"] = "supplied snapshot (not authenticated)" if args.snapshot else "GitHub REST"
         print(json.dumps(result, sort_keys=True))
