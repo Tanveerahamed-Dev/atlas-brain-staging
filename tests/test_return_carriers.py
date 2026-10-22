@@ -273,6 +273,7 @@ def test_actual_cli_scoped_constructor_argument_cannot_escape_public_field(tmp_p
     "class Carrier:\n def __new__(cls, value): return value\n",
     "class Meta(type):\n def __call__(cls, value): return value\nclass Carrier(metaclass=Meta): pass\n",
     "class Carrier: pass\ndef Carrier(value): return value\n",
+    "def passthrough(cls, value): return value\nclass Carrier:\n match passthrough:\n  case __new__: pass\n",
     "class Parent:\n def __new__(cls, value): return value\nclass Carrier(Parent): pass\n"])
 def test_actual_cli_uncertain_constructor_keeps_known_argument(tmp_path, capability, classes):
     using = tmp_path / USING
