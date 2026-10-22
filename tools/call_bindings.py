@@ -29,18 +29,61 @@ def ordinary_class(node):
                    or isinstance(part, ast.Attribute) and part.attr == "__new__" for part in ast.walk(node))
 
 
-def declared_classes(tree, module):
+def ignores_arguments(node):
+    """A closed constant initializer cannot retain constructor input objects."""
+    if not ordinary_class(node):
+        return False
+    initializers = []
+    for part in node.body:
+        if isinstance(part, ast.FunctionDef) and part.name == "__init__" and not part.decorator_list:
+            initializers.append(part)
+        elif isinstance(part, (ast.Assign, ast.AnnAssign)):
+            targets = part.targets if isinstance(part, ast.Assign) else [part.target]
+            if (any(not isinstance(target, ast.Name) or target.id.startswith("_") for target in targets)
+                    or part.value is not None and not isinstance(part.value, ast.Constant)):
+                return False
+        elif not (isinstance(part, ast.Pass) or isinstance(part, ast.Expr) and isinstance(part.value, ast.Constant)
+                  and isinstance(part.value.value, str)):
+            return False
+    if len(initializers) != 1:
+        return not initializers
+    initializer = initializers[0]
+    positional = initializer.args.posonlyargs + initializer.args.args
+    if not positional:
+        return False
+    for part in initializer.body:
+        if isinstance(part, ast.Pass) or isinstance(part, ast.Return) and part.value is None:
+            continue
+        if isinstance(part, ast.Expr) and isinstance(part.value, ast.Constant) and isinstance(part.value.value, str):
+            continue
+        if not isinstance(part, (ast.Assign, ast.AnnAssign)) or not isinstance(part.value, ast.Constant):
+            return False
+        targets = part.targets if isinstance(part, ast.Assign) else [part.target]
+        if any(not isinstance(target, ast.Attribute) or not isinstance(target.value, ast.Name)
+               or target.value.id != positional[0].arg or target.attr.startswith("_") for target in targets):
+            return False
+    return True
+
+
+def declared_classes(tree, module, predicate=ordinary_class):
     result = {}
     def walk(node, scope=""):
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             key = scope + node.name
             origin = module + "." + key
-            result[origin] = result.get(origin, True) and ordinary_class(node)
+            result[origin] = result.get(origin, True) and predicate(node)
             scope = key + "."
         for child in ast.iter_child_nodes(node):
             walk(child, scope)
     walk(tree)
     return {origin for origin, proven in result.items() if proven}
+
+
+def ignored_argument_classes(trees):
+    if any(isinstance(node, ast.Attribute) and node.attr == "__init__" and isinstance(node.ctx, (ast.Store, ast.Del))
+           for tree in trees.values() for node in ast.walk(tree)):
+        return set()
+    return set().union(*(declared_classes(tree, module, ignores_arguments) for module, tree in trees.items()))
 
 
 class CallableBindings:
