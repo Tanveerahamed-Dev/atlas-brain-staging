@@ -273,12 +273,19 @@ def _type_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> fr
     return frozenset(part for root in arguments + annotations for part in ast.walk(root))
 
 
+def successor_value(node: ast.AST, successors: dict[ast.AST, tuple[ast.stmt, ...]]) -> tuple[ast.stmt, ...]:
+    """An empty successor list is explicit; a missing syntax node is an error."""
+    return successors[node]
+
+
 def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) -> frozenset[ast.AST]:
     """Inspect statement successors and genuine Unknown bindings for whole-source use."""
     assertions, facts = binding_proof(tree, aliases, rebound)
     unknowns, _ = binding_proof(tree, aliases, rebound, call_target='atlas_brain.kernel.states.Unknown')
     type_nodes = _type_nodes(tree, aliases, rebound)
     following, intercepted = statement_context(tree)
+    successors: dict[ast.AST, tuple[ast.stmt, ...]] = {node: () for node in ast.walk(tree)}
+    successors.update(following.items())
     roots = tuple(branch for branch in following
         if isinstance(branch, ast.If) and branch not in intercepted and not branch.orelse
         and (_finite_arm(branch) or guarded_lookup(branch.test, tuple(branch.body)))
@@ -293,7 +300,7 @@ def fallback_nodes(tree: ast.AST, aliases: dict[str, str], rebound: set[str]) ->
                                  for part in branch.body) | frozenset(part for branch in inverses for part in following[branch])
     return frozenset(node for node in ast.walk(tree) if fallback_node(node,
         _qualified(node.func, aliases) if isinstance(node, ast.Call) else '', assertions=assertions, facts=facts,
-        following=following[node] if isinstance(node, ast.stmt) and node in following else (), unknowns=unknowns,
+        following=successor_value(node, successors), unknowns=unknowns,
         allow_refusal=node not in intercepted or node in proven_guards, type_nodes=type_nodes) or (
             node in intercepted and node not in proven_statements and _statement_lookup(node, type_nodes)))
 
