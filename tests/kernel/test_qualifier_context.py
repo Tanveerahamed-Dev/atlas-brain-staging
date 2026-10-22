@@ -140,3 +140,35 @@ def test_nested_same_named_consumer_is_not_merged_with_a_reachable_scope():
     assert changed != sources[path]
     sources[path] = changed
     assert lints.qualifier_witnesses(changed, path, sources, inventory) == ()
+
+
+@pytest.mark.parametrize('body', [
+    'class Refused(ValueError):\n def __init__(self, reason):\n  super().__init__(reason)\n',
+    'class Refused(ValueError):\n def __init__(self, reason):\n  super().__init__(reason)\n\n# ordinary constructor\n',
+])
+def test_unrelated_ordinary_base_initializer_does_not_expose_metadata(body):
+    sources, inventory = source_context()
+    path = 'atlas_brain/kernel/lints.py'
+    extra = 'atlas_brain/model/initializer_probe.py'
+    sources[extra] = body
+    inventory = tuple(sorted((*inventory, extra)))
+    assert lints.qualifier_witnesses(sources[path], path, sources, inventory) == selected_lines(sources[path], 'resolved_name')
+
+
+@pytest.mark.parametrize('body', [
+    'def consume(value):\n return value.__class__\n',
+    'def consume(value):\n value.__init__()\n',
+    'class Refused(ValueError):\n def expose(self):\n  return super().__init__\n',
+    'def consume(super):\n super().__init__()\n',
+    'from other import constructor as super\nsuper().__init__()\n',
+    'def super():\n return value\nsuper().__init__()\n',
+    'super = value\nsuper().__init__()\n',
+    'def consume(value):\n match value:\n  case {"constructor": super}:\n   super().__init__()\n',
+])
+def test_reflection_or_shadowed_constructor_is_still_unproved(body):
+    sources, inventory = source_context()
+    path = 'atlas_brain/kernel/lints.py'
+    extra = 'atlas_brain/model/initializer_probe.py'
+    sources[extra] = body
+    inventory = tuple(sorted((*inventory, extra)))
+    assert lints.qualifier_witnesses(sources[path], path, sources, inventory) == ()
