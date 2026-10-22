@@ -70,7 +70,8 @@ def test_incomplete_constructed_domain_escapes_as_an_error(monkeypatch):
 
 
 def test_total_origins_preserve_every_conflicting_import():
-    tree = ast.parse('from typing import ClassVar as C\nfrom other import C\nx: C[int] = 1')
+    tree = ast.parse('from dataclasses import dataclass\nfrom typing import ClassVar as C\n'
+                     'from other import C\n@dataclass\nclass Record:\n x: C[int] = 1')
     origins = lints.import_origins(tree)
     annotation = next(node.annotation for node in ast.walk(tree) if isinstance(node, ast.AnnAssign))
     assert lints.possible_names(annotation, origins) == ('other.C', 'typing.ClassVar')
