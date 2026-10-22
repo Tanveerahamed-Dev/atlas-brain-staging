@@ -758,17 +758,21 @@ def test_post_collection_refusal_retains_evidence_without_snapshot_injection(mon
 
 
 @pytest.mark.parametrize("cli", ["main", "base"])
-@pytest.mark.parametrize("payload", [None, [], "unlogged-response", 17])
-def test_malformed_unpaged_json_is_a_controlled_cli_refusal(monkeypatch, capsys, cli, payload):
+@pytest.mark.parametrize("stage,payload", [("tree", None), ("tree", []), ("tree", "unlogged-response"),
+                                         ("tree", 17), ("blob", {"content": None})])
+def test_malformed_unpaged_json_is_a_controlled_cli_refusal(monkeypatch, capsys, cli, stage, payload):
     from tools import base_native_receipts, main_receipts
 
     calls = []
+    data = source_native_class()
+    boundary_api(monkeypatch, data, data["runs"])
+    original = subprocess.check_output
     def read(command, **kwargs):
         if command[:2] == ["git", "rev-parse"]:
             return "b" * 40
         calls.append(command)
-        assert command[2].endswith("git/trees/" + SHA + "?recursive=1")
-        return json.dumps(payload)
+        target = "git/trees/" if stage == "tree" else "git/blobs/"
+        return json.dumps(payload) if target in command[2] else original(command, **kwargs)
     monkeypatch.setattr(subprocess, "check_output", read)
     monkeypatch.setattr(subprocess, "check_call", lambda *args, **kwargs: 0)
     module = main_receipts if cli == "main" else base_native_receipts
@@ -779,6 +783,9 @@ def test_malformed_unpaged_json_is_a_controlled_cli_refusal(monkeypatch, capsys,
     result = json.loads(output)
     assert result["verified"] is False and "invalid unpaged response object" in result["reason"]
     trace = result["retrieval_evidence"]
-    assert len(calls) == 1 and len(trace["queries"]) == 1 and trace["selection"] == []
-    assert trace["queries"][0]["outcome"] == "invalid_shape" and trace["queries"][0]["exit_code"] == 0
+    expected = 1 if stage == "tree" else 4
+    assert len(calls) == expected and len(trace["queries"]) == expected
+    assert bool(trace["selection"]) is (stage != "tree")
+    assert trace["queries"][-1]["outcome"] == "invalid_shape" and trace["queries"][-1]["exit_code"] == 0
+    assert not any("/jobs?" in command[2] for command in calls)
     assert "unlogged-response" not in output and "Traceback" not in output
