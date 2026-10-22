@@ -65,7 +65,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
     def classvar(annotation: ast.AST) -> bool:
         return contains_name(annotation, ('ClassVar',), aliases) and any(len(names) == 1 and all(name == 'typing.ClassVar' and not any(
-            name == key or name.startswith(key + '.') or key.startswith(name + '.') for key in shadowed)
+            name == key or name.startswith(key + '.') or key.startswith(name + '.') for key in sorted(shadowed))
             for name in names) for part in ast.walk(annotation) for names in (possible_names(part, origins),))
 
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
