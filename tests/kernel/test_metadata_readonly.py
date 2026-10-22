@@ -1,15 +1,11 @@
 """Closed read-only helper grammar; unproved values never acquire write authority."""
 import ast
+from pathlib import Path
 
 import pytest
 
 
-def check(body):
-    from atlas_brain.kernel.metadata_readonly import readonly_functions
-
-    source = ('import ast\ndef lint(source, path):\n    findings = set()\n'
-              + body + '\n    return tuple(sorted(findings))\n')
-    tree = ast.parse(source)
+def definitions(tree, module):
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     functions = {}
     for node in ast.walk(tree):
@@ -21,7 +17,16 @@ def check(body):
             if isinstance(parent, ast.FunctionDef):
                 names.append(parent.name)
             parent = parents[parent]
-        functions['case.' + '.'.join(reversed(names))] = node
+        functions[module + '.' + '.'.join(reversed(names))] = node
+    return functions
+
+
+def check(body):
+    from atlas_brain.kernel.metadata_readonly import readonly_functions
+
+    source = ('import ast\ndef lint(source, path):\n    findings = set()\n'
+              + body + '\n    return tuple(sorted(findings))\n')
+    functions = definitions(ast.parse(source), 'case')
     imports = {key: {'ast': 'ast'} for key in functions}
     return readonly_functions(functions, imports, 'case.lint')
 
@@ -70,3 +75,29 @@ def test_owned_collections_and_transitive_readers_remain_supported(body):
 ])
 def test_unproved_mutation_escape_and_calls_fail_closed(body):
     assert not check(body)
+
+
+def test_actual_metadata_context_has_no_readonly_refusal():
+    from atlas_brain.kernel.metadata_readonly import readonly_failure
+
+    functions, imports = {}, {}
+    for path in sorted(Path('atlas_brain').rglob('*.py')):
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        if not any(isinstance(n, ast.Import) and any(a.name == 'ast' and a.asname is None for a in n.names) for n in tree.body):
+            continue
+        module = path.as_posix()[:-3].replace('/', '.').removesuffix('.__init__')
+        local = {}
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    local[alias.asname or alias.name.split('.')[0]] = alias.name if alias.asname else alias.name.split('.')[0]
+            if isinstance(node, ast.ImportFrom):
+                package = module.split('.')[:-1]
+                prefix = '.'.join(package[:len(package) - node.level + 1] + ([node.module] if node.module else [])) if node.level else node.module
+                for alias in node.names:
+                    local[alias.asname or alias.name] = prefix + '.' + alias.name
+        found = definitions(tree, module)
+        functions.update(found)
+        imports.update((key, local) for key in found)
+    reason = readonly_failure(functions, imports, 'atlas_brain.kernel.lints.lint')
+    assert reason == '', reason
