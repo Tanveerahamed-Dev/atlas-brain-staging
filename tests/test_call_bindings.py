@@ -3,11 +3,42 @@ import ast
 
 import pytest
 
-from tools.call_bindings import CallableBindings
+from tools.call_bindings import CallableBindings, declared_classes
 
 
 def expression(text):
     return ast.parse(text, mode="eval").body
+
+
+@pytest.mark.parametrize("source, proven", [
+    ("class Record:\n def __init__(self, value): self.name = 'record'", True),
+    ("class Record:\n def __new__(cls, value): return value", False),
+    ("class Record:\n __new__ = unknown", False),
+    ("class Record:\n match passthrough:\n  case __new__: pass", False),
+    ("class Record:\n match values:\n  case [*__new__]: pass", False),
+    ("class Record:\n match values:\n  case {**__new__}: pass", False),
+    ("class Record:\n from provider import allocate as __new__", False),
+    ("class Record:\n import allocator as __new__", False),
+    ("class Record:\n try: pass\n except Error as __new__: pass", False),
+    ("class Record:\n class __new__: pass", False),
+    ("class Record:\n if condition: pass", False),
+    ("class Record:\n locals()['__new__'] = passthrough", False),
+    ("class Record:\n namespace['allocator'] = value", False),
+    ("class Record:\n namespace.allocator = value", False),
+    ("class Record:\n label = 'record'\n def __init__(self, value): self.name = 'record'", True),
+    ("class Record(Base): pass", False),
+    ("class Record(metaclass=Meta): pass", False),
+    ("@decorate\nclass Record: pass", False),
+    ("class Record: pass\ndef Record(value): return value", False),
+    ("def Record(value): return value\nclass Record: pass", False),
+    ("class Record: pass\nclass Record:\n def __new__(cls, value): return value", False)])
+def test_constructor_exception_requires_ordinary_instance_semantics(source, proven):
+    tree = ast.parse(source)
+    bindings = CallableBindings("atlas_brain.example", {}, {}, set())
+    bindings.predeclare(tree)
+    classes = declared_classes(tree, "atlas_brain.example")
+    assert ("atlas_brain.example.Record" in classes) is proven
+    assert bindings.constructor_call(expression("Record(value)"), "", classes) is proven
 
 
 def test_conditional_rebinding_joins_carrier_and_unknown_origins():

@@ -7,7 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from tools.fence import RUNTIME_API, import_bindings
+from tools.fence import RUNTIME_API, import_bindings, origin_member
 
 USING = "atlas_brain/evidence/archives.py"
 REVISION = "a5a2959dd27bd6326e6e907f9866984aa41d7449"
@@ -49,18 +49,15 @@ def tracked_probe(payload, bindings):
     return {"actual_source_tree": "allowed", "public_declaration_import": "allowed", "reexports_refused": refused}
 
 
-def main():
-    payload = subprocess.check_output(["git", "show", f"{REVISION}:{USING}"])
-    if hashlib.sha256(payload).hexdigest() != DIGEST:
-        raise ValueError("ZIP using source digest mismatch")
+def source_inventory(payload):
     tree = ast.parse(payload.decode("utf-8"))
     bindings, exports, _ = import_bindings(tree, USING)
     def qualified(node, scope):
         if isinstance(node, ast.Name):
             origin = exports.get(scope + node.id, bindings.get(node.id, ""))
             if isinstance(origin, tuple):
-                return origin[0] if len(origin) == 1 and isinstance(origin[0], str) else ""
-            return origin if isinstance(origin, str) else ""
+                origin = origin[0] if len(origin) == 1 and isinstance(origin[0], str) else ""
+            return origin_member(origin, "") if isinstance(origin, str) else ""
         if isinstance(node, ast.Call):
             return qualified(node.func, scope)
         base = qualified(node.value, scope) if isinstance(node, ast.Attribute) else ""
@@ -68,6 +65,14 @@ def main():
     used = {api for top in tree.body for node in ast.walk(top)
             if (api := qualified(node, top.name + "." if isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef)) else ""))
             in RUNTIME_API[USING]}
+    return bindings, used
+
+
+def main():
+    payload = subprocess.check_output(["git", "show", f"{REVISION}:{USING}"])
+    if hashlib.sha256(payload).hexdigest() != DIGEST:
+        raise ValueError("ZIP using source digest mismatch")
+    bindings, used = source_inventory(payload)
     if used != RUNTIME_API[USING]:
         raise ValueError("ZIP grant differs from actual using-source inventory")
     print(json.dumps({"path": USING, "source_head": REVISION, "source_sha256": DIGEST,
