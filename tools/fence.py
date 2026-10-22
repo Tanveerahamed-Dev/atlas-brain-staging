@@ -44,6 +44,14 @@ STDLIB_API = {
 }
 # ADR-0003 amends ADR-0002: exact AST endpoints at their actual using paths.
 SCOPED_API = {
+    "atlas_brain/kernel/metadata_readonly.py": {
+        "ast.AST", "ast.AnnAssign", "ast.Assign", "ast.AsyncFunctionDef", "ast.AsyncWith",
+        "ast.Attribute", "ast.Call", "ast.ClassDef", "ast.Dict", "ast.DictComp", "ast.ExceptHandler",
+        "ast.FunctionDef", "ast.Global", "ast.Import", "ast.ImportFrom", "ast.Lambda", "ast.List",
+        "ast.ListComp", "ast.Load", "ast.Match", "ast.Name", "ast.Nonlocal", "ast.Return", "ast.Set",
+        "ast.SetComp", "ast.Subscript", "ast.With", "ast.Yield", "ast.YieldFrom",
+        "ast.iter_child_nodes", "ast.walk",
+    },
     "atlas_brain/kernel/token_lints.py": {
         "ast.In", "ast.NotIn",
         "ast.Eq", "ast.Raise", "ast.iter_fields",
