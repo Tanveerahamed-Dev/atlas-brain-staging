@@ -3,7 +3,7 @@ import ast
 import re
 from hashlib import sha256
 
-from .token_lints import bound_names, fallback_nodes
+from .token_lints import bound_names, fallback_nodes, qualified_name
 
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
@@ -203,15 +203,7 @@ def lint(source: str, path: str) -> tuple[tuple[int, int], ...]:
 
 def resolved_name(node: ast.AST, aliases: dict[str, str]) -> str:
     """Resolve an AST name using the scanner's supplied import environment."""
-    if isinstance(node, ast.Name):
-        if node.id not in aliases:
-            return node.id
-        return aliases[node.id]
-    if isinstance(node, ast.Attribute):
-        return resolved_name(node.value, aliases) + '.' + node.attr
-    if isinstance(node, ast.Subscript):
-        return resolved_name(node.value, aliases)
-    return ''
+    return qualified_name(node, aliases, subscriptions=True)
 
 
 def resolved_tail(node: ast.AST, aliases: dict[str, str]) -> str:
@@ -241,15 +233,23 @@ def import_origins(tree: ast.AST) -> dict[str, tuple[str, ...]]:
 
 
 def possible_names(node: ast.AST, origins: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
-    if isinstance(node, ast.Name):
-        if node.id not in origins:
-            return (node.id,)
-        return origins[node.id]
-    if isinstance(node, ast.Attribute):
-        return tuple(name + '.' + node.attr for name in possible_names(node.value, origins))
-    if isinstance(node, ast.Subscript):
-        return possible_names(node.value, origins)
-    return ('',)
+    environment = {part.id: (part.id,) for part in ast.walk(node) if isinstance(part, ast.Name)} | origins
+
+    def resolve(part: ast.AST) -> tuple[str, ...]:
+        if isinstance(part, ast.Name):
+            return origin_value(part.id, environment)
+        if isinstance(part, ast.Attribute):
+            return tuple(name + '.' + part.attr for name in resolve(part.value))
+        if isinstance(part, ast.Subscript):
+            return resolve(part.value)
+        return ('',)
+
+    return resolve(node)
+
+
+def origin_value(identifier: str, environment: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    """An absent name is a broken domain, never a manufactured import origin."""
+    return environment[identifier]
 
 
 def may_contain_name(node: ast.AST, names: tuple[str, ...], origins: dict[str, tuple[str, ...]]) -> bool:
