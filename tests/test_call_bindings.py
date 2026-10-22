@@ -3,11 +3,28 @@ import ast
 
 import pytest
 
-from tools.call_bindings import CallableBindings
+from tools.call_bindings import CallableBindings, declared_classes
 
 
 def expression(text):
     return ast.parse(text, mode="eval").body
+
+
+@pytest.mark.parametrize("source, proven", [
+    ("class Record:\n def __init__(self, value): self.name = 'record'", True),
+    ("class Record:\n def __new__(cls, value): return value", False),
+    ("class Record:\n __new__ = unknown", False),
+    ("class Record(Base): pass", False),
+    ("class Record(metaclass=Meta): pass", False),
+    ("@decorate\nclass Record: pass", False),
+    ("class Record: pass\nclass Record:\n def __new__(cls, value): return value", False)])
+def test_constructor_exception_requires_ordinary_instance_semantics(source, proven):
+    tree = ast.parse(source)
+    bindings = CallableBindings("atlas_brain.example", {}, {}, set())
+    bindings.predeclare(tree)
+    classes = declared_classes(tree, "atlas_brain.example")
+    assert ("atlas_brain.example.Record" in classes) is proven
+    assert bindings.constructor_call(expression("Record(value)"), "", classes) is proven
 
 
 def test_conditional_rebinding_joins_carrier_and_unknown_origins():

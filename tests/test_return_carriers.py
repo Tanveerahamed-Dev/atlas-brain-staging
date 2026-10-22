@@ -240,6 +240,32 @@ def test_ordinary_record_construction_keeps_its_fields():
     assert source_allowed("from .records import factory\nfactory().name.upper()", sources)
 
 
+@pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
+@pytest.mark.parametrize("classes", [
+    "class Carrier:\n def __new__(cls, value): return value\n",
+    "class Meta(type):\n def __call__(cls, value): return value\nclass Carrier(metaclass=Meta): pass\n",
+    "class Parent:\n def __new__(cls, value): return value\nclass Carrier(Parent): pass\n"])
+def test_actual_cli_uncertain_constructor_keeps_known_argument(tmp_path, capability, classes):
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text("from zipfile import ZipFile\n" + classes + "def factory(): return Carrier(" + capability
+                     + ")\ndef public_data(): return 1\n", encoding="utf-8")
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import factory, public_data\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    probe, tool = tmp_path / "atlas_brain/probe.py", str(Path("tools/fence.py").resolve())
+    args = "source" if capability == "ZipFile" else "archive, entry"
+    for module in (".evidence.archives", ".bridge"):
+        prefix = f"from {module} import factory, public_data\n"
+        probe.write_text(prefix + "factory()\npublic_data().bit_length()\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+        probe.write_text(prefix + f"factory()({args})\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
+
+
 def test_possible_primitive_predicate_aliases_remain_primitive():
     sources = {USING: "from zipfile import ZipFile\ndef factory(value, flag):\n predicate = isinstance\n if flag: predicate = issubclass\n return predicate(value, ZipFile)"}
     assert source_allowed("from .evidence.archives import factory\nfactory(value, flag).bit_length()", sources)
