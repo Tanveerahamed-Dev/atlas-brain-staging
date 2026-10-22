@@ -90,8 +90,8 @@ def unordered_iterations(tree: ast.AST, aliases: dict[str, str]) -> frozenset[as
                 sets.update(t.id for t in targets if isinstance(t, ast.Name))
     findings: set[ast.AST] = set()
     for node in ast.walk(tree):
-            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
-                iterator = node.iter
-                if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and resolved_tail(iterator.func, aliases) in ('set', 'frozenset')):
-                    findings.add(node)
+        if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            iterator = node.iter
+            if isinstance(iterator, (ast.Set, ast.SetComp)) or (isinstance(iterator, ast.Name) and iterator.id in sets) or (isinstance(iterator, ast.Call) and resolved_tail(iterator.func, aliases) in ('set', 'frozenset')):
+                findings.add(node)
     return frozenset(findings)
