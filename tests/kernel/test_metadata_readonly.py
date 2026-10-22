@@ -38,6 +38,7 @@ def check(body):
     '    owned = []\n    owned.append(source)\n    owned.pop()',
     '    owned = {}\n    owned["metadata"] = source',
     '    owned = [False]\n    owned[-1] = True',
+    '    owned = [False]\n    owned[-1] = owned[-1] or True',
     '    owned = set()\n    owned.add(source)',
     '    def hit():\n        findings.add((3, 1))\n    hit()',
     '    def read(data=frozenset()):\n        return len(data)\n    size = read()',
@@ -52,6 +53,9 @@ def test_owned_collections_and_transitive_readers_remain_supported(body):
 @pytest.mark.parametrize('body', [
     '    forwarded = source\n    forwarded["forged"] = "healthy"',
     '    forwarded = source.body\n    forwarded[:] = ()',
+    '    forwarded = source\n    forwarded |= {"forged": "healthy"}',
+    '    owned = [source]\n    owned[0] |= {"forged": "healthy"}',
+    '    owned = [source]\n    owned[0] += ["healthy"]',
     '    source.append("healthy")',
     '    def consume(data=source.clear()):\n        return len(data)\n    size = consume()',
     '    owned = {}\n    owned = source\n    owned["forged"] = "healthy"',

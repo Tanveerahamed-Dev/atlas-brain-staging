@@ -196,6 +196,15 @@ def test_root_cannot_forge_the_ast_or_import_environment(before, after):
 @pytest.mark.parametrize('before,after', [
     ('    aliases, rebound = binding_environment(tree)\n',
      ('    aliases, rebound = binding_environment(tree)\n'
+      '    forwarded = aliases\n    forwarded |= {"forged": "typing.assert_never"}\n')),
+    ('    aliases, rebound = binding_environment(tree)\n',
+     ('    aliases, rebound = binding_environment(tree)\n'
+      '    owned = [aliases]\n    owned[0] |= {"forged": "typing.assert_never"}\n')),
+    ('    tree = ast.parse(source)\n',
+     ('    tree = ast.parse(source)\n    owned = [tree.body]\n'
+      '    owned[0] += ast.parse("from typing import assert_never as forged").body\n')),
+    ('    aliases, rebound = binding_environment(tree)\n',
+     ('    aliases, rebound = binding_environment(tree)\n'
       '    forwarded = aliases\n    forwarded["forged"] = "typing.assert_never"\n')),
     ('    tree = ast.parse(source)\n',
      ('    tree = ast.parse(source)\n    forwarded = tree.body\n'
