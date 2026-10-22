@@ -139,7 +139,7 @@ def origin_member(root, suffix):
         return endpoint + suffix if endpoint in constructor_members(frozenset(apis)) else root
     apis = STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values())
     endpoints = api_values(frozenset(apis))
-    if root in endpoints and not callable(endpoints[root]):
+    if suffix and root in endpoints and not callable(endpoints[root]):
         return RESULT_VALUE + root
     return root + suffix
 
