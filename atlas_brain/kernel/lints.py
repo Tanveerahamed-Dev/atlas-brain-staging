@@ -414,9 +414,12 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
     initial = [n for n in root.body if isinstance(n, ast.Assign)]
     if not initial or not same_syntax(initial[0], ast.parse('tree = ast.parse(source)').body[0]):
         return refuse(22)
+    if any(isinstance(n, ast.Name) and not isinstance(n.ctx, ast.Load) and (
+            n.id == 'source' or n.id == 'tree' and n is not initial[0].targets[0]) for n in ast.walk(root)):
+        return refuse(39)
     edges: dict[str, set[str]] = {name: set() for name in functions}
-    alias_target = next(n for n in ast.parse('aliases, rebound = binding_environment(tree)').body
-                        if isinstance(n, ast.Assign)).targets[0]
+    alias_assignment = ast.parse('aliases, rebound = binding_environment(tree)').body[0]
+    binding_producer = lint_root.rsplit('.', 1)[0] + '.binding_environment'
     for p in metadata:
         module, tree = modules[p], trees[p]
         local = exports[p]
@@ -425,10 +428,14 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
             if isinstance(reference_node, ast.Name) and isinstance(reference_node.ctx, ast.Store) and (
                     reference_node.id in local or reference_node.id in builtins or module + '.' + reference_node.id in functions):
                 return refuse(23)
-            if (isinstance(reference_node, ast.Name) and isinstance(reference_node.ctx, ast.Store) and reference_node.id == 'aliases'
-                    and not any(same_syntax(parents[reference_node], permitted) for permitted in (
-                        ast.parse('aliases = dict(bindings)').body[0], alias_target))):
-                return refuse(24)
+            if isinstance(reference_node, ast.Name) and isinstance(reference_node.ctx, ast.Store) and reference_node.id == 'aliases':
+                assignment = parents[reference_node]
+                if assignment in parents and not isinstance(assignment, ast.Assign):
+                    assignment = parents[assignment]
+                owner_key = scope_key(reference_node, parents)
+                if not (owner_key == lint_root and same_syntax(assignment, alias_assignment)
+                        or owner_key == binding_producer and same_syntax(assignment, ast.parse('aliases = dict(bindings)').body[0])):
+                    return refuse(24)
             if isinstance(reference_node, ast.Subscript) and isinstance(reference_node.ctx, ast.Store) and isinstance(reference_node.value, ast.Name) and reference_node.value.id == 'aliases':
                 return refuse(25)
             if isinstance(reference_node, ast.Name) and isinstance(reference_node.ctx, ast.Load) and reference_node.id in ('selected', 'findings'):
