@@ -27,3 +27,18 @@ def test_nested_benign_import_cannot_hide_an_outer_guard_target(origin, operatio
     assert rule in {number for number, _ in lint(outer, 'atlas_brain/packs/example/parser.py')}
     source = outer + f'\n{nested}\n from builtins import str as target\n reference = target'
     assert rule in {number for number, _ in lint(source, 'atlas_brain/packs/example/parser.py')}
+
+
+@pytest.mark.parametrize('nested', ['def local():', 'class Local:'])
+def test_conflicting_classvar_origin_does_not_exempt_a_real_dataclass_field(nested):
+    source = ('from dataclasses import dataclass\nfrom builtins import int as CV\n'
+              '@dataclass\nclass Record:\n value: CV = 1\n'
+              f'{nested}\n from typing import ClassVar as CV\n reference = CV')
+    assert 2 in {number for number, _ in lint(source, 'atlas_brain/model/record.py')}
+
+
+@pytest.mark.parametrize('tail', ['', '\ndef local():\n from typing import ClassVar as CV\n reference = CV'])
+def test_genuine_classvar_imports_preserve_the_field_exemption(tail):
+    source = ('from dataclasses import dataclass\nfrom typing import ClassVar as CV\n'
+              '@dataclass\nclass Record:\n value: CV[int] = 1' + tail)
+    assert 2 not in {number for number, _ in lint(source, 'atlas_brain/model/record.py')}
