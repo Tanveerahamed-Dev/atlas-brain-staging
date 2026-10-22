@@ -538,7 +538,7 @@ def boundary_api(monkeypatch, data, rows, total=None, failure=None):
     return commands
 
 
-@pytest.mark.parametrize("case", ["healthy", "latest_failure", "wrong_sha_filler", "partial"])
+@pytest.mark.parametrize("case", ["healthy", "healthy_manual", "latest_failure", "wrong_sha_filler", "partial"])
 def test_complete_source_class_cannot_hide_replaced_latest_failure(monkeypatch, case):
     from tools import main_receipts
 
@@ -548,6 +548,8 @@ def test_complete_source_class_cannot_hide_replaced_latest_failure(monkeypatch, 
     newer = {**ci, "id": 900, "run_number": 2, "run_attempt": 2, "conclusion": "failure"}
     if case in {"latest_failure", "wrong_sha_filler"}:
         rows.append({**newer, "head_sha": "b" * 40} if case == "wrong_sha_filler" else newer)
+    if case == "healthy_manual":
+        rows.append({**ci, "id": 900, "event": "workflow_dispatch"})
     total = 8 if case == "partial" else len(rows)
     assert len({run["workflow_id"] for run in rows}) == 7
     assert len({run["id"] for run in rows}) == len(rows)
@@ -556,7 +558,7 @@ def test_complete_source_class_cannot_hide_replaced_latest_failure(monkeypatch, 
         def forbidden(*args, **kwargs):
             raise AssertionError("selection must not run for a malformed listing")
         monkeypatch.setattr(main_receipts, "select_runs", forbidden)
-    if case == "healthy":
+    if case in {"healthy", "healthy_manual"}:
         result = main_receipts.verify_native(main_receipts.collect(SHA, "push", with_checks=True), SHA)
         assert result["verified"] and result["workflow_count"] == 7 and result["job_count"] == 16
     else:
