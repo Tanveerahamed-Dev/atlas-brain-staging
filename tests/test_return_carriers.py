@@ -272,13 +272,16 @@ def test_possible_primitive_predicate_aliases_remain_primitive():
 
 
 @pytest.mark.parametrize("kind", ["outside", "noncontract"])
-@pytest.mark.parametrize("carrier", ["map(lambda item: item, (ZipFile,))", "filter(None, (ZipFile,))"])
-def test_unproved_carrier_output_negative_creates_no_payload(tmp_path: Path, kind, carrier):
+@pytest.mark.parametrize("carrier, receiver", [("map(lambda item: item, (ZipFile,))", "next(factory())"),
+                                              ("filter(None, (ZipFile,))", "next(factory())"),
+                                              ("Carrier(ZipFile)", "factory()")])
+def test_unproved_carrier_output_negative_creates_no_payload(tmp_path: Path, kind, carrier, receiver):
     package = tmp_path / "atlas_brain"
     (package / "evidence").mkdir(parents=True)
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "evidence/archives.py").write_text(
-        "from zipfile import ZipFile\ndef factory(): return " + carrier + "\n", encoding="utf-8")
+        "from zipfile import ZipFile\nclass Carrier:\n def __new__(cls, value): return value\n"
+        + "def factory(): return " + carrier + "\n", encoding="utf-8")
     probe = package / "zz_consumer.py"
     prefix = "from .evidence.archives import factory\n"
     probe.write_text(prefix + "factory()\n", encoding="utf-8")
@@ -295,7 +298,7 @@ def test_unproved_carrier_output_negative_creates_no_payload(tmp_path: Path, kin
     assert subprocess.run([sys.executable, witness, "--root", str(root)], cwd=tmp_path, env=env,
                           capture_output=True, text=True, check=False).returncode == 0
     target = tmp_path / "forbidden.zip" if kind == "outside" else root / "notes.zip"
-    probe.write_text(prefix + "next(factory())(" + repr(str(target)) + ", 'w')\n", encoding="utf-8")
+    probe.write_text(prefix + receiver + "(" + repr(str(target)) + ", 'w')\n", encoding="utf-8")
     assert fence().returncode == 1
     result = subprocess.run([sys.executable, witness, "--root", str(root)], cwd=tmp_path, env=env,
                             capture_output=True, text=True, check=False)
