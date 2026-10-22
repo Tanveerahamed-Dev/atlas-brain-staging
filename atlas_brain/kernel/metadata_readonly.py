@@ -6,6 +6,8 @@ The caller separately proves graph closure, source coverage and finding outputs.
 """
 import ast
 
+from .token_lints import inplace_write
+
 BUILTINS = ('isinstance', 'dict', 'tuple', 'any', 'all', 'sorted', 'str', 'type',
             'set', 'list', 'len', 'next', 'iter', 'enumerate', 'bool', 'frozenset',
             'int', 'reversed', 'zip')
@@ -131,6 +133,8 @@ def readonly_failure(functions: dict[str, ast.FunctionDef],
         parents = {child: parent for parent in nodes for child in ast.iter_child_nodes(parent)}
         local = imports[key]
         for node in nodes:
+            if inplace_write(node) or isinstance(node, ast.Name) and node.id.startswith('__'):
+                return f'R17:{detail}'
             if isinstance(node, ast.Attribute) and (node.attr.startswith('__') or node.attr in MUTATORS):
                 if node.attr.startswith('__') or node not in parents:
                     return f"R7:{detail}"
@@ -155,6 +159,8 @@ def readonly_failure(functions: dict[str, ast.FunctionDef],
                 continue
             if isinstance(node.func, ast.Name):
                 name = node.func.id
+                if name in ('sorted', 'iter', 'type') and (len(node.args) != 1 or node.keywords):
+                    return f'R18:{detail}'
                 if name in local:
                     if local[name] not in PURE_CALLS and local[name] not in functions:
                         return f"R12:{detail}"

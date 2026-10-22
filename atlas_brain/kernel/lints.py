@@ -38,7 +38,7 @@ def nested_unbounded(pattern: str) -> bool:
             stack.append(False)
         elif char == ')':
             last_group = stack.pop() if len(stack) > 1 else False
-            stack[-1] |= last_group
+            stack[-1] = stack[-1] or last_group
             continue
         elif char in '*+' or (char == '{' and re.search(r'^\{\d+,\}', pattern[index:], re.ASCII)):
             if last_group:

@@ -33,6 +33,12 @@ def qualifier_lines(body: list[ast.stmt]) -> tuple[int, ...]:
         isinstance(node, ast.Return) and isinstance(node.value, ast.Subscript))))
 
 
+def inplace_write(node: ast.AST) -> bool:
+    """The target/operator syntax pair denotes an implicit in-place operation."""
+    fields = tuple(field for field, _ in ast.iter_fields(node))
+    return 'target' in fields and 'op' in fields
+
+
 def _tail(node: ast.AST) -> str:
     if isinstance(node, ast.Name):
         return node.id
