@@ -309,7 +309,8 @@ def test_possible_primitive_predicate_aliases_remain_primitive():
     assert source_allowed("from .evidence.archives import factory\nfactory(value, flag).bit_length()", sources)
 
 
-@pytest.mark.parametrize("path", ["atlas_brain/kernel/token_lints.py", "atlas_brain/packs/platform/system/build.py"])
+@pytest.mark.parametrize("path", ["atlas_brain/kernel/token_lints.py", "atlas_brain/packs/platform/system/build.py",
+                                  "atlas_brain/evidence/admission.py"])
 def test_accepted_tracked_ast_and_record_field_sources_remain_admitted(path):
     paths = subprocess.check_output(["git", "ls-files", "-z", "atlas_brain"]).decode().rstrip("\0").split("\0")
     sources = {name: Path(name).read_text(encoding="utf-8") for name in paths if name.endswith(".py")}
