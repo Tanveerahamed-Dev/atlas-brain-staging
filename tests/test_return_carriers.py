@@ -28,6 +28,10 @@ CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
             ("return map(lambda item: item, (CAP,))", "next(factory())"),
             ("return filter(None, (CAP,))", "next(factory())"),
             ("return passthrough((CAP,))", "next(factory())"),
+            ("return (lambda: CAP)()", "factory()"),
+            ("return passthrough((lambda: CAP)())", "factory()"),
+            ("maker = lambda: CAP\n return maker()", "factory()"),
+            ("return (lambda value: value)(CAP)", "factory()"),
             ("carrier = iter\n if flag:\n  carrier = lambda values: values\n return carrier((CAP,))", "next(factory(False))"),
             ("carrier = iter if flag else iter\n if flag:\n  carrier = len\n return carrier((CAP,))", "next(factory(False))"),
             ("return [CAP for _ in (0,)][0]", "factory()")]
@@ -64,7 +68,9 @@ def test_actual_cli_data_positive_then_carried_capability_refusal(tmp_path: Path
     ("return type(value) is ZipFile", "factory(value)"),
     ("box = {'ok': isinstance(value, ZipFile)}\n return box.get('ok')", "factory(value)"),
     ("it = iter\n return next(it((isinstance(value, ZipFile),)))", "factory(value)"),
-    ("return (1 for _ in (0,) if isinstance(value, ZipFile))", "next(factory(value))")])
+    ("return (1 for _ in (0,) if isinstance(value, ZipFile))", "next(factory(value))"),
+    ("return (lambda: isinstance(value, ZipFile))()", "factory(value)"),
+    ("return (lambda item: isinstance(item, ZipFile))(value)", "factory(value)")])
 def test_ordinary_predicate_and_generator_data_remain_public(body, receiver):
     sources = {USING: "from zipfile import ZipFile\ndef factory(value):\n " + body}
     assert source_allowed("from .evidence.archives import factory\n" + receiver + ".bit_length()", sources)
@@ -335,6 +341,8 @@ def test_admitted_readonly_property_result_remains_plain_data():
 @pytest.mark.parametrize("carrier, receiver", [("map(lambda item: item, (ZipFile,))", "next(factory())"),
                                               ("filter(None, (ZipFile,))", "next(factory())"),
                                               ("Carrier(ZipFile)", "factory()"),
+                                              ("(lambda: ZipFile)()", "factory()"),
+                                              ("passthrough((lambda: ZipFile)())", "factory()"),
                                               ("Box(ZipFile)", "factory().capability")])
 def test_unproved_carrier_output_negative_creates_no_payload(tmp_path: Path, kind, carrier, receiver):
     package = tmp_path / "atlas_brain"
@@ -343,6 +351,7 @@ def test_unproved_carrier_output_negative_creates_no_payload(tmp_path: Path, kin
     (package / "evidence/archives.py").write_text(
         "from zipfile import ZipFile\nclass Carrier:\n def __new__(cls, value): return value\n"
         + "class Box:\n def __init__(self, capability): self.capability = capability\n"
+        + "def passthrough(value): return value\n"
         + "def factory(): return " + carrier + "\n", encoding="utf-8")
     probe = package / "zz_consumer.py"
     prefix = "from .evidence.archives import factory\n"
