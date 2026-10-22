@@ -6,8 +6,8 @@ Extends ADR-0010; all prior global, runtime and per-file grants are unchanged.
 Standing public-AST delegation, owner decision 2026-10-20 20:45:
 https://github.com/Tanveerahamed-Dev/atlas-brain-staging/pull/67#issuecomment-6297326921
 T = atlas_brain/kernel/metadata_readonly.py, published source
-2cafba9d16a257254325470a97af681b2b420f3b, blob cd5f785e678dccb8d73423037b0f2f92b7e9fa60.
-SHA-256: 86025127927bda33631fa6160236520c3b5846572d13ee3c5be14c9c0a9c4130.
+c357c92ded887e52fc06d05a70dc777326f4b3ed, blob eb75a9ca6da143a127e8f3024e61405a6de2296a.
+SHA-256: 8fbbf9d1ecde301bcbfe310e4211e0c7285f7be608cfd995a7c4e3883bdf5c5f.
 The hosted inventory parses this file as data and checks its actual tracked
 source admission. It never imports or executes the component.
 

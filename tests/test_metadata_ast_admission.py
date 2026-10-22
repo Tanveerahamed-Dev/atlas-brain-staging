@@ -13,9 +13,9 @@ import pytest
 from tools.fence import RUNTIME_API, SCOPED_API, STDLIB_API, source_allowed
 
 USING = "atlas_brain/kernel/metadata_readonly.py"
-REVISION = "2cafba9d16a257254325470a97af681b2b420f3b"
-BLOB = "cd5f785e678dccb8d73423037b0f2f92b7e9fa60"
-DIGEST = "86025127927bda33631fa6160236520c3b5846572d13ee3c5be14c9c0a9c4130"
+REVISION = "c357c92ded887e52fc06d05a70dc777326f4b3ed"
+BLOB = "eb75a9ca6da143a127e8f3024e61405a6de2296a"
+DIGEST = "8fbbf9d1ecde301bcbfe310e4211e0c7285f7be608cfd995a7c4e3883bdf5c5f"
 APIS = {
     "ast.AST", "ast.AnnAssign", "ast.Assign", "ast.AsyncFunctionDef", "ast.AsyncWith",
     "ast.Attribute", "ast.Call", "ast.ClassDef", "ast.Dict", "ast.DictComp", "ast.ExceptHandler",
@@ -43,7 +43,7 @@ def test_actual_pinned_source_uses_exactly_the_admitted_endpoints(actual_source)
     used = {"ast." + node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name) and node.value.id == "ast"}
     assert used == APIS == SCOPED_API[USING] and len(APIS) == 31
-    assert len(actual_source.splitlines()) == 159
+    assert len(actual_source.splitlines()) == 166
     # Strings in PURE_CALLS describe inspected source; they do not import those APIs.
     assert "ast.parse" not in used and "ast.iter_fields" not in used
     assert source_allowed(actual_source, path=USING)
