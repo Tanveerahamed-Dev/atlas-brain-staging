@@ -461,11 +461,11 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
             while target not in functions and scope.startswith(module + '.'):
                 target = scope + '.' + n.id
                 scope = scope.rsplit('.', 1)[0]
+            parent = parents[n]
             if target not in functions:
-                if isinstance(parents[n], ast.Call) and parents[n].func is n and n.id not in builtins and n.id not in local:
+                if isinstance(parent, ast.Call) and parent.func is n and n.id not in builtins and n.id not in local:
                     return ()
                 continue
-            parent = parents[n]
             if not isinstance(parent, ast.Call) or parent.func is not n:
                 return ()
             owner = parent
