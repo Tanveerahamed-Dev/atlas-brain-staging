@@ -476,3 +476,172 @@ def test_governance_runs_native_base_gate_without_replacing_existing_commands():
     assert "EVENT: ${{ github.event_name }}" in text
     assert "uv run --no-sync pytest -q tests/test_governance.py tests/test_main_receipts.py" in text
     assert 'uv run --no-sync python -m tools.governance --base "$BASE" --head HEAD' in text
+
+
+def source_native_class():
+    """Synthetic identities/steps from current workflow source DATA, not real receipts."""
+    paths = sorted(workflow_paths({"truncated": False, "tree": [
+        {"path": p.as_posix(), "type": "blob"} for p in Path(".github/workflows").iterdir() if p.is_file()]}))
+    sources = {path: source_blob(Path(path).read_text(encoding="utf-8")) for path in paths}
+    data = {"tree": {"truncated": False, "tree": [
+        {"path": path, "type": "blob", "sha": sources[path]["sha"]} for path in paths]},
+        "sources": sources, "catalog": [], "runs": [], "jobs": {}, "checks": []}
+    for index, path in enumerate(paths):
+        run_id, workflow_id = 100 + index, 10 + index
+        data["catalog"].append({"id": workflow_id, "path": path, "state": "active"})
+        data["runs"].append({"id": run_id, "workflow_id": workflow_id, "path": path, "head_sha": SHA,
+                             "head_branch": "main", "event": "push", "run_number": 1, "run_attempt": 1,
+                             "status": "completed", "conclusion": "success"})
+        jobs = []
+        for ordinal, (name, required) in enumerate(expected_jobs(data, path, "push", with_steps=True).items()):
+            identity = run_id * 100 + ordinal
+            steps = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success"}]
+            steps.extend({"number": number, "name": step["name"], "status": "completed", "conclusion": "success"}
+                         for number, step in enumerate(required, 2))
+            steps.append({"number": len(required) + 2, "name": "Complete job", "status": "completed", "conclusion": "success"})
+            jobs.append({"id": identity, "run_id": run_id, "head_sha": SHA, "name": name,
+                         "status": "completed", "conclusion": "success", "steps": steps,
+                         "check_run_url": f"https://api.github.com/repos/Tanveerahamed-Dev/atlas-brain-staging/check-runs/{identity}"})
+            data["checks"].append({"id": identity, "head_sha": SHA, "name": name,
+                                   "app": {"id": 15368}, "status": "completed", "conclusion": "success"})
+        data["jobs"][str(run_id)] = jobs
+    assert len(paths) == 7 and sum(map(len, data["jobs"].values())) == 16
+    return data
+
+
+def boundary_api(monkeypatch, data, rows, total=None, failure=None):
+    from tools import main_receipts
+
+    commands = []
+    def read(command, encoding):
+        commands.append(command)
+        endpoint = command[2].removeprefix(f"repos/{main_receipts.REPO}/")
+        if endpoint.startswith("git/trees/"):
+            return json.dumps(data["tree"])
+        if endpoint.startswith("actions/workflows?"):
+            return json.dumps([{"workflows": data["catalog"], "total_count": len(data["catalog"])}])
+        if endpoint.startswith("actions/runs?"):
+            if failure == "http":
+                raise subprocess.CalledProcessError(1, command)
+            if failure == "json":
+                return "invalid-json"
+            return json.dumps([{"workflow_runs": rows, "total_count": len(rows) if total is None else total}])
+        if endpoint.startswith("git/blobs/"):
+            return json.dumps(next(blob for blob in data["sources"].values() if blob["sha"] == endpoint.split("/")[-1]))
+        if endpoint.startswith("actions/runs/"):
+            jobs = data["jobs"][endpoint.split("/")[2]]
+            return json.dumps([{"jobs": jobs, "total_count": len(jobs)}])
+        if endpoint.startswith("commits/"):
+            return json.dumps([{"check_runs": data["checks"], "total_count": len(data["checks"])}])
+        raise AssertionError(endpoint)
+    monkeypatch.setattr(main_receipts.subprocess, "check_output", read)
+    return commands
+
+
+@pytest.mark.parametrize("case", ["healthy", "healthy_manual", "latest_failure", "wrong_sha_filler", "partial"])
+def test_complete_source_class_cannot_hide_replaced_latest_failure(monkeypatch, case):
+    from tools import main_receipts
+
+    data = source_native_class()
+    rows = deepcopy(data["runs"])
+    ci = next(run for run in rows if run["path"] == ".github/workflows/ci.yml")
+    newer = {**ci, "id": 900, "run_number": 2, "run_attempt": 2, "conclusion": "failure"}
+    if case in {"latest_failure", "wrong_sha_filler"}:
+        rows.append({**newer, "head_sha": "b" * 40} if case == "wrong_sha_filler" else newer)
+    if case == "healthy_manual":
+        rows.append({**ci, "id": 900, "event": "workflow_dispatch"})
+    total = 8 if case == "partial" else len(rows)
+    assert len({run["workflow_id"] for run in rows}) == 7
+    assert len({run["id"] for run in rows}) == len(rows)
+    commands = boundary_api(monkeypatch, data, rows, total)
+    if case in {"wrong_sha_filler", "partial"}:
+        def forbidden(*args, **kwargs):
+            raise AssertionError("selection must not run for a malformed listing")
+        monkeypatch.setattr(main_receipts, "select_runs", forbidden)
+    if case in {"healthy", "healthy_manual"}:
+        result = main_receipts.verify_native(main_receipts.collect(SHA, "push", with_checks=True), SHA)
+        assert result["verified"] and result["workflow_count"] == 7 and result["job_count"] == 16
+    else:
+        reason = {"latest_failure": "latest workflow is not successful", "wrong_sha_filler": "wrong-subject",
+                  "partial": "incomplete or inconsistent listing"}[case]
+        with pytest.raises(ValueError, match=reason):
+            main_receipts.collect(SHA, "push", with_checks=True)
+        assert not any("/jobs?" in command[2] for command in commands)
+    assert sum("actions/runs?" in command[2] for command in commands) == 1
+
+
+@pytest.mark.parametrize("subject", [None, True, 12, [], "short", "b" * 40])
+def test_extra_irrelevant_wrong_subject_refuses_before_selection(monkeypatch, subject):
+    from tools import main_receipts
+
+    data = source_native_class()
+    filler = {**data["runs"][0], "id": 900, "workflow_id": 9999, "head_sha": subject}
+    if subject is None:
+        del filler["head_sha"]
+    commands = boundary_api(monkeypatch, data, [*data["runs"], filler])
+    def forbidden(*args, **kwargs):
+        raise AssertionError("wrong-subject row reached selection")
+    monkeypatch.setattr(main_receipts, "select_runs", forbidden)
+    with pytest.raises(ValueError, match="wrong-subject"):
+        main_receipts.collect(SHA, "push", with_checks=True)
+    assert not any("/jobs?" in command[2] for command in commands)
+
+
+@pytest.mark.parametrize("kind", ["empty", "manual", "manual_only", "partial_required", "latest_attempt",
+                                 "wrong_sha", "wrong_workflow", "http", "json"])
+def test_source_query_retains_original_closed_response_cases(monkeypatch, kind):
+    from tools.main_receipts import collect
+
+    data = source_native_class()
+    rows = deepcopy(data["runs"])
+    total = None
+    if kind == "empty":
+        rows = []
+    elif kind == "manual":
+        rows[0]["event"] = "workflow_dispatch"
+    elif kind == "manual_only":
+        for row in rows:
+            row["event"] = "workflow_dispatch"
+    elif kind == "partial_required":
+        rows.pop()
+        total = 7
+    elif kind == "latest_attempt":
+        rows.append({**rows[0], "id": 900, "run_attempt": 2, "conclusion": "failure"})
+    elif kind == "wrong_sha":
+        rows[0]["head_sha"] = "b" * 40
+    elif kind == "wrong_workflow":
+        rows[0]["workflow_id"] = 9999
+    commands = boundary_api(monkeypatch, data, rows, total=total, failure=kind)
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        collect(SHA, "push", with_checks=True)
+    assert sum("actions/runs?" in command[2] for command in commands) == 1
+    assert not any("/jobs?" in command[2] for command in commands)
+
+
+@pytest.mark.parametrize("plant", ["healthy", "missing_count", "boolean_count", "negative_count",
+                                  "inconsistent_totals", "duplicate", "bad_id", "missing_page"])
+def test_paginated_query_class_is_complete_before_admission(monkeypatch, plant):
+    from tools.main_receipts import github
+
+    rows = source_native_class()["runs"]
+    pages = [{"total_count": 7, "workflow_runs": rows[:4]}, {"total_count": 7, "workflow_runs": rows[4:]}]
+    if plant == "missing_count":
+        del pages[0]["total_count"]
+    elif plant == "boolean_count":
+        pages[0]["total_count"] = True
+    elif plant == "negative_count":
+        pages[0]["total_count"] = -1
+    elif plant == "inconsistent_totals":
+        pages[1]["total_count"] = 8
+    elif plant == "duplicate":
+        pages[1]["workflow_runs"] = [rows[0], *rows[5:]]
+    elif plant == "bad_id":
+        pages[1]["workflow_runs"][0] = {**rows[4], "id": True}
+    elif plant == "missing_page":
+        pages = []
+    monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: json.dumps(pages))
+    if plant == "healthy":
+        assert github("actions/runs?head_sha=" + SHA, "workflow_runs") == rows
+    else:
+        with pytest.raises(ValueError, match="incomplete or inconsistent listing"):
+            github("actions/runs?head_sha=" + SHA, "workflow_runs")
