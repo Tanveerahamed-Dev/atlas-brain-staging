@@ -7,7 +7,6 @@ import pytest
 from atlas_brain.kernel import lints, token_lints
 
 
-
 @pytest.mark.parametrize('resolver', [lints.resolved_name, lints.possible_names, token_lints._qualified])
 def test_resolver_source_has_no_missing_key_default(resolver):
     source = inspect.getsource(resolver)
