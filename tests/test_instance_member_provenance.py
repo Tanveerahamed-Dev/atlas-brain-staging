@@ -74,6 +74,57 @@ def tracked_cli(root):
                           capture_output=True, text=True, check=False)
 
 
+@pytest.mark.parametrize("construction", ["Record(Path('synthetic'))", "Record(path=Path('synthetic'))"])
+@pytest.mark.parametrize("receiver", ["factory().path", "borrowed.path"])
+def test_actual_cli_record_field_keeps_path_provenance(tmp_path, construction, receiver):
+    package = tmp_path / "atlas_brain"
+    package.mkdir()
+    (package / "records.py").write_text(
+        "from pathlib import Path\nclass Record:\n def __init__(self, path): self.path = path\n"
+        + "class Data:\n def __init__(self, path): self.name = 'record'\n"
+        + "def factory(): return " + construction + "\ndef data(): return Data(Path('data'))\n", encoding="utf-8")
+    (package / "bridge.py").write_text("from .records import factory, data\n", encoding="utf-8")
+    consumer = package / "probe.py"
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    for module in (".records", ".bridge"):
+        prefix = f"from {module} import factory, data\n"
+        consumer.write_text(prefix + "factory()\ndata().name.upper()\n", encoding="utf-8")
+        assert tracked_cli(tmp_path).returncode == 0
+        consumer.write_text(prefix + "borrowed = factory()\n" + receiver + ".write_text('x')\n", encoding="utf-8")
+        refused = tracked_cli(tmp_path)
+        assert refused.returncode == 1 and "atlas_brain/probe.py" in refused.stdout
+
+
+@pytest.mark.parametrize("kind", ["outside", "noncontract"])
+def test_record_path_output_refusal_creates_no_payload(tmp_path, kind):
+    package = tmp_path / "atlas_brain"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    root = tmp_path / "contract"
+    target = tmp_path / "forbidden" if kind == "outside" else root / "notes.txt"
+    (package / "records.py").write_text(
+        "from pathlib import Path\nclass Record:\n def __init__(self, path): self.path = path\n"
+        + "def factory(): return Record(Path(" + repr(str(target)) + "))\n", encoding="utf-8")
+    consumer = package / "zz_consumer.py"
+    prefix = "from .records import factory\n"
+    consumer.write_text(prefix + "factory()\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    tool = str(Path("tools/output_witness.py").resolve())
+    def witness():
+        return subprocess.run([sys.executable, tool, "--root", str(root)], cwd=tmp_path,
+                              env={**os.environ, "PYTHONPATH": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"},
+                              capture_output=True, text=True, check=False)
+    assert tracked_cli(tmp_path).returncode == 0 and witness().returncode == 0
+    consumer.write_text(prefix + "factory().path.write_text('x', encoding='utf-8')\n", encoding="utf-8")
+    assert tracked_cli(tmp_path).returncode == 1
+    result = witness()
+    receipt = json.loads(result.stdout)
+    assert result.returncode == 1 and receipt["completed"] is False and "open" in receipt["violations"]
+    assert not target.exists()
+
+
 @pytest.mark.parametrize("producer", PRODUCERS[:3])
 @pytest.mark.parametrize("receiver", RECEIVERS)
 def test_actual_two_file_cli_allows_data_but_refuses_direct_and_bridge_writes(tmp_path: Path, producer, receiver):
