@@ -130,6 +130,16 @@ def gate_data_allowed(path: str, data) -> bool:
     return False
 
 
+def origin_member(root, suffix):
+    if root is None or root.startswith(CARRIER_RETURN):
+        return root
+    if root.startswith(RESULT_VALUE):
+        endpoint = root[len(RESULT_VALUE):]
+        apis = STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values())
+        return endpoint + suffix if endpoint in constructor_members(frozenset(apis)) else root
+    return root + suffix
+
+
 def import_bindings(tree, path, class_roots=frozenset()):
     aliases, exports, declarations = {}, {}, set()
     containers, callable_values = {}, {}
@@ -156,7 +166,7 @@ def import_bindings(tree, path, class_roots=frozenset()):
             known, base = reference(node.value, scope)
             def member(root):
                 # A carrier describes possible contents, not an API namespace to extend.
-                return root if root is None or root.startswith((CARRIER_RETURN, RESULT_VALUE)) else root + "." + node.attr
+                return origin_member(root, "." + node.attr)
             return known, (member(base) if isinstance(base, str) else
                            tuple(member(root) for root in base) if isinstance(base, tuple) else None)
         if isinstance(node, ast.Call):
@@ -326,7 +336,8 @@ def import_bindings(tree, path, class_roots=frozenset()):
                 [*value.args, *(item.value for item in value.keywords)]))
             # Default allocation cannot prove a scoped argument absent from public fields.
             roots.update(root if root.startswith(CARRIER_RETURN) else CARRIER_RETURN + root
-                         for root in carried if isinstance(root, str) and (not ordinary or root not in STDLIB_API))
+                         for root in carried if isinstance(root, str)
+                         and (not ordinary or root.removeprefix(RESULT_VALUE) not in STDLIB_API))
             return roots
         if known:
             return set(origin if isinstance(origin, tuple) else (origin,))
@@ -427,10 +438,15 @@ class ImportIndex:
         if name is None or name in seen:
             return set()
         if name.startswith(RESULT_VALUE):
-            roots = self.foreign_roots(name[len(RESULT_VALUE):], seen | {name}, callable_value=False)
+            callee = name[len(RESULT_VALUE):]
+            roots = self.foreign_roots(callee, seen | {name}, callable_value=True)
             admitted = STDLIB_API | set().union(*SCOPED_API.values(), *RUNTIME_API.values())
-            classes = constructor_members(frozenset(admitted))
-            return {root for root in roots if root.startswith(CARRIER_RETURN) or root in classes}
+            endpoints = api_values(frozenset(admitted))
+            if callee.startswith("atlas_brain."):
+                allowed = {api for api, target in endpoints.items() if callable(target)}
+            else:
+                allowed = set(constructor_members(frozenset(admitted)))
+            return {root for root in roots if root.startswith(CARRIER_RETURN) or root in allowed}
         if name.startswith(CARRIER_RETURN):
             roots = self.foreign_roots(name[len(CARRIER_RETURN):], seen | {name}, callable_value=True)
             return {root if root.startswith(CARRIER_RETURN) else CARRIER_RETURN + root for root in roots}
@@ -458,7 +474,7 @@ class ImportIndex:
                 evaluate_return=evaluate_return if isinstance(root, str) and root.startswith(CALLABLE_VALUE) else True)
                 for root in target))
         else:
-            endpoint = target if isinstance(target, str) and target.startswith((CARRIER_RETURN, RESULT_VALUE)) else target + tail[len(binding):] if target is not None else None
+            endpoint = origin_member(target, tail[len(binding):])
             roots = self.foreign_roots(endpoint, seen | {name},
                 callable_value=callable_value, evaluate_return=evaluate_return) if target is not None else set()
         if returned and not callable_value:
@@ -501,14 +517,14 @@ class ImportIndex:
                 if suffix and any(not root.startswith("atlas_brain.") for root in roots):
                     return roots[0] + suffix if len(roots) == 1 else None
                 return name
-            endpoint = target if isinstance(target, str) and target.startswith((CARRIER_RETURN, RESULT_VALUE)) else target + tail[len(binding):] if target is not None else None
+            endpoint = origin_member(target, tail[len(binding):])
             return self.origin(endpoint, seen | {name}) if endpoint is not None else None
         return name if any(tail == key or tail.startswith(key + ".") for key in declarations) else None
 
 
 @cache
-def constructor_members(apis):
-    """Inventory trusted admitted stdlib classes; never import consumer modules."""
+def api_values(apis):
+    """Inventory trusted admitted stdlib endpoints; never import consumer modules."""
     result = {}
     for api in sorted(apis):
         parts = api.split(".")
@@ -524,12 +540,17 @@ def constructor_members(apis):
                 continue
             for name in parts[length:]:
                 target = getattr(target, name)
-            if isinstance(target, type):
-                result[api] = frozenset(name for name in dir(target) if name.isidentifier() and not name.startswith("_"))
+            result[api] = target
             break
         else:
             raise ValueError("admitted API has no closed stdlib namespace")
     return result
+
+
+@cache
+def constructor_members(apis):
+    return {api: frozenset(name for name in dir(target) if name.isidentifier() and not name.startswith("_"))
+            for api, target in api_values(apis).items() if isinstance(target, type)}
 
 
 def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> set[str]:
@@ -608,7 +629,8 @@ def source_refusals(source: str, sources=None, path="atlas_brain/probe.py") -> s
                                 refused.add(root + "." + node.attr)
                         if any(not admitted(factory + "." + node.attr) for factory in origins
                                if not factory.startswith(CARRIER_RETURN) and
-                               (root.startswith("atlas_brain.") or node.attr in factories.get(factory, ()))):
+                               (root.startswith(("atlas_brain.", RESULT_VALUE, CALLABLE_VALUE))
+                                or node.attr in factories.get(factory, ()))):
                             refused.add(root + "." + node.attr)
                 continue
             name = index.origin(raw)
