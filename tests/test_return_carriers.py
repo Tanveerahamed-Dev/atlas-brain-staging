@@ -1,5 +1,7 @@
 """Known scoped capabilities cannot disappear inside dict or generator values."""
 import ast
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +25,9 @@ CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
             ("return {'cap': CAP}.get('cap')", "factory()"),
             ("box = {'cap': CAP}\n return box.get('cap')", "factory()"),
             ("return cast(object, CAP)", "factory()"),
+            ("return map(lambda item: item, (CAP,))", "next(factory())"),
+            ("return filter(None, (CAP,))", "next(factory())"),
+            ("return passthrough((CAP,))", "next(factory())"),
             ("carrier = iter\n if flag:\n  carrier = lambda values: values\n return carrier((CAP,))", "next(factory(False))"),
             ("carrier = iter if flag else iter\n if flag:\n  carrier = len\n return carrier((CAP,))", "next(factory(False))"),
             ("return [CAP for _ in (0,)][0]", "factory()")]
@@ -33,7 +38,7 @@ CARRIERS = [("return {'cap': CAP}['cap']", "factory()"),
 def test_actual_cli_data_positive_then_carried_capability_refusal(tmp_path: Path, capability, body, receiver):
     using = tmp_path / USING
     using.parent.mkdir(parents=True)
-    using.write_text("from zipfile import ZipFile\nfrom typing import cast\ndef factory(flag=False):\n " + body.replace("CAP", capability)
+    using.write_text("from zipfile import ZipFile\nfrom typing import cast\ndef passthrough(values): return values\ndef factory(flag=False):\n " + body.replace("CAP", capability)
                      + "\ndef public_data(): return {'count': 1}\n", encoding="utf-8")
     (tmp_path / "atlas_brain/bridge.py").write_text(
         "from .evidence.archives import factory, public_data\n", encoding="utf-8")
@@ -228,3 +233,76 @@ def test_actual_cli_class_alias_keeps_its_declared_method_namespace(tmp_path, ca
         subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
         result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
         assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
+
+
+def test_ordinary_record_construction_keeps_its_fields():
+    sources = {"atlas_brain/records.py": "from pathlib import Path\nclass Record:\n def __init__(self, path): self.name = 'record'\ndef factory(): return Record(Path('x'))"}
+    assert source_allowed("from .records import factory\nfactory().name.upper()", sources)
+
+
+@pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
+@pytest.mark.parametrize("classes", [
+    "class Carrier:\n def __new__(cls, value): return value\n",
+    "class Meta(type):\n def __call__(cls, value): return value\nclass Carrier(metaclass=Meta): pass\n",
+    "class Carrier: pass\ndef Carrier(value): return value\n",
+    "class Parent:\n def __new__(cls, value): return value\nclass Carrier(Parent): pass\n"])
+def test_actual_cli_uncertain_constructor_keeps_known_argument(tmp_path, capability, classes):
+    using = tmp_path / USING
+    using.parent.mkdir(parents=True)
+    using.write_text("from zipfile import ZipFile\n" + classes + "def factory(): return Carrier(" + capability
+                     + ")\ndef public_data(): return 1\n", encoding="utf-8")
+    (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import factory, public_data\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    probe, tool = tmp_path / "atlas_brain/probe.py", str(Path("tools/fence.py").resolve())
+    args = "source" if capability == "ZipFile" else "archive, entry"
+    for module in (".evidence.archives", ".bridge"):
+        prefix = f"from {module} import factory, public_data\n"
+        probe.write_text(prefix + "factory()\npublic_data().bit_length()\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
+        probe.write_text(prefix + f"factory()({args})\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        result = subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert result.returncode == 1 and "atlas_brain/probe.py" in result.stdout
+
+
+def test_possible_primitive_predicate_aliases_remain_primitive():
+    sources = {USING: "from zipfile import ZipFile\ndef factory(value, flag):\n predicate = isinstance\n if flag: predicate = issubclass\n return predicate(value, ZipFile)"}
+    assert source_allowed("from .evidence.archives import factory\nfactory(value, flag).bit_length()", sources)
+
+
+@pytest.mark.parametrize("kind", ["outside", "noncontract"])
+@pytest.mark.parametrize("carrier, receiver", [("map(lambda item: item, (ZipFile,))", "next(factory())"),
+                                              ("filter(None, (ZipFile,))", "next(factory())"),
+                                              ("Carrier(ZipFile)", "factory()")])
+def test_unproved_carrier_output_negative_creates_no_payload(tmp_path: Path, kind, carrier, receiver):
+    package = tmp_path / "atlas_brain"
+    (package / "evidence").mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "evidence/archives.py").write_text(
+        "from zipfile import ZipFile\nclass Carrier:\n def __new__(cls, value): return value\n"
+        + "def factory(): return " + carrier + "\n", encoding="utf-8")
+    probe = package / "zz_consumer.py"
+    prefix = "from .evidence.archives import factory\n"
+    probe.write_text(prefix + "factory()\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    tool = str(Path("tools/fence.py").resolve())
+    def fence():
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        return subprocess.run([sys.executable, tool], cwd=tmp_path, capture_output=True, text=True, check=False)
+    root = tmp_path / "contract"
+    witness = str(Path("tools/output_witness.py").resolve())
+    env = {**os.environ, "PYTHONPATH": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"}
+    assert fence().returncode == 0
+    assert subprocess.run([sys.executable, witness, "--root", str(root)], cwd=tmp_path, env=env,
+                          capture_output=True, text=True, check=False).returncode == 0
+    target = tmp_path / "forbidden.zip" if kind == "outside" else root / "notes.zip"
+    probe.write_text(prefix + receiver + "(" + repr(str(target)) + ", 'w')\n", encoding="utf-8")
+    assert fence().returncode == 1
+    result = subprocess.run([sys.executable, witness, "--root", str(root)], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, check=False)
+    receipt = json.loads(result.stdout)
+    assert result.returncode == 1 and receipt["completed"] is False and "open" in receipt["violations"]
+    assert not target.exists()
