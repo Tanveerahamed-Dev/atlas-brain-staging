@@ -58,21 +58,24 @@ def contains_name(node: ast.AST, names: tuple[str, ...], aliases: dict[str, str]
 
 
 def binding_environment(tree: ast.AST) -> tuple[dict[str, str], set[str]]:
-    """Retain the scanner's original whole-module import/rebinding inventory."""
-    aliases: dict[str, str] = {}
+    """Collect imports; conflicting origins cannot certify a stable API binding."""
+    bindings: list[tuple[str, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for item in node.names:
-                aliases[item.asname or item.name.split('.')[0]] = item.name if item.asname else item.name.split('.')[0]
+                bindings.append((item.asname or item.name.split('.')[0], item.name if item.asname else item.name.split('.')[0]))
         elif isinstance(node, ast.ImportFrom):
             for item in node.names:
-                aliases[item.asname or item.name] = f'{node.module}.{item.name}'
+                bindings.append((item.asname or item.name, f'{node.module}.{item.name}'))
+    aliases = dict(bindings)
+    ambiguous = {origin for name, origin in bindings if any(
+        name == other and origin != candidate for other, candidate in bindings)}
     rebound = {resolved_name(n, aliases) for n in ast.walk(tree) if isinstance(n, (ast.Name, ast.Attribute)) and isinstance(n.ctx, ast.Store)}
     for binding in ast.walk(tree):
         identifier = binding.arg if isinstance(binding, ast.arg) else binding.name if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)) else ''
         if identifier:
             rebound.add(resolved_name(ast.Name(id=identifier, ctx=ast.Load()), aliases))
-    return aliases, rebound
+    return aliases, rebound | ambiguous
 
 
 def unordered_iterations(tree: ast.AST, aliases: dict[str, str]) -> frozenset[ast.AST]:
