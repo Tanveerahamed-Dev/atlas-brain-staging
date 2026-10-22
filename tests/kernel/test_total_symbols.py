@@ -76,3 +76,19 @@ def test_total_origins_preserve_every_conflicting_import():
     annotation = next(node.annotation for node in ast.walk(tree) if isinstance(node, ast.AnnAssign))
     assert lints.possible_names(annotation, origins) == ('other.C', 'typing.ClassVar')
     assert any(rule == 2 for rule, _ in lints.lint(ast.unparse(tree), 'atlas_brain/model/probe.py'))
+
+
+@pytest.mark.parametrize('prefix,refused', [
+    ('', True),
+    ('from atlas_brain.kernel.states import Unknown\n', False),
+    ('from builtins import str as Unknown\nfrom atlas_brain.kernel.states import Unknown\n', True),
+])
+def test_public_token_refusal_requires_an_actual_unambiguous_import(prefix, refused):
+    source = prefix + 'def mapped(raw, values):\n if raw in values:\n  return values[raw]\n return Unknown("missing")'
+    assert any(rule == 3 for rule, _ in lints.lint(source, 'atlas_brain/kernel/probe.py')) is refused
+
+
+def test_public_scanner_does_not_turn_a_broken_symbol_domain_into_success(monkeypatch):
+    monkeypatch.setattr(token_lints, 'symbol_environment', lambda tree, aliases: {})
+    with pytest.raises(KeyError):
+        lints.lint('factory(value)', 'atlas_brain/kernel/probe.py')
