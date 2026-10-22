@@ -522,7 +522,7 @@ def boundary_api(monkeypatch, data, rows, total=None, failure=None):
             return json.dumps([{"workflows": data["catalog"], "total_count": len(data["catalog"])}])
         if endpoint.startswith("actions/runs?"):
             if failure == "http":
-                raise subprocess.CalledProcessError(1, command)
+                raise subprocess.CalledProcessError(1, command, output="unlogged-response", stderr="unlogged-response")
             if failure == "json":
                 return "invalid-json"
             return json.dumps([{"workflow_runs": rows, "total_count": len(rows) if total is None else total}])
@@ -695,25 +695,31 @@ def test_same_collection_refusal_evidence_preserves_admission_boundary(monkeypat
                                 "json": "invalid_json"}.get(kind, "decoded")
     assert sum("actions/runs?" in command[2] for command in commands) == 1
     assert not any("/jobs?" in command[2] for command in commands)
+    assert "unlogged-response" not in json.dumps(trace) and "unlogged-response" not in str(refused.value)
     if kind in {"partial", "http", "json", "wrong_sha", "wrong_sha_filler"}:
         assert trace["selection"] == []
     else:
         assert len(trace["selection"]) == 7
 
 
-def test_main_cli_failure_uses_original_collection_evidence(monkeypatch, capsys):
+@pytest.mark.parametrize("kind", ["empty", "http"])
+def test_main_cli_failure_uses_original_collection_evidence(monkeypatch, capsys, kind):
     from tools import main_receipts
 
     data = source_native_class()
-    boundary_api(monkeypatch, data, [])
+    boundary_api(monkeypatch, data, [], failure=kind)
     monkeypatch.setattr(sys, "argv", ["main_receipts", "--sha", SHA])
     assert main_receipts.main() == 1
     result = json.loads(capsys.readouterr().out)
-    assert not result["verified"] and "missing exact-SHA push receipt" in result["reason"]
+    assert not result["verified"] and "unlogged-response" not in json.dumps(result)
     trace = result["retrieval_evidence"]
     assert trace["sha"] == SHA and trace["event"] == "push"
-    assert trace["queries"][-1]["pages"] == [{"total_count": 0, "returned_count": 0}]
-    assert all(row["exact_count"] == 0 for row in trace["selection"])
+    if kind == "empty":
+        assert "missing exact-SHA push receipt" in result["reason"]
+        assert trace["queries"][-1]["pages"] == [{"total_count": 0, "returned_count": 0}]
+        assert all(row["exact_count"] == 0 for row in trace["selection"])
+    else:
+        assert trace["queries"][-1]["outcome"] == "process_error" and trace["selection"] == []
 
 
 def test_base_cli_failure_keeps_original_safe_evidence(monkeypatch, capsys):
