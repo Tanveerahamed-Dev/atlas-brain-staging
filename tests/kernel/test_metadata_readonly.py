@@ -33,6 +33,7 @@ def check(body):
     '    owned = [False]\n    owned[-1] = True',
     '    owned = set()\n    owned.add(source)',
     '    def hit():\n        findings.add((3, 1))\n    hit()',
+    '    def read(data=frozenset()):\n        return len(data)\n    size = read()',
     ('    def echo(data):\n        return data\n'
      '    forwarded = echo(source)\n    size = len(forwarded)'),
     '    for node in ast.walk(ast.parse(source)):\n        findings.add((3, node.lineno))',
@@ -45,6 +46,7 @@ def test_owned_collections_and_transitive_readers_remain_supported(body):
     '    forwarded = source\n    forwarded["forged"] = "healthy"',
     '    forwarded = source.body\n    forwarded[:] = ()',
     '    source.append("healthy")',
+    '    def consume(data=source.clear()):\n        return len(data)\n    size = consume()',
     '    owned = {}\n    owned = source\n    owned["forged"] = "healthy"',
     ('    def consume(data):\n        forwarded = data\n'
      '        forwarded["forged"] = "healthy"\n    consume(source)'),

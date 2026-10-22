@@ -6,7 +6,6 @@ The caller separately proves graph closure, source coverage and finding outputs.
 """
 import ast
 
-
 BUILTINS = ('isinstance', 'dict', 'tuple', 'any', 'all', 'sorted', 'str', 'type',
             'set', 'list', 'len', 'next', 'iter', 'enumerate', 'bool', 'frozenset',
             'int', 'reversed', 'zip')
@@ -26,7 +25,11 @@ def local_nodes(function: ast.FunctionDef) -> tuple[ast.AST, ...]:
     while pending:
         node = pending.pop()
         nodes.append(node)
-        if not isinstance(node, ast.FunctionDef):
+        if isinstance(node, ast.FunctionDef):
+            pending.extend(node.args.defaults)
+            pending.extend(default for default in node.args.kw_defaults if default is not None)
+            pending.extend(node.decorator_list)
+        else:
             pending.extend(ast.iter_child_nodes(node))
     return tuple(nodes)
 
@@ -60,11 +63,13 @@ def readonly_functions(functions: dict[str, ast.FunctionDef],
 
     def bind(scope: str, name: str, node: ast.AST) -> None:
         key = scope, name
-        prior = bindings[key] if key in bindings else ()
-        bindings[key] = (*prior, node)
+        if key not in bindings:
+            bindings[key] = (node,)
+            return
+        bindings[key] = (*bindings[key], node)
 
     for key, function in functions.items():
-        if function.type_params:
+        if function.type_params or function.decorator_list:
             return False
         nodes = local_nodes(function)
         scopes[key] = nodes
@@ -125,16 +130,18 @@ def readonly_functions(functions: dict[str, ast.FunctionDef],
         for node in nodes:
             if isinstance(node, ast.Return) and key == public_root and not public_result(node):
                 return False
-            if isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load):
-                if not (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
-                        and (lexical(key, node.value.id), node.value.id) in owned):
-                    return False
+            if (isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load)
+                    and not (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+                        and (lexical(key, node.value.id), node.value.id) in owned)):
+                return False
             if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in local:
                 target = local[node.value.id] + '.' + node.attr
-                parent = parents[node] if node in parents else None
-                invoked = isinstance(parent, ast.Call) and parent.func is node
-                if not (invoked and target in PURE_CALLS or node in type_nodes or target == 're.ASCII'):
-                    return False
+                if node not in type_nodes and target != 're.ASCII':
+                    if node not in parents:
+                        return False
+                    parent = parents[node]
+                    if not (isinstance(parent, ast.Call) and parent.func is node and target in PURE_CALLS):
+                        return False
             if not isinstance(node, ast.Call):
                 continue
             if isinstance(node.func, ast.Name):
