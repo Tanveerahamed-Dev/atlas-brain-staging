@@ -69,7 +69,7 @@ def carrier_safe(sources: dict[str, str]) -> bool:
 
 def carrier_direct_capability(sources: dict[str, str]):
     trees = {}
-    for p, _text in sources.items():
+    for p in sources:
         trees[p] = ast.parse
     modules = {p: p[:-3] for p in sources}
     metadata = {p for p, tree in trees.items() if tree}
@@ -81,15 +81,15 @@ def carrier_direct_capability(sources: dict[str, str]):
 
 
 class Carrier:
-    def __init__(self):
-        self.body = ast.parse('import ast').body
+    def __init__(self, source):
+        self.body = ast.parse(source).body
         self.operation = ast.parse
 
 
 def carrier_capability(sources: dict[str, str]):
     trees = {}
-    for p, _text in sources.items():
-        trees[p] = Carrier()
+    for p, text in sources.items():
+        trees[p] = Carrier(text)
     modules = {p: p[:-3] for p in sources}
     metadata = {p for p, tree in trees.items() if any(isinstance(n, ast.Import) and any(
         a.name == 'ast' and a.asname is None for a in n.names) for n in tree.body)}
