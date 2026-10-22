@@ -321,8 +321,18 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
     dynamic = ('eval', 'exec', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars', '__import__')
     builtins = ('isinstance', 'dict', 'tuple', 'any', 'all', 'sorted', 'str', 'type', 'set', 'list',
                 'len', 'next', 'iter', 'enumerate', 'bool', 'frozenset', 'int')
+
+    def scope_key(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
+        names: list[str] = []
+        while node in parents:
+            if isinstance(node, ast.FunctionDef):
+                names.append(node.name)
+            node = parents[node]
+        return module + '.' + '.'.join(reversed(names))
+
     for p, tree in trees.items():
         module = modules[p]
+        parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
         local_imports: dict[str, str] = {}
         for n in ast.walk(tree):
             if isinstance(n, ast.Name) and n.id in dynamic:
@@ -368,7 +378,10 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
                 if isinstance(n, ast.FunctionDef):
                     if n.decorator_list or n.name in builtins or (n not in tree.body and n.name in top):
                         return ()
-                    functions[module + '.' + n.name] = n
+                    key = scope_key(n, parents)
+                    if key in functions:
+                        return ()
+                    functions[key] = n
                 if isinstance(n, ast.arg) and (n.arg in local_imports or n.arg in builtins):
                     return ()
     roots = {name for name in functions if name.rsplit('.', 1)[-1] in ('lint', 'qualifier_witnesses')}
@@ -393,12 +406,12 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and (
                     n.id in local or n.id in builtins or module + '.' + n.id in functions):
                 return ()
-            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and n.id == 'aliases':
-                if syntax_shape(parents[n]) not in (
+            if (isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and n.id == 'aliases'
+                    and syntax_shape(parents[n]) not in (
                     syntax_shape(ast.parse('aliases = dict(bindings)').body[0]),
                     syntax_shape(alias_target),
-                ):
-                    return ()
+                )):
+                return ()
             if isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store) and isinstance(n.value, ast.Name) and n.value.id == 'aliases':
                 return ()
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
@@ -420,13 +433,18 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
                 if target in functions:
                     parameters = functions[target].args.args
                     for index, parameter in enumerate(parameters):
-                        if parameter.arg == 'aliases':
-                            if len(n.args) <= index or not (isinstance(n.args[index], ast.Name) and n.args[index].id == 'aliases'
-                                    or syntax_shape(n.args[index]) == syntax_shape(ast.parse('{}', mode='eval').body)):
-                                return ()
+                        if parameter.arg == 'aliases' and (len(n.args) <= index or not (
+                                isinstance(n.args[index], ast.Name) and n.args[index].id == 'aliases'
+                                or syntax_shape(n.args[index]) == syntax_shape(ast.parse('{}', mode='eval').body))):
+                            return ()
             if not isinstance(n, ast.Name) or not isinstance(n.ctx, ast.Load):
                 continue
             target = local[n.id] if n.id in local else module + '.' + n.id
+            owner_key = scope_key(n, parents)
+            scope = owner_key
+            while target not in functions and scope.startswith(module + '.'):
+                target = scope + '.' + n.id
+                scope = scope.rsplit('.', 1)[0]
             if target not in functions:
                 continue
             parent = parents[n]
@@ -437,7 +455,7 @@ def qualifier_witnesses(source: str, path: str, sources: dict[str, str], invento
                 owner = parents[owner]
             if not isinstance(owner, ast.FunctionDef):
                 return ()
-            edges[module + '.' + owner.name].add(target)
+            edges[owner_key].add(target)
     reached = set(roots)
     pending = list(roots)
     while pending:
