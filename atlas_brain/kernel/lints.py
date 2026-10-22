@@ -221,7 +221,9 @@ def import_origins(tree: ast.AST) -> dict[str, tuple[str, ...]]:
 
 def possible_names(node: ast.AST, origins: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     if isinstance(node, ast.Name):
-        return origins[node.id] if node.id in origins else (node.id,)
+        if node.id not in origins:
+            return (node.id,)
+        return origins[node.id]
     if isinstance(node, ast.Attribute):
         return tuple(name + '.' + node.attr for name in possible_names(node.value, origins))
     if isinstance(node, ast.Subscript):
