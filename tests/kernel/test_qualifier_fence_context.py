@@ -18,6 +18,17 @@ def qualifier_tree_dictionary(source):
     return tuple(result)
 
 
+def qualifier_tree_comprehension(source):
+    sources = {'source': source}
+    trees = {label: ast.parse(text) for label, text in sources.items()}
+    result = []
+    for label, tree in trees.items():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                result.append((label, node.id))
+    return tuple(result)
+
+
 def qualifier_function_dictionary(source):
     tree = ast.parse(source)
     functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
@@ -29,6 +40,7 @@ def qualifier_function_dictionary(source):
 
 @pytest.mark.parametrize('fixture,program,expected', [
     (qualifier_tree_dictionary, 'symbol', (('source', 'symbol'),)),
+    (qualifier_tree_comprehension, 'symbol', (('source', 'symbol'),)),
     (qualifier_function_dictionary, 'def sampled():\n pass\n', (('sampled', 1),)),
 ])
 def test_real_ast_dictionary_data_remains_ordinary_metadata(fixture, program, expected):
@@ -40,7 +52,7 @@ def test_real_ast_dictionary_data_remains_ordinary_metadata(fixture, program, ex
     assert not refused, repr(sorted(refused))
 
 
-@pytest.mark.parametrize('fixture', [qualifier_tree_dictionary, qualifier_function_dictionary])
+@pytest.mark.parametrize('fixture', [qualifier_tree_dictionary, qualifier_tree_comprehension, qualifier_function_dictionary])
 def test_same_ast_dictionary_does_not_admit_an_unlisted_api(fixture):
     source = 'import ast\n' + dedent(inspect.getsource(fixture))
     source += '\nvalue = ast.literal_eval("1")\n'
