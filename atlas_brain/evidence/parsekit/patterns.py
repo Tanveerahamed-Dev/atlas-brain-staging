@@ -2,9 +2,11 @@
 import re
 
 # These expressions inspect pattern syntax, never capture data.
-_QUANTIFIERS = tuple(re.compile(syntax, re.ASCII) for syntax in (
-    r"\{[0-9]++,[0-9]*+\}", r"\{[0-9]++\}", r"\{,[0-9]*+\}",
-))
+_QUANTIFIERS = (
+    re.compile(r"\{[0-9]++,[0-9]*+\}", re.ASCII),
+    re.compile(r"\{[0-9]++\}", re.ASCII),
+    re.compile(r"\{,[0-9]*+\}", re.ASCII),
+)
 _NAME = re.compile(r"\(\?P<[A-Za-z_][A-Za-z_0-9]*+>", re.ASCII)
 
 
