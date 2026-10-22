@@ -244,6 +244,7 @@ def test_ordinary_record_construction_keeps_its_fields():
 @pytest.mark.parametrize("classes", [
     "class Carrier:\n def __new__(cls, value): return value\n",
     "class Meta(type):\n def __call__(cls, value): return value\nclass Carrier(metaclass=Meta): pass\n",
+    "class Carrier: pass\ndef Carrier(value): return value\n",
     "class Parent:\n def __new__(cls, value): return value\nclass Carrier(Parent): pass\n"])
 def test_actual_cli_uncertain_constructor_keeps_known_argument(tmp_path, capability, classes):
     using = tmp_path / USING

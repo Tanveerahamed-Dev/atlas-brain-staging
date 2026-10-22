@@ -17,6 +17,8 @@ def expression(text):
     ("class Record(Base): pass", False),
     ("class Record(metaclass=Meta): pass", False),
     ("@decorate\nclass Record: pass", False),
+    ("class Record: pass\ndef Record(value): return value", False),
+    ("def Record(value): return value\nclass Record: pass", False),
     ("class Record: pass\nclass Record:\n def __new__(cls, value): return value", False)])
 def test_constructor_exception_requires_ordinary_instance_semantics(source, proven):
     tree = ast.parse(source)
