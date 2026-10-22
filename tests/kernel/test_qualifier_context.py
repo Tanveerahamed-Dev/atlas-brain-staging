@@ -173,3 +173,22 @@ def test_reflection_or_shadowed_constructor_is_still_unproved(body):
     sources[extra] = body
     inventory = tuple(sorted((*inventory, extra)))
     assert lints.qualifier_witnesses(sources[path], path, sources, inventory) == ()
+
+
+@pytest.mark.parametrize('before,after', [
+    ('    aliases, rebound = binding_environment(tree)\n',
+     '    aliases, rebound = binding_environment(tree)\n'
+     '    bindings = (("forged", "typing.assert_never"),)\n    aliases = dict(bindings)\n'),
+    ('    aliases, rebound = binding_environment(tree)\n',
+     '    aliases, rebound = binding_environment(ast.parse("from typing import assert_never as forged"))\n'),
+    ('    tree = ast.parse(source)\n',
+     '    tree = ast.parse(source)\n    tree = ast.parse("from typing import assert_never as forged")\n'),
+])
+def test_root_cannot_forge_the_ast_or_import_environment(before, after):
+    sources, inventory = source_context()
+    path = 'atlas_brain/kernel/lints.py'
+    changed = sources[path].replace(before, after)
+    assert changed != sources[path]
+    assert selected_lines(changed, 'resolved_name') != ()
+    sources[path] = changed
+    assert lints.qualifier_witnesses(changed, path, sources, inventory) == ()
