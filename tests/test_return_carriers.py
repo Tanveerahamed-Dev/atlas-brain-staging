@@ -243,6 +243,8 @@ def test_ordinary_record_construction_keeps_its_fields():
 @pytest.mark.parametrize("capability", ["ZipFile", "ZipFile.open"])
 @pytest.mark.parametrize("construction, receiver", [("Box(CAP)", "factory().capability"),
                                                     ("Box(capability=CAP)", "factory().capability"),
+                                                    ("Box(CAP).capability", "factory()"),
+                                                    ("forward(Box(CAP)).capability", "factory()"),
                                                     ("Box({'cap': CAP})", "factory().capability['cap']")])
 def test_actual_cli_scoped_constructor_argument_cannot_escape_public_field(tmp_path, capability, construction, receiver):
     using = tmp_path / USING
@@ -250,7 +252,7 @@ def test_actual_cli_scoped_constructor_argument_cannot_escape_public_field(tmp_p
     using.write_text("from zipfile import ZipFile\nfrom pathlib import Path\n"
                      + "class Box:\n def __init__(self, capability): self.capability = capability\n"
                      + "class Record:\n def __init__(self, path): self.name = 'record'\n"
-                     + "def record(): return Record(Path('x'))\ndef factory(): return "
+                     + "def forward(value): return value\ndef record(): return Record(Path('x'))\ndef factory(): return "
                      + construction.replace("CAP", capability) + "\ndef public_data(): return 1\n", encoding="utf-8")
     (tmp_path / "atlas_brain/bridge.py").write_text("from .evidence.archives import factory, public_data, record\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text("[project]\ndependencies = []\n", encoding="utf-8")
