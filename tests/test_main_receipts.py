@@ -265,7 +265,7 @@ def test_live_published_positive_and_missing_push_history(sha, expected):
     assert record["sha"] == sha and record["event"] == "push"
     assert record["verified"] is (expected == 0)
     if expected:
-        assert "missing exact-SHA push receipt" in record["reason"]
+        assert "missing exact-SHA push receipt" in record["reason"], result.stdout
 
 
 def test_every_registered_workflow_has_one_explicit_manual_recovery_trigger():
@@ -463,7 +463,7 @@ def test_enforced_base_real_cli_published_positive_and_missing_native(sha, expec
     record = json.loads(result.stdout)
     assert record["base_sha"] == sha and record["verified"] is (expected == 0)
     if expected:
-        assert "missing exact-SHA push receipt" in record["reason"]
+        assert "missing exact-SHA push receipt" in record["reason"], result.stdout
     else:
         assert record["job_count"] == len(record["check_ids"]) == 16
         assert record["workflow_count"] == 7 and record["event"] == "push"
@@ -522,7 +522,7 @@ def boundary_api(monkeypatch, data, rows, total=None, failure=None):
             return json.dumps([{"workflows": data["catalog"], "total_count": len(data["catalog"])}])
         if endpoint.startswith("actions/runs?"):
             if failure == "http":
-                raise subprocess.CalledProcessError(1, command)
+                raise subprocess.CalledProcessError(1, command, output="unlogged-response", stderr="unlogged-response")
             if failure == "json":
                 return "invalid-json"
             return json.dumps([{"workflow_runs": rows, "total_count": len(rows) if total is None else total}])
@@ -645,3 +645,147 @@ def test_paginated_query_class_is_complete_before_admission(monkeypatch, plant):
     else:
         with pytest.raises(ValueError, match="incomplete or inconsistent listing"):
             github("actions/runs?head_sha=" + SHA, "workflow_runs")
+
+
+def test_same_collection_evidence_reports_native_positive_without_payload(monkeypatch):
+    from tools.main_receipts import collect, verify_native
+
+    data = source_native_class()
+    data["runs"][0]["private_payload"] = "unlogged-response"
+    commands = boundary_api(monkeypatch, data, data["runs"])
+    observed = collect(SHA, "push", with_checks=True)
+    assert verify_native(observed, SHA)["job_count"] == 16
+    trace = observed["retrieval_evidence"]
+    query = next(row for row in trace["queries"] if row["key"] == "workflow_runs")
+    assert query["pages"] == [{"total_count": 7, "returned_count": 7}]
+    assert query["outcome"] == "decoded" and query["exit_code"] == 0
+    assert query["http_status"] == "not captured by this transport"
+    assert len(trace["selection"]) == 7 and all(row["exact_count"] == 1 for row in trace["selection"])
+    assert sum("actions/runs?" in command[2] for command in commands) == 1
+    assert "unlogged-response" not in json.dumps(trace)
+
+
+@pytest.mark.parametrize("kind", ["empty", "partial", "manual", "wrong_sha", "wrong_sha_filler",
+                                 "wrong_workflow", "latest", "http", "json"])
+def test_same_collection_refusal_evidence_preserves_admission_boundary(monkeypatch, kind):
+    from tools.main_receipts import collect
+
+    data = source_native_class()
+    rows, total = deepcopy(data["runs"]), None
+    if kind == "empty":
+        rows = []
+    elif kind == "partial":
+        rows.pop()
+        total = 7
+    elif kind == "manual":
+        rows[0]["event"] = "workflow_dispatch"
+    elif kind == "wrong_sha":
+        rows[0]["head_sha"] = "b" * 40
+    elif kind in {"wrong_sha_filler", "latest"}:
+        rows.append({**rows[0], "id": 900, "run_attempt": 2, "conclusion": "failure",
+                     "head_sha": "b" * 40 if kind == "wrong_sha_filler" else SHA})
+    elif kind == "wrong_workflow":
+        rows[0]["workflow_id"] = 9999
+    commands = boundary_api(monkeypatch, data, rows, total=total, failure=kind)
+    with pytest.raises(ValueError) as refused:
+        collect(SHA, "push", with_checks=True)
+    trace = refused.value.evidence
+    query = next(row for row in trace["queries"] if row["key"] == "workflow_runs")
+    assert query["outcome"] == {"partial": "incomplete_listing", "http": "process_error",
+                                "json": "invalid_json"}.get(kind, "decoded")
+    assert sum("actions/runs?" in command[2] for command in commands) == 1
+    assert not any("/jobs?" in command[2] for command in commands)
+    assert "unlogged-response" not in json.dumps(trace) and "unlogged-response" not in str(refused.value)
+    if kind in {"partial", "http", "json", "wrong_sha", "wrong_sha_filler"}:
+        assert trace["selection"] == []
+    else:
+        assert len(trace["selection"]) == 7
+
+
+@pytest.mark.parametrize("kind", ["empty", "http"])
+def test_main_cli_failure_uses_original_collection_evidence(monkeypatch, capsys, kind):
+    from tools import main_receipts
+
+    data = source_native_class()
+    boundary_api(monkeypatch, data, [], failure=kind)
+    monkeypatch.setattr(sys, "argv", ["main_receipts", "--sha", SHA])
+    assert main_receipts.main() == 1
+    result = json.loads(capsys.readouterr().out)
+    assert not result["verified"] and "unlogged-response" not in json.dumps(result)
+    trace = result["retrieval_evidence"]
+    assert trace["sha"] == SHA and trace["event"] == "push"
+    if kind == "empty":
+        assert "missing exact-SHA push receipt" in result["reason"]
+        assert trace["queries"][-1]["pages"] == [{"total_count": 0, "returned_count": 0}]
+        assert all(row["exact_count"] == 0 for row in trace["selection"])
+    else:
+        assert trace["queries"][-1]["outcome"] == "process_error" and trace["selection"] == []
+
+
+def test_base_cli_failure_keeps_original_safe_evidence(monkeypatch, capsys):
+    from tools import base_native_receipts, main_receipts
+
+    trace = {"sha": SHA, "event": "push", "queries": [], "selection": []}
+    def refused(*args, **kwargs):
+        raise main_receipts.ReceiptReadError("synthetic response refusal", trace)
+    monkeypatch.setattr(base_native_receipts, "collect", refused)
+    monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: "b" * 40)
+    monkeypatch.setattr(subprocess, "check_call", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(sys, "argv", ["base_native_receipts", "--base", SHA, "--event", "pull_request"])
+    assert base_native_receipts.main() == 1
+    result = json.loads(capsys.readouterr().out)
+    assert not result["verified"] and result["base_sha"] == SHA and result["retrieval_evidence"] == trace
+
+
+def test_post_collection_refusal_retains_evidence_without_snapshot_injection(monkeypatch, capsys, tmp_path):
+    from tools import main_receipts
+
+    data = source_native_class()
+    boundary_api(monkeypatch, data, data["runs"])
+    def refused(*args, **kwargs):
+        raise ValueError("synthetic verification refusal")
+    monkeypatch.setattr(main_receipts, "verify", refused)
+    monkeypatch.setattr(sys, "argv", ["main_receipts", "--sha", SHA])
+    assert main_receipts.main() == 1
+    assert json.loads(capsys.readouterr().out)["retrieval_evidence"]["queries"]
+    data["retrieval_evidence"] = "unlogged-response"
+    snapshot = tmp_path / "supplied.json"
+    snapshot.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["main_receipts", "--sha", SHA, "--snapshot", str(snapshot)])
+    assert main_receipts.main() == 1
+    output = capsys.readouterr().out
+    assert "retrieval_evidence" not in output and "unlogged-response" not in output
+
+
+@pytest.mark.parametrize("cli", ["main", "base"])
+@pytest.mark.parametrize("stage,payload", [("tree", None), ("tree", []), ("tree", "unlogged-response"),
+                                         ("tree", 17), ("blob", {"content": None})])
+def test_malformed_unpaged_json_is_a_controlled_cli_refusal(monkeypatch, capsys, cli, stage, payload):
+    from tools import base_native_receipts, main_receipts
+
+    calls = []
+    data = source_native_class()
+    boundary_api(monkeypatch, data, data["runs"])
+    original = subprocess.check_output
+    def read(command, **kwargs):
+        if command[:2] == ["git", "rev-parse"]:
+            return "b" * 40
+        calls.append(command)
+        target = "git/trees/" if stage == "tree" else "git/blobs/"
+        return json.dumps(payload) if target in command[2] else original(command, **kwargs)
+    monkeypatch.setattr(subprocess, "check_output", read)
+    monkeypatch.setattr(subprocess, "check_call", lambda *args, **kwargs: 0)
+    module = main_receipts if cli == "main" else base_native_receipts
+    arguments = ["--sha", SHA] if cli == "main" else ["--base", SHA, "--event", "pull_request"]
+    monkeypatch.setattr(sys, "argv", ["receipts", *arguments])
+    assert module.main() == 1
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["verified"] is False and "invalid unpaged response object" in result["reason"]
+    trace = result["retrieval_evidence"]
+    expected = 1 if stage == "tree" else 4
+    assert len(calls) == expected and len(trace["queries"]) == expected
+    assert bool(trace["selection"]) is (stage != "tree")
+    assert trace["queries"][-1]["outcome"] == "invalid_shape" and trace["queries"][-1]["exit_code"] == 0
+    assert not any("/jobs?" in command[2] for command in calls)
+    assert "unlogged-response" not in output and "Traceback" not in output
