@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from atlas_brain.kernel.population import ExpectedSet, coverage
@@ -6,6 +8,7 @@ from atlas_brain.kernel.states import (
     EvidenceRef,
     EvidenceRole,
     NAReason,
+    NotApplicable,
     UnknownReason,
     WholeCapture,
 )
@@ -50,3 +53,26 @@ def test_all_three_parts_partition_the_candidates():
                                  exclusions=(('node:b', NAReason.ROLE_EXCLUDES, (witness(),)),),
                                  unresolved=(('node:c', UnknownReason.NOT_COLLECTED),)))
     assert (summary.expected, summary.excluded, summary.unresolved) == (1, 1, 1)
+
+
+def test_feature_absence_exclusion_requires_the_canonical_absence_witness():
+    subject_span = replace(witness(), role=EvidenceRole.SUBJECT)
+    with pytest.raises(ValueError):
+        NotApplicable(reason=NAReason.FEATURE_NOT_CONFIGURED, evidence=(subject_span,))
+    with pytest.raises(ValueError):
+        population(candidates=('node:a',), exclusions=(
+            ('node:a', NAReason.FEATURE_NOT_CONFIGURED, (subject_span,)),))
+
+
+@pytest.mark.parametrize('reason', tuple(NAReason))
+@pytest.mark.parametrize('role', tuple(EvidenceRole))
+def test_exclusions_preserve_every_canonical_not_applicable_evidence_rule(reason, role):
+    proof = (replace(witness(), role=role),)
+    exclusion = ('node:a', reason, proof)
+    try:
+        NotApplicable(reason=reason, evidence=proof)
+    except ValueError:
+        with pytest.raises(ValueError):
+            population(candidates=('node:a',), exclusions=(exclusion,))
+    else:
+        assert population(candidates=('node:a',), exclusions=(exclusion,)).exclusions == (exclusion,)
