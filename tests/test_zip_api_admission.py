@@ -10,12 +10,20 @@ from pathlib import Path
 import pytest
 
 from tools.fence import RUNTIME_API, SCOPED_API, STDLIB_API, source_allowed
+from tools.check_zip_inventory import REVISION, source_inventory
 
 USING = "atlas_brain/evidence/archives.py"
 IMPORTED_APIS = {"zipfile.ZipFile", "zipfile.BadZipFile", "zipfile.ZIP_STORED", "zipfile.ZIP_DEFLATED",
                  "zlib.error", "zlib.decompressobj", "stat.S_IFMT"}
 MEMBER_APIS = {"zipfile.ZipFile.infolist", "zipfile.ZipFile.open", "pathlib.Path.suffix"}
 APIS = IMPORTED_APIS | MEMBER_APIS
+
+
+def test_actual_pinned_zip_inventory_keeps_all_ten_endpoint_uses():
+    payload = subprocess.check_output(["git", "show", f"{REVISION}:{USING}"])
+    bindings, used = source_inventory(payload)
+    assert used == APIS
+    assert bindings["ZipFile"] == "zipfile.ZipFile"
 
 
 def test_zip_amendment_and_existing_bounds_are_exact():
