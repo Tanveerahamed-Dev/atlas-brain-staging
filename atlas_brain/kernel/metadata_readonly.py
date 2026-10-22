@@ -11,7 +11,7 @@ BUILTINS = ('isinstance', 'dict', 'tuple', 'any', 'all', 'sorted', 'str', 'type'
             'int', 'reversed', 'zip')
 READ_METHODS = ('items', 'keys', 'values', 'split', 'rsplit', 'startswith',
                 'endswith', 'replace', 'removesuffix', 'encode', 'hexdigest')
-MUTATORS = ('append', 'extend', 'add', 'update', 'pop', 'clear', 'remove',
+MUTATORS = ('append', 'extend', 'add', 'update', 'pop', 'clear', 'remove', 'setdefault',
             'insert', 'discard', 'sort', 'reverse', 'difference_update',
             'intersection_update', 'symmetric_difference_update', 'popitem')
 PURE_CALLS = ('ast.parse', 'ast.walk', 'ast.iter_child_nodes', 'ast.iter_fields',
@@ -128,6 +128,12 @@ def readonly_functions(functions: dict[str, ast.FunctionDef],
         parents = {child: parent for parent in nodes for child in ast.iter_child_nodes(parent)}
         local = imports[key]
         for node in nodes:
+            if isinstance(node, ast.Attribute) and (node.attr.startswith('__') or node.attr in MUTATORS):
+                if node.attr.startswith('__') or node not in parents:
+                    return False
+                parent = parents[node]
+                if not (isinstance(parent, ast.Call) and parent.func is node):
+                    return False
             if isinstance(node, ast.Return) and key == public_root and not public_result(node):
                 return False
             if (isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load)
