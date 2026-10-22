@@ -239,7 +239,18 @@ def github(endpoint, key=None):
     command = ["gh", "api", f"repos/{REPO}/{endpoint}"]
     if key:
         pages = json.loads(subprocess.check_output([*command, "--paginate", "--slurp"], encoding="utf-8"))
-        return [row for page in pages for row in page[key]]
+        refusal = "incomplete or inconsistent listing: " + endpoint
+        if (not isinstance(pages, list) or not pages
+                or any(not isinstance(page, dict) or not isinstance(page.get(key), list) for page in pages)):
+            raise ValueError(refusal)
+        totals = [page.get("total_count") for page in pages]
+        rows = [row for page in pages for row in page[key]]
+        identities = [row.get("id") if isinstance(row, dict) else None for row in rows]
+        if (any(type(total) is not int or total < 0 for total in totals) or len(set(totals)) != 1
+                or len(rows) != totals[0] or any(type(identity) is not int or identity < 1 for identity in identities)
+                or len(set(identities)) != len(identities)):
+            raise ValueError(refusal)
+        return rows
     return json.loads(subprocess.check_output(command, encoding="utf-8"))
 
 
@@ -247,6 +258,8 @@ def collect(sha, event, with_checks=False):
     data = {"tree": github(f"git/trees/{sha}?recursive=1"),
             "catalog": github("actions/workflows?per_page=100", "workflows"),
             "runs": github(f"actions/runs?head_sha={sha}&per_page=100", "workflow_runs")}
+    if any(row.get("head_sha") != sha for row in data["runs"]):
+        raise ValueError("wrong-subject row in exact-SHA workflow run listing")
     selected = select_runs(data, sha, event)
     entries = {r["path"]: r for r in data["tree"]["tree"]}
     data["sources"] = {p: github(f"git/blobs/{entries[p]['sha']}") for p in selected}
