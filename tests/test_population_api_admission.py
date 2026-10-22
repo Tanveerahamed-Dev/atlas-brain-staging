@@ -82,7 +82,9 @@ def test_actual_tracked_source_and_public_records_do_not_export_the_api(tmp_path
     subprocess.run(["git", "-C", str(tmp_path), "add", "atlas_brain", "pyproject.toml"], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "rm", "--cached", "atlas_brain/bridge.py"], check=True)
     subprocess.run([sys.executable, tool], cwd=tmp_path, check=True)
-    for source in ("from .kernel.population import InitVar\nvalue = InitVar\n",
+    for source in ("from dataclasses import InitVar\nInitVar(object)\n",
+                   "import dataclasses\nvalue = dataclasses.InitVar\n",
+                   "from .kernel.population import InitVar\nvalue = InitVar\n",
                    "from .kernel.population import InitVar as witness\nwitness(object)\n",
                    "from .kernel import population\nvalue = population.InitVar\n",
                    "from .bridge import witness\nwitness(object)\n"):
