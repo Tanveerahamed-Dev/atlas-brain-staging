@@ -151,3 +151,47 @@ def test_tracked_cli_enforces_ast_scope(tmp_path, path, source, expected):
     result = subprocess.run([sys.executable, str(Path("tools/fence.py").resolve())],
                             cwd=tmp_path, capture_output=True, check=False)
     assert result.returncode == expected, result.stderr
+
+
+def test_actual_inventory_refuses_an_absent_starred_source_object(monkeypatch):
+    from tools import check_ast_inventory as inventory
+
+    real_read = inventory.subprocess.check_output
+    missing = ["git", "show", f"{inventory.STARRED_HEAD}:{LINTS}"]
+    requests = []
+
+    def read(command, *args, **kwargs):
+        if command == missing:
+            requests.append(command)
+            raise subprocess.CalledProcessError(128, command, stderr=b"missing pinned source object")
+        return real_read(command, *args, **kwargs)
+
+    monkeypatch.setattr(inventory.subprocess, "check_output", read)
+    with pytest.raises(subprocess.CalledProcessError) as refused:
+        inventory.main()
+    assert refused.value.returncode == 128 and refused.value.cmd == missing
+    assert requests == [missing]
+
+
+def test_actual_inventory_refuses_mismatched_digest_for_otherwise_allowed_source(monkeypatch):
+    from tools import check_ast_inventory as inventory
+
+    assert inventory.main() == 0  # The same real inventory's complete positive path.
+    real_read = inventory.subprocess.check_output
+    target = ["git", "show", f"{inventory.STARRED_HEAD}:{LINTS}"]
+    changed = real_read(target) + b"\n# synthetic source-custody mismatch\n"
+    sources = {LINTS: changed.decode("utf-8"), TOKEN: Path(TOKEN).read_text(encoding="utf-8")}
+    assert source_allowed(sources[LINTS], sources, LINTS)
+    assert inventory.sha256(changed).hexdigest() != inventory.STARRED_DIGEST
+    requests = []
+
+    def read(command, *args, **kwargs):
+        if command == target:
+            requests.append(command)
+            return changed
+        return real_read(command, *args, **kwargs)
+
+    monkeypatch.setattr(inventory.subprocess, "check_output", read)
+    with pytest.raises(ValueError, match="Starred source differs from the exact public pin"):
+        inventory.main()
+    assert requests == [target]
