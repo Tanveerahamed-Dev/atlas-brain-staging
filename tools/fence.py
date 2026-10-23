@@ -57,7 +57,7 @@ SCOPED_API = {
         "ast.Attribute", "ast.BinOp", "ast.BitOr", "ast.Call", "ast.ClassDef", "ast.comprehension",
         "ast.Constant", "ast.ExceptHandler", "ast.expr", "ast.For", "ast.FunctionDef", "ast.Import",
         "ast.ImportFrom", "ast.iter_child_nodes", "ast.Lambda", "ast.Load", "ast.Module", "ast.Name",
-        "ast.NamedExpr", "ast.parse", "ast.Set", "ast.SetComp", "ast.stmt", "ast.Store", "ast.Subscript", "ast.walk",
+        "ast.NamedExpr", "ast.parse", "ast.Set", "ast.SetComp", "ast.Starred", "ast.stmt", "ast.Store", "ast.Subscript", "ast.walk",
     },
     "atlas_brain/evidence/parsekit/token_lint.py": {
         "ast.AnnAssign", "ast.arg", "ast.Assign", "ast.AST", "ast.AsyncFunctionDef", "ast.Attribute",
