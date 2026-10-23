@@ -47,10 +47,22 @@ def test_first_comprehension_iterable_keeps_its_real_class_scope():
     assert not iteration_findings(source)
 
 
+def _unordered_value_with_nested_import() -> frozenset[str]:
+    items = frozenset(("a", "b"))
+    for _item in items:
+        pass
+
+    def local() -> type[str]:
+        from builtins import str as frozenset
+        return frozenset
+
+    assert local() is str
+    return items
+
+
 def test_unordered_runtime_value_and_guard_are_paired():
     source = ('items = frozenset(("a", "b"))\nfor item in items: pass\n'
               'def local():\n from builtins import str as frozenset\n reference = frozenset')
-    namespace = {}
-    exec(source, namespace)
-    assert type(namespace['items']) is frozenset
+    items = _unordered_value_with_nested_import()
+    assert type(items) is frozenset
     assert iteration_findings(source)
