@@ -153,45 +153,50 @@ def test_tracked_cli_enforces_ast_scope(tmp_path, path, source, expected):
     assert result.returncode == expected, result.stderr
 
 
-def test_actual_inventory_refuses_an_absent_starred_source_object(monkeypatch):
+@pytest.fixture
+def inventory_source_transport(monkeypatch):
     from tools import check_ast_inventory as inventory
 
     real_read = inventory.subprocess.check_output
-    missing = ["git", "show", f"{inventory.STARRED_HEAD}:{LINTS}"]
-    requests = []
+    historical = {}
+    for path, revision in inventory.SOURCES.items():
+        apis = SCOPED_API[path] - ({"ast.Starred"} if path == LINTS else set())
+        historical[f"{revision}:{path}"] = "import ast\n" + "\n".join(sorted(apis)) + "\n"
+    target = f"{inventory.STARRED_HEAD}:{LINTS}"
+    transport = {"missing": False, "requests": []}
 
     def read(command, *args, **kwargs):
-        if command == missing:
-            requests.append(command)
-            raise subprocess.CalledProcessError(128, command, stderr=b"missing pinned source object")
+        if command[:2] == ["git", "show"] and command[2] in historical:
+            return historical[command[2]]
+        if command == ["git", "show", target]:
+            transport["requests"].append(command)
+            if transport["missing"]:
+                raise subprocess.CalledProcessError(128, command, stderr=b"missing pinned source object")
+            return b"import ast\nast.Starred\n"
+        if command == ["git", "rev-parse", target]:
+            return inventory.STARRED_BLOB + "\n"
         return real_read(command, *args, **kwargs)
 
     monkeypatch.setattr(inventory.subprocess, "check_output", read)
+    return inventory, transport
+
+
+def test_actual_inventory_refuses_an_absent_starred_source_object(inventory_source_transport):
+    inventory, transport = inventory_source_transport
+    transport["missing"] = True
+    missing = ["git", "show", f"{inventory.STARRED_HEAD}:{LINTS}"]
     with pytest.raises(subprocess.CalledProcessError) as refused:
         inventory.main()
     assert refused.value.returncode == 128 and refused.value.cmd == missing
-    assert requests == [missing]
+    assert transport["requests"] == [missing]
 
 
-def test_actual_inventory_refuses_mismatched_digest_for_otherwise_allowed_source(monkeypatch):
-    from tools import check_ast_inventory as inventory
-
-    assert inventory.main() == 0  # The same real inventory's complete positive path.
-    real_read = inventory.subprocess.check_output
+def test_actual_inventory_refuses_mismatched_digest_for_otherwise_allowed_source(inventory_source_transport):
+    inventory, transport = inventory_source_transport
     target = ["git", "show", f"{inventory.STARRED_HEAD}:{LINTS}"]
-    changed = real_read(target) + b"\n# synthetic source-custody mismatch\n"
-    sources = {LINTS: changed.decode("utf-8"), TOKEN: Path(TOKEN).read_text(encoding="utf-8")}
-    assert source_allowed(sources[LINTS], sources, LINTS)
+    changed = b"import ast\nast.Starred\n"
+    assert source_allowed(changed.decode("utf-8"), path=LINTS)
     assert inventory.sha256(changed).hexdigest() != inventory.STARRED_DIGEST
-    requests = []
-
-    def read(command, *args, **kwargs):
-        if command == target:
-            requests.append(command)
-            return changed
-        return real_read(command, *args, **kwargs)
-
-    monkeypatch.setattr(inventory.subprocess, "check_output", read)
     with pytest.raises(ValueError, match="Starred source differs from the exact public pin"):
         inventory.main()
-    assert requests == [target]
+    assert transport["requests"] == [target]
