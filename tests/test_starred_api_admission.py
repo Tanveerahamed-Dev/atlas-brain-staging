@@ -1,10 +1,10 @@
 """Exact public using source is data; these tests never execute the K consumer."""
 import ast
-from hashlib import sha256
-from pathlib import Path
 import re
 import subprocess
 import sys
+from hashlib import sha256
+from pathlib import Path
 
 import pytest
 

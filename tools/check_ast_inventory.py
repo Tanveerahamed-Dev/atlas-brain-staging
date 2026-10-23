@@ -3,11 +3,11 @@
 This verifies source admission, not K's lint, type or kernel-freeze acceptance.
 """
 import ast
-from hashlib import sha256
 import json
 import subprocess
 import sys
 import tempfile
+from hashlib import sha256
 from pathlib import Path
 
 from tools.fence import SCOPED_API, source_allowed
