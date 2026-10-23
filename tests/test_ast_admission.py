@@ -16,6 +16,7 @@ K_SCOPE_ADDITION = {"ast.AnnAssign", "ast.Assign", "ast.Compare", "ast.Constant"
                     "ast.MatchAs", "ast.MatchMapping", "ast.MatchStar", "ast.Return", "ast.stmt", "ast.Subscript"}
 K_CONTEXT_ADDITION = {"ast.Eq", "ast.Raise", "ast.iter_fields"}
 K_MEMBERSHIP_ADDITION = {"ast.In", "ast.NotIn"}
+K_STARRED_ADDITION = {"ast.Starred"}
 
 
 @pytest.mark.parametrize("path,api", GRANTS)
@@ -81,7 +82,8 @@ def test_global_reexport_cannot_hide_protected_import_hop(source):
 def test_amendment_matches_exact_grant_and_bounds():
     assert set(SCOPED_API) == {TOKEN, LINTS, "atlas_brain/evidence/parsekit/token_lint.py",
                                "atlas_brain/evidence/parsekit/token_audit.py"}
-    endpoints = (SCOPED_API[TOKEN] - K_SCOPE_ADDITION - K_CONTEXT_ADDITION - K_MEMBERSHIP_ADDITION) | SCOPED_API[LINTS]
+    endpoints = ((SCOPED_API[TOKEN] - K_SCOPE_ADDITION - K_CONTEXT_ADDITION - K_MEMBERSHIP_ADDITION)
+                 | (SCOPED_API[LINTS] - K_STARRED_ADDITION))
     assert len(endpoints) == 40
     assert not any(api.startswith("ast.") for api in STDLIB_API)
     text = Path("docs/adr/0003-adr0002-ast-amendment.md").read_text(encoding="utf-8")
@@ -106,7 +108,7 @@ def test_k_class_scope_amendment_has_only_eleven_actual_using_bindings():
 def test_context_amendment_has_only_three_actual_using_bindings():
     assert len(SCOPED_API[TOKEN] - K_MEMBERSHIP_ADDITION) == 27
     assert K_CONTEXT_ADDITION <= SCOPED_API[TOKEN]
-    assert len(STDLIB_API) == 22 and len(SCOPED_API[LINTS]) == 32
+    assert len(STDLIB_API) == 22 and len(SCOPED_API[LINTS] - K_STARRED_ADDITION) == 32
     text = Path("docs/adr/0007-adr0002-k-context-scope.md").read_text(encoding="utf-8")
     assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == K_CONTEXT_ADDITION
     assert len(text.splitlines()) <= 60 and len(text) <= 4000
@@ -114,7 +116,7 @@ def test_context_amendment_has_only_three_actual_using_bindings():
 
 def test_membership_amendment_is_exact_and_bounded():
     assert len(SCOPED_API[TOKEN]) == 29 and K_MEMBERSHIP_ADDITION <= SCOPED_API[TOKEN]
-    assert len(STDLIB_API) == 22 and len(SCOPED_API[LINTS]) == 32
+    assert len(STDLIB_API) == 22 and len(SCOPED_API[LINTS] - K_STARRED_ADDITION) == 32
     text = Path("docs/adr/0008-adr0002-k-membership.md").read_text(encoding="utf-8")
     assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == K_MEMBERSHIP_ADDITION
     assert len(text.splitlines()) <= 60 and len(text) <= 4000
