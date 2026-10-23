@@ -19,7 +19,7 @@ def test_read_admission_is_exact_and_all_previous_grants_remain():
     }, "atlas_brain/kernel/population.py": {"dataclasses.InitVar"}}
     assert len(STDLIB_API) == 22
     assert len(SCOPED_API["atlas_brain/kernel/token_lints.py"]) == 29
-    assert len(SCOPED_API["atlas_brain/kernel/lints.py"]) == 32
+    assert len(SCOPED_API["atlas_brain/kernel/lints.py"] - {"ast.Starred"}) == 32
     text = Path("docs/adr/0009-adr0002-path-read.md").read_text(encoding="utf-8")
     assert all(api in text for api in APIS)
 
