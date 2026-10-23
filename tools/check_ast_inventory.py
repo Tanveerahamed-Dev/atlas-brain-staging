@@ -3,6 +3,7 @@
 This verifies source admission, not K's lint, type or kernel-freeze acceptance.
 """
 import ast
+from hashlib import sha256
 import json
 import subprocess
 import sys
@@ -17,6 +18,9 @@ SOURCES = {
     "atlas_brain/evidence/parsekit/token_lint.py": "1b2661492e19387ba0bd602d085d0e93ee1ee177",
     "atlas_brain/evidence/parsekit/token_audit.py": "7082fec06a7253d028b359ada44423d2c0391587",
 }
+STARRED_HEAD = "b5ddc54f6e4aa6332094561f79bda0af4fa3f690"
+STARRED_BLOB = "772852e25f13425aca12cc2c77b0c849794dd9f1"
+STARRED_DIGEST = "36817d7a9e4e75a935fc25a848008343cb7cadd0745af835607f61658f019f4f"
 
 
 def tracked_borrowing_probe(sources):
@@ -55,13 +59,33 @@ def main() -> int:
         source = sources[path]
         used = {f"ast.{node.attr}" for node in ast.walk(ast.parse(source))
                 if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "ast"}
-        if used != SCOPED_API[path]:
+        expected = SCOPED_API[path] - ({"ast.Starred"} if path == "atlas_brain/kernel/lints.py" else set())
+        if used != expected:
             raise ValueError("AST admission differs from the approved request's actual uses")
         if not source_allowed(source, sources, path):
             raise ValueError("K source fails the amended source-admission gate")
         receipts.append({"path": path, "source_head": revision, "apis": sorted(used), "source_fence": "allowed"})
+    historical_probe = tracked_borrowing_probe(sources)
+    path = "atlas_brain/kernel/lints.py"
+    raw = subprocess.check_output(["git", "show", f"{STARRED_HEAD}:{path}"])
+    blob = subprocess.check_output(["git", "rev-parse", f"{STARRED_HEAD}:{path}"], text=True).strip()
+    if blob != STARRED_BLOB or sha256(raw).hexdigest() != STARRED_DIGEST:
+        raise ValueError("Starred source differs from the exact public pin")
+    source = raw.decode("utf-8")
+    used = {f"ast.{node.attr}" for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "ast"}
+    historical_used = next(set(row["apis"]) for row in receipts if row["path"] == path)
+    if (used != SCOPED_API[path] - {"ast.parse"} or used - historical_used != {"ast.Starred"}
+            or historical_used - used != {"ast.parse"} or used | historical_used != SCOPED_API[path]):
+        raise ValueError("historical and Starred source inventories do not exactly cover the grant")
+    sources[path] = source
+    if not source_allowed(source, sources, path):
+        raise ValueError("exact Starred using source fails source admission")
+    receipts.append({"path": path, "source_head": STARRED_HEAD, "source_blob": blob,
+                     "source_sha256": STARRED_DIGEST, "apis": sorted(used), "source_fence": "allowed"})
     print(json.dumps({"ast_inventory": receipts, "unique_apis": len(set().union(*SCOPED_API.values())),
-                      "tracked_probe": tracked_borrowing_probe(sources)}, sort_keys=True))
+                      "tracked_probe": historical_probe,
+                      "starred_tracked_probe": tracked_borrowing_probe(sources)}, sort_keys=True))
     return 0
 
 
