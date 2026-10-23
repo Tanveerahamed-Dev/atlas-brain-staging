@@ -140,12 +140,34 @@ def test_prior_local_import_is_not_an_implicit_builtin(name, operation, rule, re
     assert rule not in {number for number, _ in scan_nodes(source, 'atlas_brain/packs/example/parser.py')}
 
 
+def _function_shadow_value() -> float:
+    value = float("1")
+
+    def local() -> type[str]:
+        from builtins import str as float
+        return float
+
+    assert local() is str
+    return value
+
+
+def _class_shadow_value() -> float:
+    value = float("1")
+
+    class Local:
+        from builtins import str as float
+        reference = float
+
+    assert Local.reference is str
+    return value
+
+
 @pytest.mark.parametrize('nested', ['def local():', 'class Local:'])
 def test_reported_outer_float_is_a_real_runtime_builtin(nested):
     source = f'value = float("1")\n{nested}\n from builtins import str as float\n reference = float'
-    namespace = {}
-    exec(source, namespace)
-    assert type(namespace['value']) is float
+    factories = {'def local():': _function_shadow_value, 'class Local:': _class_shadow_value}
+    value = factories[nested]()
+    assert type(value) is float
     assert 7 in {rule for rule, _ in scan_nodes(source, 'atlas_brain/packs/example/parser.py')}
 
 
