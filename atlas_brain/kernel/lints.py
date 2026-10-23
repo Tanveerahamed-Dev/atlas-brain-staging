@@ -2,6 +2,8 @@
 import ast
 import re
 
+from .token_lints import bound_names
+
 STATES = ('Known', 'Absent', 'Unknown', 'NotApplicable')
 RUNNER = ('atlas_brain/runner/__main__.py', 'atlas_brain/runner/worker.py',
           'atlas_brain/runner/coordinator.py')
@@ -120,9 +122,11 @@ def node_rules(node: ast.AST, path: str, aliases: dict[str, str], origins: dict[
             if not binary and not encoding:
                 hit(10, node)
         if called.startswith('re.') and short in ('compile', 'search', 'match', 'fullmatch', 'findall', 'finditer', 'split', 'sub', 'subn'):
-            flags = list(node.args[2:]) + [k.value for k in node.keywords if k.arg == 'flags']
-            if short == 'compile':
-                flags.extend(node.args[1:2])
+            flag_index = 1 if short == 'compile' else 3 if short == 'split' else 4 if short in ('sub', 'subn') else 2
+            positional = node.args[flag_index:flag_index + 1]
+            if any(isinstance(argument, ast.Starred) for argument in node.args[:flag_index]):
+                positional = []
+            flags = list(positional) + [k.value for k in node.keywords if k.arg == 'flags']
             if not any(ascii_flag(f) for f in flags):
                 hit(12, node)
             nonliteral = not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str)
@@ -170,8 +174,62 @@ def import_bindings(tree: ast.AST) -> tuple[tuple[str, str], ...]:
 
 
 def import_origins(tree: ast.AST) -> dict[str, tuple[str, ...]]:
-    bindings = import_bindings(tree)
+    bindings = import_bindings(tree) + implicit_builtin_bindings(tree)
     return {name: tuple(sorted({origin for key, origin in bindings if key == name})) for name, _ in bindings}
+
+
+def implicit_builtin_bindings(tree: ast.AST) -> tuple[tuple[str, str], ...]:
+    """Retain builtin may-origins without treating a child scope's import as global."""
+    targets = ('BaseException', 'float', 'frozenset', 'open', 'set', '__import__')
+    rebound = set(bound_names(tree))
+    rebound.update(node.id for node in ast.walk(tree)
+                   if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load))
+    rebound.update(node.arg for node in ast.walk(tree) if isinstance(node, ast.arg))
+    rebound.update(node.name for node in ast.walk(tree)
+                   if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)))
+    rebound.update(node.name for node in ast.walk(tree)
+                   if isinstance(node, ast.ExceptHandler) and node.name is not None)
+
+    def visit(node: ast.AST, scopes: tuple[
+            ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef, ...
+    ]) -> tuple[tuple[str, str], ...]:
+        found: list[tuple[str, str]] = []
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in targets:
+            prior_import = any(
+                name == node.id and (statement.lineno, statement.col_offset) < (node.lineno, node.col_offset)
+                for scope in scopes for statement in scope.body
+                if isinstance(statement, (ast.Import, ast.ImportFrom))
+                for name, _ in import_bindings(statement))
+            if node.id in rebound or not prior_import:
+                found.append((node.id, 'builtins.' + node.id))
+        children = tuple(ast.iter_child_nodes(node))
+        comprehensions = tuple(child for child in children if isinstance(child, ast.comprehension))
+        if comprehensions:
+            first = comprehensions[0]
+            inner_scopes = tuple(scope for scope in scopes if not isinstance(scope, ast.ClassDef))
+            for child in children:
+                if child is first:
+                    for part in ast.iter_child_nodes(child):
+                        found.extend(visit(part, scopes if part is first.iter else inner_scopes))
+                else:
+                    found.extend(visit(child, inner_scopes))
+            return tuple(found)
+        body: tuple[ast.AST, ...] = ()
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = tuple(node.body)
+        elif isinstance(node, ast.Lambda):
+            body = (node.body,)
+        for child in children:
+            visible = scopes
+            if child in body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                    visible = tuple(scope for scope in scopes if not isinstance(scope, ast.ClassDef))
+                if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    visible += (node,)
+            found.extend(visit(child, visible))
+        return tuple(found)
+
+    return visit(tree, ())
 
 
 def possible_names(node: ast.AST, origins: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
