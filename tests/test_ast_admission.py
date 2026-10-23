@@ -16,6 +16,7 @@ K_SCOPE_ADDITION = {"ast.AnnAssign", "ast.Assign", "ast.Compare", "ast.Constant"
                     "ast.MatchAs", "ast.MatchMapping", "ast.MatchStar", "ast.Return", "ast.stmt", "ast.Subscript"}
 K_CONTEXT_ADDITION = {"ast.Eq", "ast.Raise", "ast.iter_fields"}
 K_MEMBERSHIP_ADDITION = {"ast.In", "ast.NotIn"}
+K_STARRED_ADDITION = {"ast.Starred"}
 
 
 @pytest.mark.parametrize("path,api", GRANTS)
@@ -81,7 +82,8 @@ def test_global_reexport_cannot_hide_protected_import_hop(source):
 def test_amendment_matches_exact_grant_and_bounds():
     assert set(SCOPED_API) == {TOKEN, LINTS, "atlas_brain/evidence/parsekit/token_lint.py",
                                "atlas_brain/evidence/parsekit/token_audit.py"}
-    endpoints = (SCOPED_API[TOKEN] - K_SCOPE_ADDITION - K_CONTEXT_ADDITION - K_MEMBERSHIP_ADDITION) | SCOPED_API[LINTS]
+    endpoints = ((SCOPED_API[TOKEN] - K_SCOPE_ADDITION - K_CONTEXT_ADDITION - K_MEMBERSHIP_ADDITION)
+                 | (SCOPED_API[LINTS] - K_STARRED_ADDITION))
     assert len(endpoints) == 40
     assert not any(api.startswith("ast.") for api in STDLIB_API)
     text = Path("docs/adr/0003-adr0002-ast-amendment.md").read_text(encoding="utf-8")
@@ -106,7 +108,7 @@ def test_k_class_scope_amendment_has_only_eleven_actual_using_bindings():
 def test_context_amendment_has_only_three_actual_using_bindings():
     assert len(SCOPED_API[TOKEN] - K_MEMBERSHIP_ADDITION) == 27
     assert K_CONTEXT_ADDITION <= SCOPED_API[TOKEN]
-    assert len(STDLIB_API) == 22 and len(SCOPED_API[LINTS]) == 32
+    assert len(STDLIB_API) == 22 and len(SCOPED_API[LINTS] - K_STARRED_ADDITION) == 32
     text = Path("docs/adr/0007-adr0002-k-context-scope.md").read_text(encoding="utf-8")
     assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == K_CONTEXT_ADDITION
     assert len(text.splitlines()) <= 60 and len(text) <= 4000
@@ -114,7 +116,7 @@ def test_context_amendment_has_only_three_actual_using_bindings():
 
 def test_membership_amendment_is_exact_and_bounded():
     assert len(SCOPED_API[TOKEN]) == 29 and K_MEMBERSHIP_ADDITION <= SCOPED_API[TOKEN]
-    assert len(STDLIB_API) == 22 and len(SCOPED_API[LINTS]) == 32
+    assert len(STDLIB_API) == 22 and len(SCOPED_API[LINTS] - K_STARRED_ADDITION) == 32
     text = Path("docs/adr/0008-adr0002-k-membership.md").read_text(encoding="utf-8")
     assert set(re.findall(r"(?m)^\| (ast\.\w+) \|", text)) == K_MEMBERSHIP_ADDITION
     assert len(text.splitlines()) <= 60 and len(text) <= 4000
@@ -149,3 +151,52 @@ def test_tracked_cli_enforces_ast_scope(tmp_path, path, source, expected):
     result = subprocess.run([sys.executable, str(Path("tools/fence.py").resolve())],
                             cwd=tmp_path, capture_output=True, check=False)
     assert result.returncode == expected, result.stderr
+
+
+@pytest.fixture
+def inventory_source_transport(monkeypatch):
+    from tools import check_ast_inventory as inventory
+
+    real_read = inventory.subprocess.check_output
+    historical = {}
+    for path, revision in inventory.SOURCES.items():
+        apis = SCOPED_API[path] - ({"ast.Starred"} if path == LINTS else set())
+        historical[f"{revision}:{path}"] = "import ast\n" + "\n".join(sorted(apis)) + "\n"
+    target = f"{inventory.STARRED_HEAD}:{LINTS}"
+    transport = {"missing": False, "requests": []}
+
+    def read(command, *args, **kwargs):
+        if command[:2] == ["git", "show"] and command[2] in historical:
+            return historical[command[2]]
+        if command == ["git", "show", target]:
+            transport["requests"].append(command)
+            if transport["missing"]:
+                raise subprocess.CalledProcessError(128, command, stderr=b"missing pinned source object")
+            return b"import ast\nast.Starred\n"
+        if command == ["git", "rev-parse", target]:
+            return inventory.STARRED_BLOB + "\n"
+        return real_read(command, *args, **kwargs)
+
+    monkeypatch.setattr(inventory.subprocess, "check_output", read)
+    return inventory, transport
+
+
+def test_actual_inventory_refuses_an_absent_starred_source_object(inventory_source_transport):
+    inventory, transport = inventory_source_transport
+    transport["missing"] = True
+    missing = ["git", "show", f"{inventory.STARRED_HEAD}:{LINTS}"]
+    with pytest.raises(subprocess.CalledProcessError) as refused:
+        inventory.main()
+    assert refused.value.returncode == 128 and refused.value.cmd == missing
+    assert transport["requests"] == [missing]
+
+
+def test_actual_inventory_refuses_mismatched_digest_for_otherwise_allowed_source(inventory_source_transport):
+    inventory, transport = inventory_source_transport
+    target = ["git", "show", f"{inventory.STARRED_HEAD}:{LINTS}"]
+    changed = b"import ast\nast.Starred\n"
+    assert source_allowed(changed.decode("utf-8"), path=LINTS)
+    assert inventory.sha256(changed).hexdigest() != inventory.STARRED_DIGEST
+    with pytest.raises(ValueError, match="Starred source differs from the exact public pin"):
+        inventory.main()
+    assert transport["requests"] == [target]
